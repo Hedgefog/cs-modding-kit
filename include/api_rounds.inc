@@ -1,7 +1,7 @@
 #if defined _api_rounds_included
   #endinput
 #endif
-#define _api_round_included
+#define _api_rounds_included
 
 #pragma reqlib api_rounds
 
@@ -15,5 +15,7 @@ native Round_HookCheckWinConditions(szFunction[]);
 
 forward Round_Fw_NewRound();
 forward Round_Fw_RoundStart();
-forward Round_Fw_RoundEnd();
+forward Round_Fw_RoundEnd(iWinnerTeam);
 forward Round_Fw_RoundExpired();
+forward Round_Fw_RoundRestart();
+forward Round_Fw_RoundTimerTick();

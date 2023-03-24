@@ -1,9 +1,7 @@
 #include <amxmodx>
-#include <amxmisc>
 #include <hamsandwich>
 #include <reapi>
 #include <fakemeta>
-#include <xs>
 
 #define PLUGIN "[API] Player Model"
 #define VERSION "0.9.0"

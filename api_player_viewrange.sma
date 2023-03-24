@@ -1,9 +1,4 @@
 #include <amxmodx>
-#include <amxmisc>
-#include <hamsandwich>
-#include <reapi>
-#include <fakemeta>
-#include <xs>
 
 #define PLUGIN "[API] Player View Range"
 #define VERSION "0.9.0"

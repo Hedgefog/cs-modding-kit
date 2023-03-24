@@ -22,13 +22,14 @@ new g_iFwRoundEnd;
 new g_iFwRoundExpired;
 new g_iFwRoundRestart;
 new g_iFwRoundTimerTick;
+new g_iFwCheckWinConditions;
 
 new Array:g_irgCheckWinConditionHooks;
 
 new g_pCvarRoundEndDelay;
 
 public plugin_init() {
-    register_plugin("[API] Rounds", "2.0.0", "Hedgehog Fog");
+    register_plugin("[API] Rounds", "2.1.0", "Hedgehog Fog");
 
     register_event("HLTV", "Event_NewRound", "a", "1=0", "2=0");
     RegisterHookChain(RG_CSGameRules_RestartRound, "HC_RestartRound", .post = 0);
@@ -42,6 +43,7 @@ public plugin_init() {
     g_iFwRoundExpired = CreateMultiForward("Round_Fw_RoundExpired", ET_IGNORE);
     g_iFwRoundRestart = CreateMultiForward("Round_Fw_RoundRestart", ET_IGNORE);
     g_iFwRoundTimerTick = CreateMultiForward("Round_Fw_RoundTimerTick", ET_IGNORE);
+    g_iFwCheckWinConditions = CreateMultiForward("Round_Fw_CheckWinCondition", ET_STOP);
 
     g_irgCheckWinConditionHooks = ArrayCreate(Hook);
 
@@ -138,6 +140,12 @@ public HC_CheckWinConditions() {
                 return HC_SUPERCEDE;
             }
         }
+    }
+
+    static iReturn;
+    ExecuteForward(g_iFwCheckWinConditions, iReturn);
+    if (iReturn != PLUGIN_CONTINUE) {
+        return HC_SUPERCEDE;
     }
 
     return HC_CONTINUE;

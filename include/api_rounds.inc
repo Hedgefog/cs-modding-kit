@@ -11,7 +11,6 @@ native Round_GetTime();
 native Round_GetTimeLeft();
 native bool:Round_IsRoundStarted();
 native bool:Round_IsRoundEnd();
-native Round_HookCheckWinConditions(szFunction[]);
 
 forward Round_Fw_NewRound();
 forward Round_Fw_RoundStart();
@@ -19,3 +18,9 @@ forward Round_Fw_RoundEnd(iWinnerTeam);
 forward Round_Fw_RoundExpired();
 forward Round_Fw_RoundRestart();
 forward Round_Fw_RoundTimerTick();
+forward Round_Fw_CheckWinCondition();
+
+/**
+ * @deprecated This function is deprecated, use Round_Fw_CheckWinCondition forward instead.
+ */
+native Round_HookCheckWinConditions(const szFunction[]);

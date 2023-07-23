@@ -9,6 +9,8 @@
 
 #define MAX_SEQUENCES 101
 
+new g_iszModelClassname;
+
 new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
@@ -21,6 +23,7 @@ new g_pPlayerModel[MAX_PLAYERS + 1];
 new gmsgClCorpse;
 
 public plugin_precache() {
+    g_iszModelClassname = engfunc(EngFunc_AllocString, "info_target");
     g_itPlayerSequenceModelIndexes = TrieCreate();
     g_itPlayerSequences = TrieCreate();
 }
@@ -97,7 +100,7 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
 
 public HamHook_Player_Spawn_Post(pPlayer) {
     if (!g_pPlayerModel[pPlayer]) {
-        new pPlayerModel = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+        new pPlayerModel = engfunc(EngFunc_CreateNamedEntity, g_iszModelClassname);
         set_pev(pPlayerModel, pev_movetype, MOVETYPE_FOLLOW);
         set_pev(pPlayerModel, pev_aiment, pPlayer);
         g_pPlayerModel[pPlayer] = pPlayerModel;

@@ -5,7 +5,7 @@
 
 #pragma reqlib api_player_model
 
-native PlayerModel_Get(pPlayer, szOut[]);
+native PlayerModel_Get(pPlayer, szOut[], iLen);
 native PlayerModel_Set(pPlayer, const szModel[]);
 native PlayerModel_Update(pPlayer);
 native PlayerModel_Reset(pPlayer);

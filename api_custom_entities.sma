@@ -800,7 +800,7 @@ RegisterEntity(
 
   g_iEntitiesNum++;
 
-  log_amx("%s Custom entity %s registered! ID: %d", LOG_PREFIX, szClassName, iId);
+  log_amx("%s Entity %s successfully registred.", LOG_PREFIX, szClassName);
 
   return iId;
 }

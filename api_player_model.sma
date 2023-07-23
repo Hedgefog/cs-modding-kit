@@ -1,21 +1,43 @@
 #include <amxmodx>
 #include <hamsandwich>
-#include <reapi>
 #include <fakemeta>
+#include <reapi>
 
 #define PLUGIN "[API] Player Model"
-#define VERSION "0.9.0"
+#define VERSION "1.0.0"
 #define AUTHOR "Hedgehog Fog"
 
-new g_rgszPlayerModel[MAX_PLAYERS + 1][32];
+#define MAX_SEQUENCES 101
+
+new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
+new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
+new g_rgiPlayerAnimationIndex[MAX_PLAYERS + 1];
+
+new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
+new Trie:g_itPlayerSequences = Invalid_Trie;
+new g_pPlayerModel[MAX_PLAYERS + 1];
+
+new gmsgClCorpse;
+
+public plugin_precache() {
+    g_itPlayerSequenceModelIndexes = TrieCreate();
+    g_itPlayerSequences = TrieCreate();
+}
 
 public plugin_init() {
     register_plugin(PLUGIN, VERSION, AUTHOR);
 
-    RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
+    gmsgClCorpse = get_user_msgid("ClCorpse");
 
     register_forward(FM_SetClientKeyValue, "FMHook_SetClientKeyValue");
+
+    RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
+    RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
+
+    RegisterHookChain(RG_CBasePlayer_SetAnimation, "HC_Player_SetAnimation");
+
+    register_message(gmsgClCorpse, "Message_ClCorpse");
 }
 
 public plugin_natives() {
@@ -24,11 +46,12 @@ public plugin_natives() {
     register_native("PlayerModel_Set", "Native_SetPlayerModel");
     register_native("PlayerModel_Reset", "Native_ResetPlayerModel");
     register_native("PlayerModel_Update", "Native_UpdatePlayerModel");
+    register_native("PlayerModel_PrecacheAnimation", "Native_PrecacheAnimation");
+    register_native("PlayerModel_SetSequence", "Native_SetPlayerSequence");
 }
 
 public Native_GetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
-
     set_string(2, g_rgszCustomPlayerModel[pPlayer], get_param(3));
 }
 
@@ -44,23 +67,67 @@ public Native_ResetPlayerModel(iPluginId, iArgc) {
 
 public Native_UpdatePlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
-    @Player_UpdateModel(pPlayer);
+    @Player_UpdateCurrentModel(pPlayer);
+}
+
+public Native_PrecacheAnimation(iPluginId, iArgc) {
+    static szAnimation[MAX_RESOURCE_PATH_LENGTH];
+    get_string(1, szAnimation, charsmax(szAnimation));
+    PrecachePlayerAnimation(szAnimation);
+}
+
+public Native_SetPlayerSequence(iPluginId, iArgc) {
+    new pPlayer = get_param(1);
+
+    static szSequence[MAX_RESOURCE_PATH_LENGTH];
+    get_string(2, szSequence, charsmax(szSequence));
+
+    return @Player_SetSequence(pPlayer, szSequence);
 }
 
 public client_connect(pPlayer) {
     copy(g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
-    copy(g_rgszPlayerModel[pPlayer], charsmax(g_rgszPlayerModel[]), NULL_STRING);
+    copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), NULL_STRING);
+}
+
+public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
+    new pTargetPlayer = get_msg_arg_int(12);
+    set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
 }
 
 public HamHook_Player_Spawn_Post(pPlayer) {
-    @Player_UpdateModel(pPlayer);
+    if (!g_pPlayerModel[pPlayer]) {
+        new pPlayerModel = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+        set_pev(pPlayerModel, pev_movetype, MOVETYPE_FOLLOW);
+        set_pev(pPlayerModel, pev_aiment, pPlayer);
+        g_pPlayerModel[pPlayer] = pPlayerModel;
+    }
+
+    @Player_UpdateCurrentModel(pPlayer);
+}
+
+public HamHook_Player_PostThink_Post(pPlayer) {
+    if (g_pPlayerModel[pPlayer]) {
+        set_entvar(g_pPlayerModel[pPlayer], var_skin, get_entvar(pPlayer, var_skin));
+        set_entvar(g_pPlayerModel[pPlayer], var_body, get_entvar(pPlayer, var_body));
+        set_entvar(g_pPlayerModel[pPlayer], var_colormap, get_entvar(pPlayer, var_colormap));
+        set_entvar(g_pPlayerModel[pPlayer], var_rendermode, get_entvar(pPlayer, var_rendermode));
+        set_entvar(g_pPlayerModel[pPlayer], var_renderfx, get_entvar(pPlayer, var_renderfx));
+        set_entvar(g_pPlayerModel[pPlayer], var_renderamt, get_entvar(pPlayer, var_renderamt));
+
+        static rgflColor[3];
+        get_entvar(pPlayer, var_rendercolor, rgflColor);
+        set_entvar(g_pPlayerModel[pPlayer], var_rendercolor, rgflColor);
+    }
+
+    return HAM_HANDLED;
 }
 
 public FMHook_SetClientKeyValue(pPlayer, const szInfoBuffer[], const szKey[], const szValue[]) {
     if (equal(szKey, "model")) {
-        copy(g_rgszPlayerModel[pPlayer], charsmax(g_rgszPlayerModel[]), szValue);
+        copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), szValue);
 
-        if (!equal(g_rgszCustomPlayerModel[pPlayer], NULL_STRING)) {
+        if (!equal(g_rgszCurrentPlayerModel[pPlayer], NULL_STRING)) {
             return FMRES_SUPERCEDE;
         }
 
@@ -70,28 +137,142 @@ public FMHook_SetClientKeyValue(pPlayer, const szInfoBuffer[], const szKey[], co
     return FMRES_IGNORED;
 }
 
-public @Player_UpdateModel(this) {
-    if (!equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
-        new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCustomPlayerModel[this]);
-        set_user_info(this, "model", "");
-        set_pev(this, pev_modelindex, iModelIndex);
-        set_member(this, m_modelIndexPlayer, iModelIndex);
-    } else {
-        @Player_ResetModel(this);
+public HC_Player_SetAnimation(pPlayer) {
+    @Player_UpdateAnimationModel(pPlayer);
+}
+
+public @Player_UpdateAnimationModel(this) {
+    static szAnimExt[32];
+    get_member(this, m_szAnimExtention, szAnimExt, charsmax(szAnimExt));
+
+    new iAnimationIndex = is_user_alive(this) ? GetAnimationIndexByAnimExt(szAnimExt) : 0;
+    if (iAnimationIndex != g_rgiPlayerAnimationIndex[this]) {
+        g_rgiPlayerAnimationIndex[this] = iAnimationIndex;
+        @Player_UpdateModel(this);
     }
 }
 
+public @Player_UpdateCurrentModel(this) {
+    if (equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
+        if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
+            static szModel[MAX_RESOURCE_PATH_LENGTH];
+            format(szModel, charsmax(szModel), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
+            copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), szModel);
+        }
+    } else {
+        copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
+    }
+
+    @Player_UpdateModel(this);
+}
+
+public @Player_UpdateModel(this) {
+    new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
+    new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
+    @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
+    set_pev(g_pPlayerModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
+}
+
 public @Player_ResetModel(this) {
-    if (equal(g_rgszPlayerModel[this], NULL_STRING)) {
+    if (equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
         return;
     }
-    
-    static szPath[MAX_RESOURCE_PATH_LENGTH];
-    format(szPath, charsmax(szPath), "models/player/%s/%s.mdl", g_rgszPlayerModel[this], g_rgszPlayerModel[this]);
 
-    new iModelIndex = engfunc(EngFunc_ModelIndex, szPath);
-    set_user_info(this, "model", g_rgszPlayerModel[this]);
+    copy(g_rgszCustomPlayerModel[this], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
+    copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), NULL_STRING);
+    g_rgiPlayerAnimationIndex[this] = 0;
+
+    @Player_UpdateCurrentModel(this);
+}
+
+public @Player_SetModelIndex(this, iModelIndex) {
+    set_user_info(this, "model", "");
     set_pev(this, pev_modelindex, iModelIndex);
     set_member(this, m_modelIndexPlayer, iModelIndex);
-    copy(g_rgszCustomPlayerModel[this], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
+}
+
+public @Player_SetSequence(this, const szSequence[]) {
+    new iAnimationIndex = GetAnimationIndexBySequence(szSequence);
+    if (!iAnimationIndex) {
+        return -1;
+    }
+
+    g_rgiPlayerAnimationIndex[this] = iAnimationIndex;
+    @Player_UpdateModel(this);
+
+    new iSequence = GetSequenceIndex(szSequence);
+    set_pev(this, pev_sequence, iSequence);
+    return iSequence;
+}
+
+GetAnimationIndexByAnimExt(const szAnimExt[]) {
+    static szSequence[32];
+    format(szSequence, charsmax(szSequence), "ref_aim_%s", szAnimExt);
+    return GetAnimationIndexBySequence(szSequence);
+}
+
+GetAnimationIndexBySequence(const szSequence[]) {
+    static iAnimationIndex;
+    if (!TrieGetCell(g_itPlayerSequenceModelIndexes, szSequence, iAnimationIndex)) {
+        return 0;
+    }
+
+    return iAnimationIndex;
+}
+
+GetSequenceIndex(const szSequence[]) {
+    static iSequence;
+    if (!TrieGetCell(g_itPlayerSequences, szSequence, iSequence)) {
+        return -1;
+    }
+
+    return iSequence;
+}
+
+// Credis: HamletEagle
+PrecachePlayerAnimation(const szAnim[]) {
+    new szFilePath[MAX_RESOURCE_PATH_LENGTH];
+    format(szFilePath, charsmax(szFilePath), "animations/%s", szAnim);
+
+    new iModelIndex = precache_model(szFilePath);
+
+    new iFile = fopen(szFilePath, "rb")
+    if (!iFile) {
+        return 0
+    }
+    
+    // Got to "numseq" position of the studiohdr_t structure
+    // https://github.com/dreamstalker/rehlds/blob/65c6ce593b5eabf13e92b03352e4b429d0d797b0/rehlds/public/rehlds/studio.h#L68
+    fseek(iFile, 164, SEEK_SET);
+
+    new iSeqNum;
+    fread(iFile, iSeqNum, BLOCK_INT);
+
+    if (!iSeqNum) {
+        return 0;
+    }
+
+    new iSeqIndex;
+    fread(iFile, iSeqIndex, BLOCK_INT);
+    fseek(iFile, iSeqIndex, SEEK_SET);
+
+    new szLabel[32];
+    for (new i = 0; i < iSeqNum; i++) {
+        if (i >= MAX_SEQUENCES) {
+            log_amx("Warning! Sequence limit reached for ^"%s^". Max sequences %d.", szFilePath, MAX_SEQUENCES);
+            break;
+        }
+
+        fread_blocks(iFile, szLabel, sizeof(szLabel), BLOCK_CHAR);
+        TrieSetCell(g_itPlayerSequenceModelIndexes, szLabel, iModelIndex);
+        TrieSetCell(g_itPlayerSequences, szLabel, i);
+
+        // jump to the end of the studiohdr_t structure
+        // https://github.com/dreamstalker/rehlds/blob/65c6ce593b5eabf13e92b03352e4b429d0d797b0/rehlds/public/rehlds/studio.h#L95
+        fseek(iFile, 176 - sizeof(szLabel), SEEK_CUR);
+    }
+    
+    fclose(iFile);
+
+    return iModelIndex;
 }

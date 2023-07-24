@@ -1,38 +1,36 @@
 #include <amxmodx>
-#include <hamsandwich>
 #include <fakemeta>
+#include <hamsandwich>
 #include <reapi>
 
 #define PLUGIN "[API] Player Model"
 #define VERSION "1.0.0"
 #define AUTHOR "Hedgehog Fog"
 
+#define ERROR_MSG_NOT_CONNECTED "User %d is not connected"
+
 #define MAX_SEQUENCES 101
 
-new g_iszModelClassname;
+new g_iszSubModelClassname;
 
 new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgiPlayerAnimationIndex[MAX_PLAYERS + 1];
+new g_pPlayerSubModel[MAX_PLAYERS + 1];
 new bool:g_rgbPlayerUseCustomModel[MAX_PLAYERS + 1];
 
 new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
 new Trie:g_itPlayerSequences = Invalid_Trie;
-new g_pPlayerSubModel[MAX_PLAYERS + 1];
-
-new gmsgClCorpse;
 
 public plugin_precache() {
-    g_iszModelClassname = engfunc(EngFunc_AllocString, "info_target");
+    g_iszSubModelClassname = engfunc(EngFunc_AllocString, "info_target");
     g_itPlayerSequenceModelIndexes = TrieCreate();
     g_itPlayerSequences = TrieCreate();
 }
 
 public plugin_init() {
     register_plugin(PLUGIN, VERSION, AUTHOR);
-
-    gmsgClCorpse = get_user_msgid("ClCorpse");
 
     register_forward(FM_SetClientKeyValue, "FMHook_SetClientKeyValue");
 
@@ -41,7 +39,7 @@ public plugin_init() {
 
     RegisterHookChain(RG_CBasePlayer_SetAnimation, "HC_Player_SetAnimation");
 
-    register_message(gmsgClCorpse, "Message_ClCorpse");
+    register_message(get_user_msgid("ClCorpse"), "Message_ClCorpse");
 }
 
 public plugin_natives() {
@@ -57,18 +55,42 @@ public plugin_natives() {
     register_native("PlayerModel_PrecacheAnimation", "Native_PrecacheAnimation");
 }
 
+public plugin_end() {
+    TrieDestroy(g_itPlayerSequenceModelIndexes);
+    TrieDestroy(g_itPlayerSequences);
+}
+
+// ANCHOR: Natives
+
 public Native_GetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return;
+    }
+
     set_string(2, g_rgszCustomPlayerModel[pPlayer], get_param(3));
 }
 
 public Native_GetCurrentPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return;
+    }
+    
     set_string(2, g_rgszCurrentPlayerModel[pPlayer], get_param(3));
 }
 
 public Native_GetPlayerEntity(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return 0;
+    }
 
     if (g_pPlayerSubModel[pPlayer] && @PlayerSubModel_IsActive(g_pPlayerSubModel[pPlayer])) {
         return g_pPlayerSubModel[pPlayer];
@@ -80,26 +102,54 @@ public Native_GetPlayerEntity(iPluginId, iArgc) {
 public bool:Native_HasCustomPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return false;
+    }
+
     return g_rgbPlayerUseCustomModel[pPlayer];
 }
 
 public Native_SetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return;
+    }
+
     get_string(2, g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]));
 }
 
 public Native_ResetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return;
+    }
+
     @Player_ResetModel(pPlayer);
 }
 
 public Native_UpdatePlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+    
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return;
+    }
+
     @Player_UpdateCurrentModel(pPlayer);
 }
 
 public Native_SetPlayerSequence(iPluginId, iArgc) {
     new pPlayer = get_param(1);
+
+    if (!is_user_connected(pPlayer)) {
+        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
+        return 0;
+    }
 
     static szSequence[MAX_RESOURCE_PATH_LENGTH];
     get_string(2, szSequence, charsmax(szSequence));
@@ -112,6 +162,8 @@ public Native_PrecacheAnimation(iPluginId, iArgc) {
     get_string(1, szAnimation, charsmax(szAnimation));
     return PrecachePlayerAnimation(szAnimation);
 }
+
+// ANCHOR: Hooks and Forwards
 
 public client_connect(pPlayer) {
     copy(g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
@@ -128,19 +180,24 @@ public client_disconnected(pPlayer) {
     }
 }
 
-public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
-    new pTargetPlayer = get_msg_arg_int(12);
-    if (g_rgbPlayerUseCustomModel[pTargetPlayer] || g_rgiPlayerAnimationIndex[pTargetPlayer]) {
-        set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
+public FMHook_SetClientKeyValue(pPlayer, const szInfoBuffer[], const szKey[], const szValue[]) {
+    if (equal(szKey, "model")) {
+        copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), szValue);
+
+        if (!equal(g_rgszCurrentPlayerModel[pPlayer], NULL_STRING)) {
+            return FMRES_SUPERCEDE;
+        }
+
+        return FMRES_HANDLED;
     }
+
+    return FMRES_IGNORED;
 }
 
 public HamHook_Player_Spawn_Post(pPlayer) {
-    if (!g_pPlayerSubModel[pPlayer]) {
-        g_pPlayerSubModel[pPlayer] = @PlayerSubModel_Create(pPlayer);
-    }
-
     @Player_UpdateCurrentModel(pPlayer);
+
+    return HAM_HANDLED;
 }
 
 public HamHook_Player_PostThink_Post(pPlayer) {
@@ -151,25 +208,20 @@ public HamHook_Player_PostThink_Post(pPlayer) {
     return HAM_HANDLED;
 }
 
-public FMHook_SetClientKeyValue(pPlayer, const szInfoBuffer[], const szKey[], const szValue[]) {
-    if (equal(szKey, "model")) {
-        copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), szValue);
-
-        if (!equal(g_rgszCurrentPlayerModel[pPlayer], NULL_STRING)) {
-            return FMRES_SUPERCEDE;
-        }
-
-        return FMRES_IGNORED;
-    }
-
-    return FMRES_IGNORED;
-}
-
 public HC_Player_SetAnimation(pPlayer) {
     @Player_UpdateAnimationModel(pPlayer);
 }
 
-public @Player_UpdateAnimationModel(this) {
+public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
+    new pTargetPlayer = get_msg_arg_int(12);
+    if (@Player_ShouldUseCurrentModel(pTargetPlayer)) {
+        set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
+    }
+}
+
+// ANCHOR: Methods
+
+@Player_UpdateAnimationModel(this) {
     static szAnimExt[32];
     get_member(this, m_szAnimExtention, szAnimExt, charsmax(szAnimExt));
 
@@ -180,34 +232,44 @@ public @Player_UpdateAnimationModel(this) {
     }
 }
 
-public @Player_UpdateCurrentModel(this) {
+@Player_UpdateCurrentModel(this) {
     new bool:bUsedCustom = g_rgbPlayerUseCustomModel[this];
 
     g_rgbPlayerUseCustomModel[this] = !equal(g_rgszCustomPlayerModel[this], NULL_STRING);
 
     if (g_rgbPlayerUseCustomModel[this]) {
         copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
-    } else {
-        if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
-            format(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
-        }
+    } else if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
+        format(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
     }
 
     @Player_UpdateModel(this, bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
 }
 
-public @Player_UpdateModel(this, bool:bForce) {
-    if (bForce || (g_rgbPlayerUseCustomModel[this] || g_rgiPlayerAnimationIndex[this])) {
+@Player_UpdateModel(this, bool:bForceUpdate) {
+    new iSubModelModelIndex = 0;
+
+    if (bForceUpdate || @Player_ShouldUseCurrentModel(this)) {
         new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
         new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
         @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
-        set_pev(g_pPlayerSubModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
-    } else {
-        set_pev(g_pPlayerSubModel[this], pev_modelindex, 0);
+        iSubModelModelIndex = iAnimationIndex ? iModelIndex : 0;
+    }
+
+    if (iSubModelModelIndex && !g_pPlayerSubModel[this]) {
+        g_pPlayerSubModel[this] = @PlayerSubModel_Create(this);
+    }
+
+    if (g_pPlayerSubModel[this]) {
+        set_pev(g_pPlayerSubModel[this], pev_modelindex, iSubModelModelIndex);
     }
 }
 
-public @Player_ResetModel(this) {
+bool:@Player_ShouldUseCurrentModel(this) {
+    return g_rgbPlayerUseCustomModel[this] || g_rgiPlayerAnimationIndex[this];
+}
+
+@Player_ResetModel(this) {
     if (equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
         return;
     }
@@ -219,13 +281,13 @@ public @Player_ResetModel(this) {
     @Player_UpdateCurrentModel(this);
 }
 
-public @Player_SetModelIndex(this, iModelIndex) {
+@Player_SetModelIndex(this, iModelIndex) {
     set_user_info(this, "model", "");
     set_pev(this, pev_modelindex, iModelIndex);
     set_member(this, m_modelIndexPlayer, iModelIndex);
 }
 
-public @Player_SetSequence(this, const szSequence[]) {
+@Player_SetSequence(this, const szSequence[]) {
     new iAnimationIndex = GetAnimationIndexBySequence(szSequence);
     if (!iAnimationIndex) {
         return -1;
@@ -239,8 +301,8 @@ public @Player_SetSequence(this, const szSequence[]) {
     return iSequence;
 }
 
-public @PlayerSubModel_Create(pPlayer) {
-    new this = engfunc(EngFunc_CreateNamedEntity, g_iszModelClassname);
+@PlayerSubModel_Create(pPlayer) {
+    new this = engfunc(EngFunc_CreateNamedEntity, g_iszSubModelClassname);
     set_pev(this, pev_movetype, MOVETYPE_FOLLOW);
     set_pev(this, pev_aiment, pPlayer);
     set_pev(this, pev_owner, pPlayer);
@@ -248,13 +310,13 @@ public @PlayerSubModel_Create(pPlayer) {
     return this;
 }
 
-public @PlayerSubModel_Destroy(this) {
+@PlayerSubModel_Destroy(this) {
     set_pev(this, pev_modelindex, 0);
     set_pev(this, pev_flags, pev(this, pev_flags) | FL_KILLME);
     dllfunc(DLLFunc_Think, this);
 }
 
-public @PlayerSubModel_Think(this) {
+@PlayerSubModel_Think(this) {
     if (!@PlayerSubModel_IsActive(this)) {
         set_entvar(this, var_effects, get_entvar(this, var_effects) | EF_NODRAW);
         return;
@@ -275,9 +337,11 @@ public @PlayerSubModel_Think(this) {
     set_entvar(this, var_rendercolor, rgflColor);
 }
 
-public @PlayerSubModel_IsActive(this) {
+@PlayerSubModel_IsActive(this) {
     return (pev(this, pev_modelindex) > 0);
 }
+
+// ANCHOR: Functions
 
 GetAnimationIndexByAnimExt(const szAnimExt[]) {
     static szSequence[32];

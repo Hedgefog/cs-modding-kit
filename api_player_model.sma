@@ -105,7 +105,9 @@ public client_connect(pPlayer) {
 
 public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
     new pTargetPlayer = get_msg_arg_int(12);
-    set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
+    if (!g_rgbPlayerUseDefaultModel[pTargetPlayer] || g_rgiPlayerAnimationIndex[pTargetPlayer]) {
+        set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
+    }
 }
 
 public HamHook_Player_Spawn_Post(pPlayer) {
@@ -172,9 +174,7 @@ public @Player_UpdateCurrentModel(this) {
 
     if (equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
         if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
-            static szModel[MAX_RESOURCE_PATH_LENGTH];
-            format(szModel, charsmax(szModel), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
-            copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), szModel);
+            format(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
         }
 
         g_rgbPlayerUseDefaultModel[this] = true;

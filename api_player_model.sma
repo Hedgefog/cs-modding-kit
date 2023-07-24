@@ -98,6 +98,9 @@ public Native_SetPlayerSequence(iPluginId, iArgc) {
 public client_connect(pPlayer) {
     copy(g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
     copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), NULL_STRING);
+    copy(g_rgszCurrentPlayerModel[pPlayer], charsmax(g_rgszCurrentPlayerModel[]), NULL_STRING);
+    g_rgiPlayerAnimationIndex[pPlayer] = 0;
+    g_rgbPlayerUseDefaultModel[pPlayer] = true;
 }
 
 public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
@@ -158,11 +161,13 @@ public @Player_UpdateAnimationModel(this) {
     new iAnimationIndex = is_user_alive(this) ? GetAnimationIndexByAnimExt(szAnimExt) : 0;
     if (iAnimationIndex != g_rgiPlayerAnimationIndex[this]) {
         g_rgiPlayerAnimationIndex[this] = iAnimationIndex;
-        @Player_UpdateModel(this);
+        @Player_UpdateModel(this, false);
     }
 }
 
 public @Player_UpdateCurrentModel(this) {
+    new bool:bUsedDefault = g_rgbPlayerUseDefaultModel[this];
+
     g_rgbPlayerUseDefaultModel[this] = false;
 
     if (equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
@@ -170,19 +175,20 @@ public @Player_UpdateCurrentModel(this) {
             static szModel[MAX_RESOURCE_PATH_LENGTH];
             format(szModel, charsmax(szModel), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
             copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), szModel);
-            g_rgbPlayerUseDefaultModel[this] = true;
         }
+
+        g_rgbPlayerUseDefaultModel[this] = true;
     } else {
         copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
     }
 
-    @Player_UpdateModel(this);
+    @Player_UpdateModel(this, !bUsedDefault && g_rgbPlayerUseDefaultModel[this]);
 }
 
-public @Player_UpdateModel(this) {
+public @Player_UpdateModel(this, bool:bForce) {
     new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
 
-    if (!g_rgbPlayerUseDefaultModel[this] || iAnimationIndex) {
+    if (bForce || !g_rgbPlayerUseDefaultModel[this] || iAnimationIndex) {
         new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
         @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
         set_pev(g_pPlayerModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
@@ -216,7 +222,7 @@ public @Player_SetSequence(this, const szSequence[]) {
     }
 
     g_rgiPlayerAnimationIndex[this] = iAnimationIndex;
-    @Player_UpdateModel(this);
+    @Player_UpdateModel(this, false);
 
     new iSequence = GetSequenceIndex(szSequence);
     set_pev(this, pev_sequence, iSequence);

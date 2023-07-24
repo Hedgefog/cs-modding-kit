@@ -7,7 +7,7 @@
 #define VERSION "1.0.0"
 #define AUTHOR "Hedgehog Fog"
 
-#define ERROR_MSG_NOT_CONNECTED "User %d is not connected"
+#define NATIVE_ERROR_NOT_CONNECTED(%1) log_error(AMX_ERR_NATIVE, "User %d is not connected", %1)
 
 #define MAX_SEQUENCES 101
 
@@ -66,8 +66,7 @@ public Native_GetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     set_string(2, g_rgszCustomPlayerModel[pPlayer], get_param(3));
@@ -77,8 +76,7 @@ public Native_GetCurrentPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
     
     set_string(2, g_rgszCurrentPlayerModel[pPlayer], get_param(3));
@@ -88,8 +86,7 @@ public Native_GetPlayerEntity(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return 0;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     if (g_pPlayerSubModel[pPlayer] && @PlayerSubModel_IsActive(g_pPlayerSubModel[pPlayer])) {
@@ -103,8 +100,7 @@ public bool:Native_HasCustomPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return false;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     return g_rgbPlayerUseCustomModel[pPlayer];
@@ -114,8 +110,7 @@ public Native_SetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     get_string(2, g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]));
@@ -125,8 +120,7 @@ public Native_ResetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     @Player_ResetModel(pPlayer);
@@ -136,8 +130,7 @@ public Native_UpdatePlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
     
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     @Player_UpdateCurrentModel(pPlayer);
@@ -147,8 +140,7 @@ public Native_SetPlayerSequence(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
     if (!is_user_connected(pPlayer)) {
-        log_error(AMX_ERR_NATIVE, ERROR_MSG_NOT_CONNECTED, pPlayer);
-        return 0;
+        NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
     static szSequence[MAX_RESOURCE_PATH_LENGTH];

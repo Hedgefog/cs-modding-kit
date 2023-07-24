@@ -15,11 +15,11 @@ new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgiPlayerAnimationIndex[MAX_PLAYERS + 1];
-new bool:g_rgbPlayerUseDefaultModel[MAX_PLAYERS + 1];
+new bool:g_rgbPlayerUseCustomModel[MAX_PLAYERS + 1];
 
 new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
 new Trie:g_itPlayerSequences = Invalid_Trie;
-new g_pPlayerModel[MAX_PLAYERS + 1];
+new g_pPlayerSubModel[MAX_PLAYERS + 1];
 
 new gmsgClCorpse;
 
@@ -48,11 +48,13 @@ public plugin_natives() {
     register_library("api_player_model");
     register_native("PlayerModel_Get", "Native_GetPlayerModel");
     register_native("PlayerModel_GetCurrent", "Native_GetCurrentPlayerModel");
+    register_native("PlayerModel_GetEntity", "Native_GetPlayerEntity");
+    register_native("PlayerModel_HasCustom", "Native_HasCustomPlayerModel");
     register_native("PlayerModel_Set", "Native_SetPlayerModel");
     register_native("PlayerModel_Reset", "Native_ResetPlayerModel");
     register_native("PlayerModel_Update", "Native_UpdatePlayerModel");
-    register_native("PlayerModel_PrecacheAnimation", "Native_PrecacheAnimation");
     register_native("PlayerModel_SetSequence", "Native_SetPlayerSequence");
+    register_native("PlayerModel_PrecacheAnimation", "Native_PrecacheAnimation");
 }
 
 public Native_GetPlayerModel(iPluginId, iArgc) {
@@ -63,6 +65,22 @@ public Native_GetPlayerModel(iPluginId, iArgc) {
 public Native_GetCurrentPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
     set_string(2, g_rgszCurrentPlayerModel[pPlayer], get_param(3));
+}
+
+public Native_GetPlayerEntity(iPluginId, iArgc) {
+    new pPlayer = get_param(1);
+
+    if (g_pPlayerSubModel[pPlayer] && @PlayerSubModel_IsActive(g_pPlayerSubModel[pPlayer])) {
+        return g_pPlayerSubModel[pPlayer];
+    }
+
+    return pPlayer;
+}
+
+public bool:Native_HasCustomPlayerModel(iPluginId, iArgc) {
+    new pPlayer = get_param(1);
+
+    return g_rgbPlayerUseCustomModel[pPlayer];
 }
 
 public Native_SetPlayerModel(iPluginId, iArgc) {
@@ -80,12 +98,6 @@ public Native_UpdatePlayerModel(iPluginId, iArgc) {
     @Player_UpdateCurrentModel(pPlayer);
 }
 
-public Native_PrecacheAnimation(iPluginId, iArgc) {
-    static szAnimation[MAX_RESOURCE_PATH_LENGTH];
-    get_string(1, szAnimation, charsmax(szAnimation));
-    PrecachePlayerAnimation(szAnimation);
-}
-
 public Native_SetPlayerSequence(iPluginId, iArgc) {
     new pPlayer = get_param(1);
 
@@ -95,44 +107,45 @@ public Native_SetPlayerSequence(iPluginId, iArgc) {
     return @Player_SetSequence(pPlayer, szSequence);
 }
 
+public Native_PrecacheAnimation(iPluginId, iArgc) {
+    static szAnimation[MAX_RESOURCE_PATH_LENGTH];
+    get_string(1, szAnimation, charsmax(szAnimation));
+    return PrecachePlayerAnimation(szAnimation);
+}
+
 public client_connect(pPlayer) {
     copy(g_rgszCustomPlayerModel[pPlayer], charsmax(g_rgszCustomPlayerModel[]), NULL_STRING);
     copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), NULL_STRING);
     copy(g_rgszCurrentPlayerModel[pPlayer], charsmax(g_rgszCurrentPlayerModel[]), NULL_STRING);
     g_rgiPlayerAnimationIndex[pPlayer] = 0;
-    g_rgbPlayerUseDefaultModel[pPlayer] = true;
+    g_rgbPlayerUseCustomModel[pPlayer] = false;
+}
+
+public client_disconnected(pPlayer) {
+    if (g_pPlayerSubModel[pPlayer]) {
+        @PlayerSubModel_Destroy(g_pPlayerSubModel[pPlayer]);
+        g_pPlayerSubModel[pPlayer] = 0;
+    }
 }
 
 public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
     new pTargetPlayer = get_msg_arg_int(12);
-    if (!g_rgbPlayerUseDefaultModel[pTargetPlayer] || g_rgiPlayerAnimationIndex[pTargetPlayer]) {
+    if (g_rgbPlayerUseCustomModel[pTargetPlayer] || g_rgiPlayerAnimationIndex[pTargetPlayer]) {
         set_msg_arg_string(1, g_rgszCurrentPlayerModel[pTargetPlayer]);
     }
 }
 
 public HamHook_Player_Spawn_Post(pPlayer) {
-    if (!g_pPlayerModel[pPlayer]) {
-        new pPlayerModel = engfunc(EngFunc_CreateNamedEntity, g_iszModelClassname);
-        set_pev(pPlayerModel, pev_movetype, MOVETYPE_FOLLOW);
-        set_pev(pPlayerModel, pev_aiment, pPlayer);
-        g_pPlayerModel[pPlayer] = pPlayerModel;
+    if (!g_pPlayerSubModel[pPlayer]) {
+        g_pPlayerSubModel[pPlayer] = @PlayerSubModel_Create(pPlayer);
     }
 
     @Player_UpdateCurrentModel(pPlayer);
 }
 
 public HamHook_Player_PostThink_Post(pPlayer) {
-    if (g_pPlayerModel[pPlayer]) {
-        set_entvar(g_pPlayerModel[pPlayer], var_skin, get_entvar(pPlayer, var_skin));
-        set_entvar(g_pPlayerModel[pPlayer], var_body, get_entvar(pPlayer, var_body));
-        set_entvar(g_pPlayerModel[pPlayer], var_colormap, get_entvar(pPlayer, var_colormap));
-        set_entvar(g_pPlayerModel[pPlayer], var_rendermode, get_entvar(pPlayer, var_rendermode));
-        set_entvar(g_pPlayerModel[pPlayer], var_renderfx, get_entvar(pPlayer, var_renderfx));
-        set_entvar(g_pPlayerModel[pPlayer], var_renderamt, get_entvar(pPlayer, var_renderamt));
-
-        static rgflColor[3];
-        get_entvar(pPlayer, var_rendercolor, rgflColor);
-        set_entvar(g_pPlayerModel[pPlayer], var_rendercolor, rgflColor);
+    if (g_pPlayerSubModel[pPlayer]) {
+        @PlayerSubModel_Think(g_pPlayerSubModel[pPlayer]);
     }
 
     return HAM_HANDLED;
@@ -168,32 +181,29 @@ public @Player_UpdateAnimationModel(this) {
 }
 
 public @Player_UpdateCurrentModel(this) {
-    new bool:bUsedDefault = g_rgbPlayerUseDefaultModel[this];
+    new bool:bUsedCustom = g_rgbPlayerUseCustomModel[this];
 
-    g_rgbPlayerUseDefaultModel[this] = false;
+    g_rgbPlayerUseCustomModel[this] = !equal(g_rgszCustomPlayerModel[this], NULL_STRING);
 
-    if (equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
+    if (g_rgbPlayerUseCustomModel[this]) {
+        copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
+    } else {
         if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
             format(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
         }
-
-        g_rgbPlayerUseDefaultModel[this] = true;
-    } else {
-        copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
     }
 
-    @Player_UpdateModel(this, !bUsedDefault && g_rgbPlayerUseDefaultModel[this]);
+    @Player_UpdateModel(this, bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
 }
 
 public @Player_UpdateModel(this, bool:bForce) {
-    new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
-
-    if (bForce || !g_rgbPlayerUseDefaultModel[this] || iAnimationIndex) {
+    if (bForce || (g_rgbPlayerUseCustomModel[this] || g_rgiPlayerAnimationIndex[this])) {
+        new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
         new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
         @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
-        set_pev(g_pPlayerModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
+        set_pev(g_pPlayerSubModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
     } else {
-        set_pev(g_pPlayerModel[this], pev_modelindex, 0);
+        set_pev(g_pPlayerSubModel[this], pev_modelindex, 0);
     }
 }
 
@@ -227,6 +237,46 @@ public @Player_SetSequence(this, const szSequence[]) {
     new iSequence = GetSequenceIndex(szSequence);
     set_pev(this, pev_sequence, iSequence);
     return iSequence;
+}
+
+public @PlayerSubModel_Create(pPlayer) {
+    new this = engfunc(EngFunc_CreateNamedEntity, g_iszModelClassname);
+    set_pev(this, pev_movetype, MOVETYPE_FOLLOW);
+    set_pev(this, pev_aiment, pPlayer);
+    set_pev(this, pev_owner, pPlayer);
+
+    return this;
+}
+
+public @PlayerSubModel_Destroy(this) {
+    set_pev(this, pev_modelindex, 0);
+    set_pev(this, pev_flags, pev(this, pev_flags) | FL_KILLME);
+    dllfunc(DLLFunc_Think, this);
+}
+
+public @PlayerSubModel_Think(this) {
+    if (!@PlayerSubModel_IsActive(this)) {
+        set_entvar(this, var_effects, get_entvar(this, var_effects) | EF_NODRAW);
+        return;
+    }
+
+    new pOwner = pev(this, pev_owner);
+
+    set_entvar(this, var_skin, get_entvar(pOwner, var_skin));
+    set_entvar(this, var_body, get_entvar(pOwner, var_body));
+    set_entvar(this, var_colormap, get_entvar(pOwner, var_colormap));
+    set_entvar(this, var_rendermode, get_entvar(pOwner, var_rendermode));
+    set_entvar(this, var_renderfx, get_entvar(pOwner, var_renderfx));
+    set_entvar(this, var_renderamt, get_entvar(pOwner, var_renderamt));
+    set_entvar(this, var_effects, get_entvar(this, var_effects) & ~EF_NODRAW);
+
+    static rgflColor[3];
+    get_entvar(pOwner, var_rendercolor, rgflColor);
+    set_entvar(this, var_rendercolor, rgflColor);
+}
+
+public @PlayerSubModel_IsActive(this) {
+    return (pev(this, pev_modelindex) > 0);
 }
 
 GetAnimationIndexByAnimExt(const szAnimExt[]) {

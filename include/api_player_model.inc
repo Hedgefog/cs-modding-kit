@@ -7,8 +7,10 @@
 
 native PlayerModel_Get(pPlayer, szOut[], iLen);
 native PlayerModel_GetCurrent(pPlayer, szOut[], iLen);
+native PlayerModel_GetEntity(pPlayer);
+native bool:PlayerModel_HasCustom(pPlayer);
 native PlayerModel_Set(pPlayer, const szModel[]);
 native PlayerModel_Update(pPlayer);
 native PlayerModel_Reset(pPlayer);
-native PlayerModel_PrecacheAnimation(const szAnimation[]);
 native PlayerModel_SetSequence(pPlayer, const szSequence[]);
+native PlayerModel_PrecacheAnimation(const szAnimation[]);

@@ -15,6 +15,7 @@ new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgiPlayerAnimationIndex[MAX_PLAYERS + 1];
+new bool:g_rgbPlayerUseDefaultModel[MAX_PLAYERS + 1];
 
 new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
 new Trie:g_itPlayerSequences = Invalid_Trie;
@@ -46,6 +47,7 @@ public plugin_init() {
 public plugin_natives() {
     register_library("api_player_model");
     register_native("PlayerModel_Get", "Native_GetPlayerModel");
+    register_native("PlayerModel_GetCurrent", "Native_GetCurrentPlayerModel");
     register_native("PlayerModel_Set", "Native_SetPlayerModel");
     register_native("PlayerModel_Reset", "Native_ResetPlayerModel");
     register_native("PlayerModel_Update", "Native_UpdatePlayerModel");
@@ -56,6 +58,11 @@ public plugin_natives() {
 public Native_GetPlayerModel(iPluginId, iArgc) {
     new pPlayer = get_param(1);
     set_string(2, g_rgszCustomPlayerModel[pPlayer], get_param(3));
+}
+
+public Native_GetCurrentPlayerModel(iPluginId, iArgc) {
+    new pPlayer = get_param(1);
+    set_string(2, g_rgszCurrentPlayerModel[pPlayer], get_param(3));
 }
 
 public Native_SetPlayerModel(iPluginId, iArgc) {
@@ -156,11 +163,14 @@ public @Player_UpdateAnimationModel(this) {
 }
 
 public @Player_UpdateCurrentModel(this) {
+    g_rgbPlayerUseDefaultModel[this] = false;
+
     if (equal(g_rgszCustomPlayerModel[this], NULL_STRING)) {
         if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
             static szModel[MAX_RESOURCE_PATH_LENGTH];
             format(szModel, charsmax(szModel), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
             copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), szModel);
+            g_rgbPlayerUseDefaultModel[this] = true;
         }
     } else {
         copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
@@ -171,9 +181,14 @@ public @Player_UpdateCurrentModel(this) {
 
 public @Player_UpdateModel(this) {
     new iAnimationIndex = g_rgiPlayerAnimationIndex[this];
-    new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
-    @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
-    set_pev(g_pPlayerModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
+
+    if (!g_rgbPlayerUseDefaultModel[this] || iAnimationIndex) {
+        new iModelIndex = engfunc(EngFunc_ModelIndex, g_rgszCurrentPlayerModel[this]);
+        @Player_SetModelIndex(this, iAnimationIndex ? iAnimationIndex : iModelIndex);
+        set_pev(g_pPlayerModel[this], pev_modelindex, iAnimationIndex ? iModelIndex : 0);
+    } else {
+        set_pev(g_pPlayerModel[this], pev_modelindex, 0);
+    }
 }
 
 public @Player_ResetModel(this) {

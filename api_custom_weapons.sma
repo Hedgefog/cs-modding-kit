@@ -10,7 +10,7 @@
 #include <api_custom_weapons>
 
 #define PLUGIN "[API] Custom Weapons"
-#define VERSION "0.7.9"
+#define VERSION "0.8.0"
 #define AUTHOR "Hedgehog Fog"
 
 #define WALL_PUFF_SPRITE "sprites/wall_puff1.spr"
@@ -76,7 +76,6 @@ new const g_rgszWeaponNames[CSW_LAST_WEAPON + 1][] = {
 new gmsgWeaponList;
 new gmsgDeathMsg;
 
-new g_iszWeaponNames[CSW_LAST_WEAPON + 1];
 new bool:g_bWeaponHooks[CSW_LAST_WEAPON + 1];
 new g_weaponListDefaults[CSW_LAST_WEAPON + 1][WeaponListMessage];
 
@@ -87,7 +86,6 @@ new g_iWeaponCount;
 new Float:g_flNextPredictionUpdate[MAX_PLAYERS + 1];
 new bool:g_bKnifeHolstered[MAX_PLAYERS + 1];
 
-new g_iszWeaponBox;
 new g_pNewWeaponboxEnt = -1;
 new g_pKillerItem = -1;
 new bool:g_bSupercede;
@@ -97,8 +95,7 @@ new Array:g_irgDecals;
 
 public plugin_precache() {
     g_bPrecache = true;
-    
-    AllocateStrings();
+
     InitStorages();
 
     register_forward(FM_UpdateClientData, "OnUpdateClientData_Post", 1);
@@ -1595,7 +1592,7 @@ CW:GetHandlerByEntity(pEntity) {
 SpawnWeapon(CW:iHandler) {
     new iWeaponId = GetData(iHandler, CW_Data_Id);
 
-    new pEntity = engfunc(EngFunc_CreateNamedEntity, g_iszWeaponNames[iWeaponId]);
+    new pEntity = rg_create_entity(g_rgszWeaponNames[iWeaponId], true);
     if (!pEntity) {
         return 0;
     }
@@ -1630,7 +1627,7 @@ SpawnWeaponBox(CW:iHandler) {
     set_pev(pItem, pev_model, 0);
     set_pev(pItem, pev_modelindex, 0);
 
-    new pWeaponBox = engfunc(EngFunc_CreateNamedEntity, g_iszWeaponBox);
+    new pWeaponBox = rg_create_entity("weaponbox", true);
     if (!pWeaponBox) {
         set_pev(pItem, pev_flags, pev(pItem, pev_flags) | FL_KILLME);
         dllfunc(DLLFunc_Think, pItem);
@@ -2017,18 +2014,6 @@ GetDecalIndex(pEntity) {
 }
 
 // ANCHOR: Storages
-
-AllocateStrings() {
-    g_iszWeaponBox = engfunc(EngFunc_AllocString, "weaponbox");
-
-    for (new iWeaponId = 0; iWeaponId <= CSW_LAST_WEAPON; ++iWeaponId) {
-        if (g_rgszWeaponNames[iWeaponId][0] == '^0') {
-            continue;
-        }
-
-        g_iszWeaponNames[iWeaponId] = engfunc(EngFunc_AllocString, g_rgszWeaponNames[iWeaponId]);
-    }
-}
 
 InitStorages() {
     g_rgWeapons[CW_Data_Name] = ArrayCreate(64, 1);

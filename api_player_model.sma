@@ -17,7 +17,7 @@ new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgszCustomPlayerModel[MAX_PLAYERS + 1][256];
 new g_rgiPlayerAnimationIndex[MAX_PLAYERS + 1];
-new g_pPlayerSubModel[MAX_PLAYERS + 1];
+new g_rgpPlayerSubModel[MAX_PLAYERS + 1];
 new bool:g_rgbPlayerUseCustomModel[MAX_PLAYERS + 1];
 
 new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
@@ -89,8 +89,8 @@ public Native_GetPlayerEntity(iPluginId, iArgc) {
         NATIVE_ERROR_NOT_CONNECTED(pPlayer);
     }
 
-    if (g_pPlayerSubModel[pPlayer] && @PlayerSubModel_IsActive(g_pPlayerSubModel[pPlayer])) {
-        return g_pPlayerSubModel[pPlayer];
+    if (g_rgpPlayerSubModel[pPlayer] && @PlayerSubModel_IsActive(g_rgpPlayerSubModel[pPlayer])) {
+        return g_rgpPlayerSubModel[pPlayer];
     }
 
     return pPlayer;
@@ -166,9 +166,9 @@ public client_connect(pPlayer) {
 }
 
 public client_disconnected(pPlayer) {
-    if (g_pPlayerSubModel[pPlayer]) {
-        @PlayerSubModel_Destroy(g_pPlayerSubModel[pPlayer]);
-        g_pPlayerSubModel[pPlayer] = 0;
+    if (g_rgpPlayerSubModel[pPlayer]) {
+        @PlayerSubModel_Destroy(g_rgpPlayerSubModel[pPlayer]);
+        g_rgpPlayerSubModel[pPlayer] = 0;
     }
 }
 
@@ -193,8 +193,8 @@ public HamHook_Player_Spawn_Post(pPlayer) {
 }
 
 public HamHook_Player_PostThink_Post(pPlayer) {
-    if (g_pPlayerSubModel[pPlayer]) {
-        @PlayerSubModel_Think(g_pPlayerSubModel[pPlayer]);
+    if (g_rgpPlayerSubModel[pPlayer]) {
+        @PlayerSubModel_Think(g_rgpPlayerSubModel[pPlayer]);
     }
 
     return HAM_HANDLED;
@@ -248,12 +248,12 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
         iSubModelModelIndex = iAnimationIndex ? iModelIndex : 0;
     }
 
-    if (iSubModelModelIndex && !g_pPlayerSubModel[this]) {
-        g_pPlayerSubModel[this] = @PlayerSubModel_Create(this);
+    if (iSubModelModelIndex && !g_rgpPlayerSubModel[this]) {
+        g_rgpPlayerSubModel[this] = @PlayerSubModel_Create(this);
     }
 
-    if (g_pPlayerSubModel[this]) {
-        set_pev(g_pPlayerSubModel[this], pev_modelindex, iSubModelModelIndex);
+    if (g_rgpPlayerSubModel[this]) {
+        set_pev(g_rgpPlayerSubModel[this], pev_modelindex, iSubModelModelIndex);
     }
 }
 

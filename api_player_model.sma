@@ -176,7 +176,7 @@ public FMHook_SetClientKeyValue(pPlayer, const szInfoBuffer[], const szKey[], co
     if (equal(szKey, "model")) {
         copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), szValue);
 
-        if (!equal(g_rgszCurrentPlayerModel[pPlayer], NULL_STRING)) {
+        if (@Player_ShouldUseCurrentModel(pPlayer)) {
             return FMRES_SUPERCEDE;
         }
 

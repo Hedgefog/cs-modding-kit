@@ -18,7 +18,6 @@
 #define CE_MEMBER_ORIGIN "_origin"
 #define CE_MEMBER_ANGLES "_angles"
 #define CE_MEMBER_MASTER "_master"
-#define CE_MEMBER_MODEL "_model"
 #define CE_MEMBER_DELAY "_delay"
 #define CE_MEMBER_NEXTKILL "_nextkill"
 #define CE_MEMBER_NEXTRESPAWN "_nextrespawn"
@@ -40,7 +39,7 @@ enum CEFunction {
   CEFunction_Picked, // Call when player pick item
   CEFunction_Pickup, // Call when player touch item. Should return PLUGIN_HANDLED if picked.
   CEFunction_KVD, // Call when new key value obtained
-  CEFunction_CanActivate, // Call every trigger activation check
+  CEFunction_Activate, // Call every trigger activation check
   CEFunction_Activated // Call when player activates trigger
 };
 
@@ -130,9 +129,10 @@ native CE_GetHandler(const szName[]);
  */
 native CE_GetHandlerByEntity(ent);
 
+native bool:CE_HasMember(ent, const szMember[]);
 native any:CE_GetMember(ent, const szMember[]);
 native CE_SetMember(ent, const szMember[], any:value);
-native CE_GetMemberVec(ent, const szMember[], Float:vOut[3]);
+native bool:CE_GetMemberVec(ent, const szMember[], Float:vOut[3]);
 native CE_SetMemberVec(ent, const szMember[], const Float:vValue[3]);
-native CE_GetMemberString(ent, const szMember[], szOut[], len);
+native bool:CE_GetMemberString(ent, const szMember[], szOut[], len);
 native CE_SetMemberString(ent, const szMember[], const szValue[]);

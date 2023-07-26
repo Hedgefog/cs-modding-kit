@@ -400,6 +400,8 @@ public FMHook_Spawn(pEntity) {
 
     @Entity_SetPData(pEntity, g_itPData);
     g_itPData = Invalid_Trie;
+
+    ExecuteHookFunction(CEFunction_Init, iId, pEntity);
   }
 }
 

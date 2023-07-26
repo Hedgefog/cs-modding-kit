@@ -32,15 +32,16 @@ enum CEPreset {
 };
 
 enum CEFunction {
-  CEFunction_Spawn, // Call when entity spawned
-  CEFunction_Kill, // Call when some plugin try to kill entity. return PLUGIN_HANDLED to discard kill.
-  CEFunction_Killed, // Call when entity killed
-  CEFunction_Remove, // Call when entity removed
-  CEFunction_Picked, // Call when player pick item
-  CEFunction_Pickup, // Call when player touch item. Should return PLUGIN_HANDLED if picked.
-  CEFunction_KVD, // Call when new key value obtained
-  CEFunction_Activate, // Call every trigger activation check
-  CEFunction_Activated // Call when player activates trigger
+  CEFunction_Spawn, // Calls when entity spawned
+  CEFunction_Kill, // Calls when some plugin try to kill entity. return PLUGIN_HANDLED to discard kill.
+  CEFunction_Killed, // Calls when entity killed
+  CEFunction_Remove, // Calls when entity removed
+  CEFunction_Picked, // Calls when player pick item
+  CEFunction_Pickup, // Calls when player touch item. Should return PLUGIN_HANDLED if picked.
+  CEFunction_KVD, // Calls when new key value obtained
+  CEFunction_Activate, // Calls every trigger activation check
+  CEFunction_Activated, // Calls when player activates trigger
+  CEFunction_Init // Calls when entity is initialized (on first spawn)
 };
 
 /*

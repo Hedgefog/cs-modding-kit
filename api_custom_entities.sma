@@ -615,6 +615,11 @@ bool:@Entity_IsCustom(this) {
 @Entity_Touch(this, pToucher) {
   new Trie:itPData = @Entity_GetPData(this);
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  if (ExecuteHookFunction(CEFunction_Touch, iId, this, pToucher)) {
+    return;
+  }
+
   new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
 
   switch (iPreset) {
@@ -937,6 +942,10 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
       callfunc_push_int(pEntity);
 
       switch (iFunction) {
+        case CEFunction_Touch: {
+          new pToucher = getarg(3);
+          callfunc_push_int(pToucher);
+        }
         case CEFunction_Kill, CEFunction_Killed: {
           new pKiller = getarg(3);
           new bool:bPicked = bool:getarg(4);

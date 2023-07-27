@@ -567,6 +567,8 @@ bool:@Entity_IsCustom(this) {
     return;
   }
 
+  SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
+
   set_pev(this, pev_takedamage, DAMAGE_NO);
   set_pev(this, pev_effects, pev(this, pev_effects) | EF_NODRAW);
   set_pev(this, pev_solid, SOLID_NOT);

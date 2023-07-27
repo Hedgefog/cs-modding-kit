@@ -41,7 +41,8 @@ enum CEFunction {
   CEFunction_KVD, // Calls when new key value obtained
   CEFunction_Activate, // Calls every trigger activation check
   CEFunction_Activated, // Calls when player activates trigger
-  CEFunction_Init // Calls when entity is initialized (on first spawn)
+  CEFunction_Init, // Calls when entity is initialized (on first spawn)
+  CEFunction_Think // Calls when entity thinking
 };
 
 /*

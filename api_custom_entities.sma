@@ -588,8 +588,9 @@ bool:@Entity_IsCustom(this) {
   new Float:flGameTime = get_gametime();
 
   new Trie:itPData = @Entity_GetPData(this);
-  new iDeadFlag = pev(this, pev_deadflag);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
 
+  new iDeadFlag = pev(this, pev_deadflag);
   switch (iDeadFlag) {
     case DEAD_NO: {
       new Float:flNextKill = GetPDataMember(itPData, CE_MEMBER_NEXTKILL);
@@ -607,6 +608,8 @@ bool:@Entity_IsCustom(this) {
       }
     }
   }
+
+  ExecuteHookFunction(CEFunction_Think, iId, this);
 }
 
 @Entity_Touch(this, pToucher) {

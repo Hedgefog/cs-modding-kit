@@ -24,6 +24,9 @@ new g_iFwRoundRestart;
 new g_iFwRoundTimerTick;
 new g_iFwCheckWinConditions;
 
+// deprecated
+new g_iFwCheckWinCondition;
+
 new Array:g_irgCheckWinConditionHooks;
 
 new g_pCvarRoundEndDelay;
@@ -43,7 +46,10 @@ public plugin_init() {
     g_iFwRoundExpired = CreateMultiForward("Round_Fw_RoundExpired", ET_IGNORE);
     g_iFwRoundRestart = CreateMultiForward("Round_Fw_RoundRestart", ET_IGNORE);
     g_iFwRoundTimerTick = CreateMultiForward("Round_Fw_RoundTimerTick", ET_IGNORE);
-    g_iFwCheckWinConditions = CreateMultiForward("Round_Fw_CheckWinCondition", ET_STOP);
+    g_iFwCheckWinConditions = CreateMultiForward("Round_Fw_CheckWinConditions", ET_STOP);
+
+    //deprecated
+    g_iFwCheckWinCondition = CreateMultiForward("Round_Fw_CheckWinCondition", ET_STOP);
 
     g_irgCheckWinConditionHooks = ArrayCreate(Hook);
 
@@ -143,6 +149,13 @@ public HC_CheckWinConditions() {
     }
 
     static iReturn;
+
+    ExecuteForward(g_iFwCheckWinCondition, iReturn);
+    if (iReturn != PLUGIN_CONTINUE) {
+        log_amx("CheckWinCondition forward is deprecated!");
+        return HC_SUPERCEDE;
+    }
+
     ExecuteForward(g_iFwCheckWinConditions, iReturn);
     if (iReturn != PLUGIN_CONTINUE) {
         return HC_SUPERCEDE;

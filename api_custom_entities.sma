@@ -750,7 +750,7 @@ bool:@Entity_CanActivate(this, pTarget) {
 
 Trie:@Entity_GetPData(this) {
   // Return the current allocated data if the entity is at the initialization stage
-  if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER)) {
+  if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER) == this) {
     return g_itPData;
   }
 
@@ -770,6 +770,7 @@ Trie:@Entity_AllocPData(this, iId) {
 
 @Entity_FreePData(this) {
   new Trie:itPData = @Entity_GetPData(this);
+  
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
   ExecuteHookFunction(CEFunction_Remove, iId, this);
 

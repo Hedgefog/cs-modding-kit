@@ -21,6 +21,7 @@
 #define CE_MEMBER_DELAY "_delay"
 #define CE_MEMBER_NEXTKILL "_nextkill"
 #define CE_MEMBER_NEXTRESPAWN "_nextrespawn"
+#define CE_MEMBER_INITIALIZED "_initialized"
 
 enum CEPreset {
   CEPreset_None = 0,

@@ -400,8 +400,6 @@ public FMHook_Spawn(pEntity) {
 
     @Entity_SetPData(pEntity, g_itPData);
     g_itPData = Invalid_Trie;
-
-    ExecuteHookFunction(CEFunction_Init, iId, pEntity);
   }
 }
 
@@ -480,10 +478,22 @@ bool:@Entity_IsCustom(this) {
   return this;
 }
 
+@Entity_Init(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  ExecuteHookFunction(CEFunction_Init, iId, this);
+  SetPDataMember(itPData, CE_MEMBER_INITIALIZED, true);
+}
+
 @Entity_Spawn(this) {
   new Float:flGameTime = get_gametime();
 
   new Trie:itPData = @Entity_GetPData(this);
+
+  if (!GetPDataMember(itPData, CE_MEMBER_INITIALIZED)) {
+    @Entity_Init(this);
+  }
+
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
   new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
 
@@ -891,6 +901,7 @@ Trie:AllocPData(iId, pEntity) {
   SetPDataMember(itPData, CE_MEMBER_ID, iId);
   SetPDataMember(itPData, CE_MEMBER_WORLD, false);
   SetPDataMember(itPData, CE_MEMBER_POINTER, pEntity);
+  SetPDataMember(itPData, CE_MEMBER_INITIALIZED, false);
   return itPData;
 }
 

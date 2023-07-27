@@ -75,7 +75,7 @@ native CE_Register (
  * @param vOrigin Spawn origin.
  * @return Entity index.
  */
-native CE_Create(const szName[], const Float:vOrigin[3], bool:temp = true);
+native CE_Create(const szName[], const Float:vOrigin[3] = {0.0, 0.0, 0.0}, bool:temp = true);
 
 /*
  * Kill entity.

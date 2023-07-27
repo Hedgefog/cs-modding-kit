@@ -322,7 +322,7 @@ public Command_Spawn(pPlayer, iLevel, iCId) {
   static Float:vecOrigin[3];
   pev(pPlayer, pev_origin, vecOrigin);
   
-  new pEntity = @Entity_Create(szClassName, vecOrigin, false);
+  new pEntity = @Entity_Create(szClassName, vecOrigin, true);
   if (pEntity) {
     dllfunc(DLLFunc_Spawn, pEntity);
     engfunc(EngFunc_SetOrigin, pEntity, vecOrigin);
@@ -474,6 +474,8 @@ bool:@Entity_IsCustom(this) {
 
   new Trie:itPData = @Entity_AllocPData(this, iId);
   SetPDataMemberVec(itPData, CE_MEMBER_ORIGIN, vecOrigin);
+
+  SetPDataMember(itPData, CE_MEMBER_WORLD, !bTemp);
 
   return this;
 }

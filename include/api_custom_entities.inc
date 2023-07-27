@@ -135,6 +135,7 @@ native CE_GetHandlerByEntity(ent);
 
 native bool:CE_HasMember(ent, const szMember[]);
 native any:CE_GetMember(ent, const szMember[]);
+native CE_DeleteMember(ent, const szMember[]);
 native CE_SetMember(ent, const szMember[], any:value);
 native bool:CE_GetMemberVec(ent, const szMember[], Float:vOut[3]);
 native CE_SetMemberVec(ent, const szMember[], const Float:vValue[3]);

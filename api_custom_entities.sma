@@ -86,6 +86,7 @@ public plugin_natives() {
 
   register_native("CE_HasMember", "Native_HasMember");
   register_native("CE_GetMember", "Native_GetMember");
+  register_native("CE_DeleteMember", "Native_DeleteMember");
   register_native("CE_SetMember", "Native_SetMember");
   register_native("CE_GetMemberVec", "Native_GetMemberVec");
   register_native("CE_SetMemberVec", "Native_SetMemberVec");
@@ -227,6 +228,17 @@ public any:Native_GetMember(iPluginId, iArgc) {
   new Trie:itPData = @Entity_GetPData(pEntity);
 
   return GetPDataMember(itPData, szMember);
+}
+
+public Native_DeleteMember(iPluginId, iArgc) {
+  new pEntity = get_param(1);
+
+  static szMember[CE_MAX_MEMBER_LENGTH];
+  get_string(2, szMember, charsmax(szMember));
+
+  new Trie:itPData = @Entity_GetPData(pEntity);
+
+  DeletePDataMember(itPData, szMember);
 }
 
 public Native_SetMember(iPluginId, iArgc) {
@@ -920,6 +932,10 @@ bool:HasPDataMember(Trie:itPData, const szMember[]) {
 any:GetPDataMember(Trie:itPData, const szMember[]) {
   static any:value;
   return TrieGetCell(itPData, szMember, value) ? value : 0;
+}
+
+DeletePDataMember(Trie:itPData, const szMember[]) {
+  TrieDeleteKey(itPData, szMember);
 }
 
 SetPDataMember(Trie:itPData, const szMember[], any:value) {

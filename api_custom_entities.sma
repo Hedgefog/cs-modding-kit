@@ -558,6 +558,11 @@ bool:@Entity_IsCustom(this) {
 }
 
 @Entity_Restart(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  
+  ExecuteHookFunction(CEFunction_Restart, iId, this);
+
   new iObjectCaps = ExecuteHamB(Ham_ObjectCaps, this);
 
   if (~iObjectCaps & FCAP_ACROSS_TRANSITION) {

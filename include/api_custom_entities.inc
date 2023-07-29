@@ -43,6 +43,7 @@ enum CEFunction {
   CEFunction_Activate, // Calls every trigger activation check
   CEFunction_Activated, // Calls when player activates trigger
   CEFunction_Init, // Calls when entity is initialized (on first spawn)
+  CEFunction_Restart, // Calls when entity is restarting (on first spawn)
   CEFunction_Think, // Calls when entity thinking
   CEFunction_Touch // Calls when entity touched
 };

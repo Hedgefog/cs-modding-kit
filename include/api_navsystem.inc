@@ -47,6 +47,9 @@ native Nav_Area_ComputePortal(NavArea:pAreas, NavArea:pOther, NavDirType:iDir, F
 native bool:Nav_Area_IsOverlapping(NavArea:pArea, NavArea:pOther);
 native bool:Nav_Area_IsOverlappingPoint(NavArea:pArea, const Float:vecPoint[3]);
 
+native bool:Nav_Path_IsValid(NavPath:pPath);
+native Array:Nav_Path_GetSegments(NavPath:pPath);
+
 /**
   * Use the A* algorithm to find the shortest path asynchronous
   *
@@ -78,8 +81,7 @@ native NavBuildPathTask:Nav_Path_Find(const Float:vecStart[3], const Float:vecGo
 native bool:Nav_Path_FindTask_Abort(NavBuildPathTask:pTask);
 native NavPath:Nav_Path_FindTask_GetPath(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_IsSuccessed(NavBuildPathTask:pTask);
+native bool:Nav_Path_FindTask_IsTerminated(NavBuildPathTask:pTask);
 native any:Nav_Path_FindTask_GetUserToken(NavBuildPathTask:pTask);
-
-native Array:Nav_Path_GetSegments(NavPath:pPath);
 
 native Nav_Path_Segment_GetPos(NavPathSegment:pSegment, Float:vecOut[3]);

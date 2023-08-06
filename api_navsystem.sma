@@ -109,7 +109,8 @@ enum BuildPathTask {
     BuildPathTask_IgnoreEntity,
     BuildPathTask_UserToken,
     Struct:BuildPathTask_Path,
-    bool:BuildPathTask_IsSuccessed
+    bool:BuildPathTask_IsSuccessed,
+    bool:BuildPathTask_IsTerminated
 };
 
 enum BuildPathJob {
@@ -122,7 +123,7 @@ enum BuildPathJob {
     Struct:BuildPathJob_ClosestArea,
     BuildPathJob_CostFuncId,
     BuildPathJob_CostFuncPluginId,
-    bool:BuildPathJob_Success,
+    bool:BuildPathJob_Successed,
     bool:BuildPathJob_Finished,
     bool:BuildPathJob_Terminated,
     BuildPathJob_MaxIterations,
@@ -217,13 +218,16 @@ public plugin_natives() {
     register_native("Nav_Area_IsOverlapping", "Native_Area_IsOverlapping");
     register_native("Nav_Area_IsOverlappingPoint", "Native_Area_IsOverlappingPoint");
 
+    register_native("Nav_Path_IsValid", "Native_Path_IsValid");
+    register_native("Nav_Path_GetSegments", "Native_Path_GetSegments");
+    register_native("Nav_Path_Segment_GetPos", "Native_Path_Segment_GetPos");
+
     register_native("Nav_Path_Find", "Native_Path_Find");
     register_native("Nav_Path_FindTask_GetUserToken", "Native_Path_FindTask_GetUserToken");
     register_native("Nav_Path_FindTask_Abort", "Native_Path_FindTask_Abort");
     register_native("Nav_Path_FindTask_GetPath", "Native_Path_FindTask_GetPath");
     register_native("Nav_Path_FindTask_IsSuccessed", "Native_Path_FindTask_IsSuccessed");
-    register_native("Nav_Path_GetSegments", "Native_Path_GetSegments");
-    register_native("Nav_Path_Segment_GetPos", "Native_Path_Segment_GetPos");
+    register_native("Nav_Path_FindTask_IsTerminated", "Native_Path_FindTask_IsTerminated");
 }
 
 public server_frame() {
@@ -368,10 +372,22 @@ public bool:Native_Path_FindTask_IsSuccessed(iPluginId, iArgc) {
     return StructGetCell(sTask, BuildPathTask_IsSuccessed);
 }
 
+public bool:Native_Path_FindTask_IsTerminated(iPluginId, iArgc) {
+    new Struct:sTask = Struct:get_param(1);
+
+    return StructGetCell(sTask, BuildPathTask_IsTerminated);
+}
+
 public Array:Native_Path_GetSegments(iPluginId, iArgc) {
     new Struct:sNavPath = Struct:get_param(1);
 
     return StructGetCell(sNavPath, NavPath_Segments);
+}
+
+public bool:Native_Path_IsValid(iPluginId, iArgc) {
+    new Struct:sNavPath = Struct:get_param(1);
+
+    return @NavPath_IsValid(sNavPath);
 }
 
 public Native_Path_Segment_GetPos(iPluginId, iArgc) {
@@ -2192,6 +2208,7 @@ Struct:NavAreaBuildPath(const Float:vecStart[3], const Float:vecGoal[3], iCbFunc
     StructSetCell(sTask, BuildPathTask_IgnoreEntity, pIgnoreEnt);
     StructSetCell(sTask, BuildPathTask_UserToken, iUserToken);
     StructSetCell(sTask, BuildPathTask_IsSuccessed, false);
+    StructSetCell(sTask, BuildPathTask_IsTerminated, false);
 
     if (g_irgBuildPathTasks == Invalid_Array) {
         g_irgBuildPathTasks = ArrayCreate();
@@ -2207,7 +2224,7 @@ bool:NavAreaBuildPathAbortTask(Struct:sTask) {
     if (g_rgBuildPathJob[BuildPathJob_Task] == sTask) {
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
         g_rgBuildPathJob[BuildPathJob_Terminated] = true;
-        g_rgBuildPathJob[BuildPathJob_Success] = false;
+        g_rgBuildPathJob[BuildPathJob_Successed] = false;
         return true;
     }
 
@@ -2233,7 +2250,7 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
     g_rgBuildPathJob[BuildPathJob_CostFuncPluginId] = StructGetCell(sTask, BuildPathTask_CostFuncPluginId);
     g_rgBuildPathJob[BuildPathJob_Finished] = false;
     g_rgBuildPathJob[BuildPathJob_Terminated] = false;
-    g_rgBuildPathJob[BuildPathJob_Success] = false;
+    g_rgBuildPathJob[BuildPathJob_Successed] = false;
     g_rgBuildPathJob[BuildPathJob_MaxIterations] = get_pcvar_num(g_pCvarMaxIterationsPerFrame);
     g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = 999999.0;
     g_rgBuildPathJob[BuildPathJob_ClosestArea] = Invalid_Struct;
@@ -2247,7 +2264,7 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
     if (g_rgBuildPathJob[BuildPathJob_StartArea] == g_rgBuildPathJob[BuildPathJob_GoalArea]) {
         @NavArea_SetParent(g_rgBuildPathJob[BuildPathJob_GoalArea], Invalid_Struct, NUM_TRAVERSE_TYPES);
         g_rgBuildPathJob[BuildPathJob_ClosestArea] = g_rgBuildPathJob[BuildPathJob_GoalArea];
-        g_rgBuildPathJob[BuildPathJob_Success] = true;
+        g_rgBuildPathJob[BuildPathJob_Successed] = true;
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
         return true;
     }
@@ -2280,7 +2297,7 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
     if (flInitCost < 0.0) {
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
         g_rgBuildPathJob[BuildPathJob_Terminated] = true;
-        g_rgBuildPathJob[BuildPathJob_Success] = false;
+        g_rgBuildPathJob[BuildPathJob_Successed] = false;
         return false;
     }
 
@@ -2299,99 +2316,14 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
 
 NavAreaBuildPathFinish() {
     new Struct:sTask = g_rgBuildPathJob[BuildPathJob_Task];
-    StructSetCell(sTask, BuildPathTask_IsSuccessed, g_rgBuildPathJob[BuildPathJob_Success]);
-
-    static Float:vecStart[3];
-    StructGetArray(sTask, BuildPathTask_StartPos, vecStart, sizeof(vecStart));
-
-    static Float:vecGoal[3];
-    StructGetArray(sTask, BuildPathTask_GoalPos, vecGoal, sizeof(vecGoal));
+    StructSetCell(sTask, BuildPathTask_IsSuccessed, g_rgBuildPathJob[BuildPathJob_Successed]);
+    StructSetCell(sTask, BuildPathTask_IsTerminated, g_rgBuildPathJob[BuildPathJob_Terminated]);
 
     new Struct:sNavPath = StructGetCell(sTask, BuildPathTask_Path);
     @NavPath_Invalidate(sNavPath);
 
-    new Struct:sEffectiveGoalArea = (
-        g_rgBuildPathJob[BuildPathJob_Success]
-            ? g_rgBuildPathJob[BuildPathJob_GoalArea]
-            : g_rgBuildPathJob[BuildPathJob_ClosestArea]
-    );
-
-    new iSegmentCount = 0;
-
-    if (g_rgBuildPathJob[BuildPathJob_StartArea] != g_rgBuildPathJob[BuildPathJob_GoalArea]) {
-        // Build path by following parent links
-        for (new Struct:sArea = sEffectiveGoalArea; sArea != Invalid_Struct; sArea = StructGetCell(sArea, NavArea_Parent)) {
-            iSegmentCount++;
-        }
-
-        // save room for endpoint
-        iSegmentCount = min(iSegmentCount, MAX_PATH_SEGMENTS - 1);
-
-        if (iSegmentCount == 0) {
-            return false;
-        }
-
-    } else {
-        iSegmentCount = 1;
-    }
-
-    new Array:irgSegments = StructGetCell(sNavPath, NavPath_Segments);
-    ArrayResize(irgSegments, iSegmentCount);
-    StructSetCell(sNavPath, NavPath_SegmentCount, iSegmentCount);
-
-    if (iSegmentCount > 1) {
-        // Prepare segments
-        static Struct:sArea; sArea = sEffectiveGoalArea;
-
-        for (new i = iSegmentCount - 1; i >= 0; --i) {
-            static Struct:sSegment; sSegment = @PathSegment_Create();
-            StructSetCell(sSegment, PathSegment_Area, sArea);
-            StructSetCell(sSegment, PathSegment_How, StructGetCell(sArea, NavArea_ParentHow));
-
-            static Float:vecPos[3];
-            @NavArea_GetCenter(sArea, vecPos);
-            StructSetArray(sSegment, PathSegment_Pos, vecPos, sizeof(vecPos));
-
-            ArraySetCell(irgSegments, i, sSegment);
-
-            sArea = StructGetCell(sArea, NavArea_Parent);
-        }
-
-        if (!@NavPath_ComputePathPositions(sNavPath)) {
-            @NavPath_Invalidate(sNavPath);
-            return false;
-        }
-
-        // append path end position
-        static Struct:sEndSegment; sEndSegment = @PathSegment_Create();
-        StructSetCell(sEndSegment, PathSegment_Area, sEffectiveGoalArea);
-        StructSetArray(sEndSegment, PathSegment_Pos, vecGoal, sizeof(vecGoal));
-        StructSetCell(sEndSegment, PathSegment_Pos, @NavArea_GetZ(sEffectiveGoalArea, vecGoal), 2);
-        StructSetCell(sEndSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
-        @NavPath_PushSegment(sNavPath, sEndSegment);
-    } else {
-        @NavPath_BuildTrivialPath(sNavPath, vecStart, vecGoal);
-    }
-
-    if (get_pcvar_bool(g_pCvarDebug)) {
-        new iSegmentCount = StructGetCell(sNavPath, NavPath_SegmentCount);
-        for (new i = 1; i < iSegmentCount; ++i) {
-            new Struct:sPrevSegment = ArrayGetCell(irgSegments, i - 1);
-            new Struct:sNextSegment = ArrayGetCell(irgSegments, i);
-
-            static Float:vecSrc[3];
-            StructGetArray(sPrevSegment, PathSegment_Pos, vecSrc, sizeof(vecSrc));
-
-            static Float:vecNext[3];
-            StructGetArray(sNextSegment, PathSegment_Pos, vecNext, sizeof(vecNext));
-
-            static irgColor[3];
-            irgColor[0] = floatround(255.0 * (1.0 - (float(i) / iSegmentCount)));
-            irgColor[1] = floatround(255.0 * (float(i) / iSegmentCount));
-            irgColor[2] = 0;
-
-            UTIL_DrawArrow(0, vecSrc, vecNext, irgColor, 255, 30);
-        }
+    if (!g_rgBuildPathJob[BuildPathJob_Terminated]) {
+        NavAreaBuildPathSegments();
     }
 
     new iCbFuncId = StructGetCell(sTask, BuildPathTask_CbFuncId);
@@ -2401,14 +2333,12 @@ NavAreaBuildPathFinish() {
         callfunc_push_int(_:sTask);
         callfunc_end();
     }
-
-    return true;
 }
 
 NavAreaBuildPathIteration() {
     if (g_sNavAreaOpenList == Invalid_Struct) {
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
-        g_rgBuildPathJob[BuildPathJob_Success] = false;
+        g_rgBuildPathJob[BuildPathJob_Successed] = false;
         return;
     }
 
@@ -2422,7 +2352,7 @@ NavAreaBuildPathIteration() {
         }
 
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
-        g_rgBuildPathJob[BuildPathJob_Success] = true;
+        g_rgBuildPathJob[BuildPathJob_Successed] = true;
 
         return;
     }
@@ -2523,10 +2453,7 @@ NavAreaBuildPathFrame() {
 
     // current job finished, process
     if (g_rgBuildPathJob[BuildPathJob_Finished]) {
-        if (!g_rgBuildPathJob[BuildPathJob_Terminated]) {
-            NavAreaBuildPathFinish();
-        }
-
+        NavAreaBuildPathFinish();
         @BuildPathTask_Destroy(g_rgBuildPathJob[BuildPathJob_Task]);
         g_rgBuildPathJob[BuildPathJob_Task] = Invalid_Struct;
         return;
@@ -2537,6 +2464,105 @@ NavAreaBuildPathFrame() {
     for (new i = 0; i < iIterationsNum && !g_rgBuildPathJob[BuildPathJob_Finished]; ++i) {
         NavAreaBuildPathIteration();
     }
+}
+
+NavAreaBuildPathSegments() {
+    new Struct:sTask = g_rgBuildPathJob[BuildPathJob_Task];
+
+    new Struct:sNavPath = StructGetCell(sTask, BuildPathTask_Path);
+    @NavPath_Invalidate(sNavPath);
+
+    static Float:vecStart[3];
+    StructGetArray(sTask, BuildPathTask_StartPos, vecStart, sizeof(vecStart));
+
+    static Float:vecGoal[3];
+    StructGetArray(sTask, BuildPathTask_GoalPos, vecGoal, sizeof(vecGoal));
+
+    new iSegmentCount = 0;
+
+    new Struct:sEffectiveGoalArea = (
+        g_rgBuildPathJob[BuildPathJob_Successed]
+            ? g_rgBuildPathJob[BuildPathJob_GoalArea]
+            : g_rgBuildPathJob[BuildPathJob_ClosestArea]
+    );
+
+    if (g_rgBuildPathJob[BuildPathJob_StartArea] != g_rgBuildPathJob[BuildPathJob_GoalArea]) {
+        // Build path by following parent links
+        for (new Struct:sArea = sEffectiveGoalArea; sArea != Invalid_Struct; sArea = StructGetCell(sArea, NavArea_Parent)) {
+            iSegmentCount++;
+        }
+
+        // save room for endpoint
+        iSegmentCount = min(iSegmentCount, MAX_PATH_SEGMENTS - 1);
+
+        if (iSegmentCount == 0) {
+            return false;
+        }
+
+    } else {
+        iSegmentCount = 1;
+    }
+
+    new Array:irgSegments = StructGetCell(sNavPath, NavPath_Segments);
+    ArrayResize(irgSegments, iSegmentCount);
+    StructSetCell(sNavPath, NavPath_SegmentCount, iSegmentCount);
+
+    if (iSegmentCount > 1) {
+        // Prepare segments
+        static Struct:sArea; sArea = sEffectiveGoalArea;
+
+        for (new i = iSegmentCount - 1; i >= 0; --i) {
+            static Struct:sSegment; sSegment = @PathSegment_Create();
+            StructSetCell(sSegment, PathSegment_Area, sArea);
+            StructSetCell(sSegment, PathSegment_How, StructGetCell(sArea, NavArea_ParentHow));
+
+            static Float:vecPos[3];
+            @NavArea_GetCenter(sArea, vecPos);
+            StructSetArray(sSegment, PathSegment_Pos, vecPos, sizeof(vecPos));
+
+            ArraySetCell(irgSegments, i, sSegment);
+
+            sArea = StructGetCell(sArea, NavArea_Parent);
+        }
+
+        if (!@NavPath_ComputePathPositions(sNavPath)) {
+            @NavPath_Invalidate(sNavPath);
+            return false;
+        }
+
+        // append path end position
+        static Struct:sEndSegment; sEndSegment = @PathSegment_Create();
+        StructSetCell(sEndSegment, PathSegment_Area, sEffectiveGoalArea);
+        StructSetArray(sEndSegment, PathSegment_Pos, vecGoal, sizeof(vecGoal));
+        StructSetCell(sEndSegment, PathSegment_Pos, @NavArea_GetZ(sEffectiveGoalArea, vecGoal), 2);
+        StructSetCell(sEndSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
+        @NavPath_PushSegment(sNavPath, sEndSegment);
+    } else {
+        @NavPath_BuildTrivialPath(sNavPath, vecStart, vecGoal);
+    }
+
+    if (get_pcvar_bool(g_pCvarDebug)) {
+        new iSegmentCount = StructGetCell(sNavPath, NavPath_SegmentCount);
+        for (new i = 1; i < iSegmentCount; ++i) {
+            new Struct:sPrevSegment = ArrayGetCell(irgSegments, i - 1);
+            new Struct:sNextSegment = ArrayGetCell(irgSegments, i);
+
+            static Float:vecSrc[3];
+            StructGetArray(sPrevSegment, PathSegment_Pos, vecSrc, sizeof(vecSrc));
+
+            static Float:vecNext[3];
+            StructGetArray(sNextSegment, PathSegment_Pos, vecNext, sizeof(vecNext));
+
+            static irgColor[3];
+            irgColor[0] = floatround(255.0 * (1.0 - (float(i) / iSegmentCount)));
+            irgColor[1] = floatround(255.0 * (float(i) / iSegmentCount));
+            irgColor[2] = 0;
+
+            UTIL_DrawArrow(0, vecSrc, vecNext, irgColor, 255, 30);
+        }
+    }
+
+    return true;
 }
 
 stock NavDirType:OppositeDirection(NavDirType:iDir) {

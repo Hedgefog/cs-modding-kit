@@ -767,7 +767,7 @@ NavErrorType:@NavArea_PostLoadArea(const &Struct:this) {
 
         rgSpot[SpotEncounter_To][NavConnect_Area] = NavAreaGrid_GetNavAreaById(rgSpot[SpotEncounter_To][NavConnect_Id]);
         if (rgSpot[SpotEncounter_To][NavConnect_Area] == Invalid_Struct) {
-            log_amx("ERROR: Corrupt navigation data. Missing ^"to^" Navigation Area for Encounter Spot.^n");
+            // log_amx("ERROR: Corrupt navigation data. Missing ^"to^" Navigation Area for Encounter Spot.^n");
             error = NAV_CORRUPT_DATA;
         }
 
@@ -2225,6 +2225,10 @@ bool:NavAreaBuildPathAbortTask(Struct:sTask) {
         g_rgBuildPathJob[BuildPathJob_Finished] = true;
         g_rgBuildPathJob[BuildPathJob_Terminated] = true;
         g_rgBuildPathJob[BuildPathJob_Successed] = false;
+
+        // terminate task in the same frame
+        NavAreaBuildPathFrame();
+
         return true;
     }
 

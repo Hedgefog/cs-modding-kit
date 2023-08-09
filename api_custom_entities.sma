@@ -508,6 +508,10 @@ bool:@Entity_IsCustom(this) {
     @Entity_Init(this);
   }
 
+  if (!pev_valid(this) || pev(this, pev_flags) & FL_KILLME) {
+    return;
+  }
+
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
   new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
 
@@ -616,10 +620,16 @@ bool:@Entity_IsCustom(this) {
 }
 
 @Entity_Think(this) {
+  if (pev(this, pev_flags) & FL_KILLME) {
+    return;
+  }
+
   new Float:flGameTime = get_gametime();
 
   new Trie:itPData = @Entity_GetPData(this);
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  ExecuteHookFunction(CEFunction_Think, iId, this);
 
   new iDeadFlag = pev(this, pev_deadflag);
   switch (iDeadFlag) {
@@ -632,15 +642,10 @@ bool:@Entity_IsCustom(this) {
     case DEAD_RESPAWNABLE: {
       new Float:flNextRespawn = GetPDataMember(itPData, CE_MEMBER_NEXTRESPAWN);
       if (flNextRespawn <= flGameTime) {
-        set_pev(this, pev_deadflag, DEAD_NO);
-        set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
-        set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
         dllfunc(DLLFunc_Spawn, this);
       }
     }
   }
-
-  ExecuteHookFunction(CEFunction_Think, iId, this);
 }
 
 @Entity_Touch(this, pToucher) {

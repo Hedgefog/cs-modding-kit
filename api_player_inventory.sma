@@ -266,29 +266,31 @@ LoadPlayerInventory(pPlayer) {
 
     ArrayClear(g_irgPlayerInventories[pPlayer]);
 
-    static szKey[32];
+    new szKey[32];
+    new szValue[1024];
 
     format(szKey, charsmax(szKey), "%s_size", g_rgszPlayerAuthId[pPlayer]);
-    new iSize = nvault_get(g_hVault, szKey);
+    new iInventorySize = nvault_get(g_hVault, szKey);
 
     //Save items
-    for (new iSlot = 0; iSlot < iSize; ++iSlot) {        
-        format(szKey, charsmax(szKey), "%s_%i_item_type", g_rgszPlayerAuthId[pPlayer], iSlot);
+    for (new iSlot = 0; iSlot < iInventorySize; ++iSlot) {
+        // item type
+        format(szKey, charsmax(szKey), "%s_item_%i_type", g_rgszPlayerAuthId[pPlayer], iSlot);
 
-        static szType[32];
+        new szType[32];
         nvault_get(g_hVault, szKey, szType, charsmax(szType));
 
-        format(szKey, charsmax(szKey), "%s_%i_item_size", g_rgszPlayerAuthId[pPlayer], iSlot);
+        // item struct size
+        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iSlot);
 
         new iItemSize = nvault_get(g_hVault, szKey);
 
-        format(szKey, charsmax(szKey), "%s_%i_item", g_rgszPlayerAuthId[pPlayer], iSlot);
-
-        static rgItem[1024];
-        nvault_get_array(g_hVault, szKey, rgItem, iItemSize);
+        // item struct
+        format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iSlot);
 
         new Struct:sItem = StructCreate(iItemSize);
-        StructSetArray(sItem, 0, rgItem, iItemSize);
+        nvault_get_array(g_hVault, szKey, szValue, iItemSize);
+        StructSetArray(sItem, 0, szValue, iItemSize);
 
         @Player_GiveItem(pPlayer, szType, sItem);
 
@@ -303,19 +305,18 @@ SavePlayerInventory(pPlayer) {
 
     new Array:irgInventory = g_irgPlayerInventories[pPlayer];
 
-    new iSize = ArraySize(irgInventory);
-    if (!iSize) {
+    new iInventorySize = ArraySize(irgInventory);
+    if (!iInventorySize) {
         return;
     }
 
-    static szKey[32];
-    static szValue[32];
-    static rgItem[1024];
+    new szKey[32];
+    new szValue[1024];
 
     //Save items
-    new iInventorySize = 0;
-    for (new i = 0; i < iSize; ++i) {
-        new Struct:sSlot = ArrayGetCell(irgInventory, i);
+    new iNewInventorySize = 0;
+    for (new iSlot = 0; iSlot < iInventorySize; ++iSlot) {
+        new Struct:sSlot = ArrayGetCell(irgInventory, iSlot);
 
         if (sSlot == Invalid_Struct) {
             continue;
@@ -324,32 +325,40 @@ SavePlayerInventory(pPlayer) {
         new Struct:sItem = StructGetCell(sSlot, InventorySlot_Item);
         new iItemSize = StructSize(sItem);
 
-        // item struct size
-        format(szKey, charsmax(szKey), "%s_%i_item_size", g_rgszPlayerAuthId[pPlayer], iInventorySize);
-        format(szValue, charsmax(szValue), "%d", iItemSize);
+        // item type
+        format(szKey, charsmax(szKey), "%s_item_%i_type", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
+        StructGetString(sSlot, InventorySlot_Type, szValue, charsmax(szValue));
+        nvault_set(g_hVault, szKey, szValue);
 
+        // item struct size
+        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
+        format(szValue, charsmax(szValue), "%d", iItemSize);
         nvault_set(g_hVault, szKey, szValue);
 
         // item struct
-        format(szKey, charsmax(szKey), "%s_%i_item", g_rgszPlayerAuthId[pPlayer], iInventorySize);
+        format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
+        StructGetArray(sItem, 0, szValue, iItemSize);
+        nvault_set_array(g_hVault, szKey, szValue, iItemSize);
 
-        StructGetArray(sItem, 0, rgItem, iItemSize);
-        nvault_set_array(g_hVault, szKey, rgItem, iItemSize);
+        iNewInventorySize++;
 
-        // item type
-        format(szKey, charsmax(szKey), "%s_%i_item_type", g_rgszPlayerAuthId[pPlayer], iInventorySize);
-        StructGetString(sSlot, InventorySlot_Type, szValue, charsmax(szValue));
+        ExecuteForward(g_fwSlotSaved, _, pPlayer, iSlot);
+    }
 
-        nvault_set(g_hVault, szKey, szValue);
+    for (new iSlot = iNewInventorySize; iSlot < iInventorySize; ++iSlot) {
+        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iSlot);
+        nvault_remove(g_hVault, szKey);
 
-        iInventorySize++;
+        format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iSlot);
+        nvault_remove(g_hVault, szKey);
 
-        ExecuteForward(g_fwSlotSaved, _, pPlayer, i);
+        format(szKey, charsmax(szKey), "%s_item_%i_type", g_rgszPlayerAuthId[pPlayer], iSlot);
+        nvault_remove(g_hVault, szKey);
     }
 
     // save inventory size
     format(szKey, charsmax(szKey), "%s_size", g_rgszPlayerAuthId[pPlayer]);
-    format(szValue, charsmax(szValue), "%i", iInventorySize);
+    format(szValue, charsmax(szValue), "%i", iNewInventorySize);
 
     nvault_set(g_hVault, szKey, szValue);
 }

@@ -26,6 +26,10 @@ stock Struct:StructClone(const &Struct:which) {
     return Struct:ArrayClone(Array:which);
 }
 
+stock StructSize(const &Struct:which) {
+    return ArraySize(Array:which);
+}
+
 stock StructDestroy(&Struct:which) {
     ArrayDestroy(Array:which);
     which = Invalid_Struct;
@@ -66,11 +70,11 @@ stock DoNotUse:StructGetStringHandle(const &Struct:which, any:item, any:block = 
 }
 
 stock StructSetString(const &Struct:which, any:item, const input[], any:size = -1, any:block = 0) {
-    for (new i = 0; input[i] != '^0'; ++i) {
-        if (size >= 0 && i >= size) {
+    for (new i = 0; i < size || size == -1; ++i) {
+        StructSetCell(which, item, input[i], block + i);
+
+        if (input[i] == '^0') {
             break;
         }
-
-        StructSetCell(which, item, input[i], block + i);
     }
 }

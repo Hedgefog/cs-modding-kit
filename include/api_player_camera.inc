@@ -3,6 +3,8 @@
 #endif
 #define _api_player_camera_included
 
+#pragma reqlib api_player_camera
+
 native PlayerCamera_Activate(pPlayer);
 native PlayerCamera_Deactivate(pPlayer);
 native bool:PlayerCamera_IsActive(pPlayer);

@@ -67,7 +67,8 @@ native CE_Register (
   Float:fLifeTime = 0.0,
   Float:fRespawnTime = 10.0,
   bool:ignoreRounds = false,
-  CEPreset:preset = CEPreset_None
+  CEPreset:preset = CEPreset_None,
+  bloodColor = -1
 );
 
 /*

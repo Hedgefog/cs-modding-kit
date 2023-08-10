@@ -20,6 +20,7 @@ enum CEData {
   Array:CEData_RespawnTime,
   Array:CEData_Preset,
   Array:CEData_IgnoreRounds,
+  Array:CEData_BloodColor,
   Array:CEData_Hooks[CEFunction]
 };
 
@@ -36,7 +37,8 @@ enum _:RegisterArgs {
   RegisterArg_LifeTime,
   RegisterArg_RespawnTime,
   RegisterArg_IgnoreRounds,
-  RegisterArg_Preset
+  RegisterArg_Preset,
+  RegisterArg_BloodColor
 };
 
 new g_iszBaseClassName;
@@ -60,6 +62,7 @@ public plugin_precache() {
   RegisterHam(Ham_Touch, CE_BASE_CLASSNAME, "HamHook_Base_Touch", .Post = 0);
   RegisterHam(Ham_Killed, CE_BASE_CLASSNAME, "HamHook_Base_Killed", .Post = 0);
   RegisterHam(Ham_Think, CE_BASE_CLASSNAME, "HamHook_Base_Think", .Post = 0);
+  RegisterHam(Ham_BloodColor, CE_BASE_CLASSNAME, "HamHook_Base_BloodColor", .Post = 0);
 }
 
 public plugin_init() {
@@ -109,6 +112,7 @@ public Native_Register(iPluginId, iArgc) {
   new Float:flRespawnTime = get_param_f(RegisterArg_RespawnTime);
   new bool:bIgnoreRounds = bool:get_param(RegisterArg_IgnoreRounds);
   new CEPreset:iPreset = CEPreset:get_param(RegisterArg_Preset);
+  new iBloodColor = get_param(RegisterArg_BloodColor);
   
   new Float:vecMins[3];
   get_array_f(RegisterArg_Mins, vecMins, 3);
@@ -116,7 +120,7 @@ public Native_Register(iPluginId, iArgc) {
   new Float:vecMaxs[3];
   get_array_f(RegisterArg_Maxs, vecMaxs, 3);
   
-  return RegisterEntity(szClassName, iModelIndex, vecMins, vecMaxs, flLifeTime, flRespawnTime, bIgnoreRounds, iPreset);
+  return RegisterEntity(szClassName, iModelIndex, vecMins, vecMaxs, flLifeTime, flRespawnTime, bIgnoreRounds, iPreset, iBloodColor);
 }
 
 public Native_Create(iPluginId, iArgc) {
@@ -467,6 +471,20 @@ public HamHook_Base_Think(pEntity, pKiller) {
   return HAM_IGNORED;
 }
 
+public HamHook_Base_BloodColor(pEntity) {
+  if (@Entity_IsCustom(pEntity)) {
+    new iBloodColor = @Entity_BloodColor(pEntity);
+    if (iBloodColor < 0) {
+      return HAM_HANDLED;
+    }
+
+    SetHamReturnInteger(iBloodColor);
+    return HAM_OVERRIDE;
+  }
+
+  return HAM_IGNORED;
+}
+
 /*--------------------------------[ Methods ]--------------------------------*/
 
 bool:@Entity_IsCustom(this) {
@@ -784,6 +802,12 @@ bool:@Entity_CanActivate(this, pTarget) {
   }
 }
 
+@Entity_BloodColor(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  return ArrayGetCell(g_rgCEData[CEData_BloodColor], iId);
+}
+
 Trie:@Entity_GetPData(this) {
   // Return the current allocated data if the entity is at the initialization stage
   if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER) == this) {
@@ -828,6 +852,7 @@ InitStorages() {
   g_rgCEData[CEData_RespawnTime] = ArrayCreate();
   g_rgCEData[CEData_Preset] = ArrayCreate();
   g_rgCEData[CEData_IgnoreRounds] = ArrayCreate();
+  g_rgCEData[CEData_BloodColor] = ArrayCreate();
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
     g_rgCEData[CEData_Hooks][iFunction] = ArrayCreate();
@@ -858,7 +883,8 @@ RegisterEntity(
   Float:flLifeTime,
   Float:flRespawnTime,
   bool:bIgnoreRounds,
-  CEPreset:iPreset
+  CEPreset:iPreset,
+  iBloodColor
 ) {
   new iId = g_iEntitiesNum;
 
@@ -871,6 +897,7 @@ RegisterEntity(
   ArrayPushCell(g_rgCEData[CEData_RespawnTime], flRespawnTime);
   ArrayPushCell(g_rgCEData[CEData_Preset], iPreset);
   ArrayPushCell(g_rgCEData[CEData_IgnoreRounds], bIgnoreRounds);
+  ArrayPushCell(g_rgCEData[CEData_BloodColor], iBloodColor);
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
     ArrayPushCell(g_rgCEData[CEData_Hooks][iFunction], ArrayCreate(_:CEHookData));

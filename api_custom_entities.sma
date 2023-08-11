@@ -13,7 +13,7 @@
 
 enum CEData {
   Array:CEData_Name,
-  Array:CEData_ModelIndex,
+  Array:CEData_Model,
   Array:CEData_Mins,
   Array:CEData_Maxs,
   Array:CEData_LifeTime,
@@ -31,7 +31,7 @@ enum CEHookData {
 
 enum _:RegisterArgs {
   RegisterArg_Name = 1,
-  RegisterArg_ModelIndex,
+  RegisterArg_Model,
   RegisterArg_Mins,
   RegisterArg_Maxs,
   RegisterArg_LifeTime,
@@ -47,6 +47,7 @@ new Trie:g_itPData = Invalid_Trie;
 new Trie:g_itEntityIds = Invalid_Trie;
 new g_rgCEData[CEData] = { Invalid_Array, ... };
 new g_iEntitiesNum = 0;
+new bool:g_bPrecaching = true;
 
 public plugin_precache() {
   InitStorages();
@@ -66,6 +67,8 @@ public plugin_precache() {
 }
 
 public plugin_init() {
+  g_bPrecaching = false;
+
   register_plugin("[API] Custom Entities", "2.0.0", "Hedgehog Fog");
 
   register_concmd("ce_spawn", "Command_Spawn", ADMIN_CVAR);
@@ -80,7 +83,7 @@ public plugin_natives() {
   register_native("CE_Remove", "Native_Remove");
 
   register_native("CE_GetSize", "Native_GetSize");
-  register_native("CE_GetModelIndex", "Native_GetModelIndex");
+  register_native("CE_GetModel", "Native_GetModel");
 
   register_native("CE_RegisterHook", "Native_RegisterHook");
 
@@ -107,20 +110,22 @@ public Native_Register(iPluginId, iArgc) {
   static szClassName[CE_MAX_NAME_LENGTH];
   get_string(RegisterArg_Name, szClassName, charsmax(szClassName));
   
-  new iModelIndex = get_param(RegisterArg_ModelIndex);
+  static szModel[CE_MAX_NAME_LENGTH];
+  get_string(RegisterArg_Model, szModel, charsmax(szModel));
+
   new Float:flLifeTime = get_param_f(RegisterArg_LifeTime);
   new Float:flRespawnTime = get_param_f(RegisterArg_RespawnTime);
   new bool:bIgnoreRounds = bool:get_param(RegisterArg_IgnoreRounds);
   new CEPreset:iPreset = CEPreset:get_param(RegisterArg_Preset);
   new iBloodColor = get_param(RegisterArg_BloodColor);
-  
+
   new Float:vecMins[3];
   get_array_f(RegisterArg_Mins, vecMins, 3);
   
   new Float:vecMaxs[3];
   get_array_f(RegisterArg_Maxs, vecMaxs, 3);
   
-  return RegisterEntity(szClassName, iModelIndex, vecMins, vecMaxs, flLifeTime, flRespawnTime, bIgnoreRounds, iPreset, iBloodColor);
+  return RegisterEntity(szClassName, szModel, vecMins, vecMaxs, flLifeTime, flRespawnTime, bIgnoreRounds, iPreset, iBloodColor);
 }
 
 public Native_Create(iPluginId, iArgc) {
@@ -170,16 +175,20 @@ public Native_GetSize(iPluginId, iArgc) {
   return true;
 }
 
-public Native_GetModelIndex(iPluginId, iArgc) {  
+public bool:Native_GetModel(iPluginId, iArgc) {  
   new szClassName[CE_MAX_NAME_LENGTH];
   get_string(1, szClassName, charsmax(szClassName));
   
   new iId = GetIdByClassName(szClassName);
   if (iId == -1) {
-    return 0;
+    return false;
   }
-  
-  return ArrayGetCell(g_rgCEData[CEData_ModelIndex], iId);
+
+  static szModel[MAX_RESOURCE_PATH_LENGTH];
+  ArrayGetString(g_rgCEData[CEData_Model], iId, szModel, charsmax(szModel));
+  set_string(2, szModel, get_param(3));
+
+  return true;
 }
 
 public Native_RegisterHook(iPluginId, iArgc) {
@@ -513,13 +522,24 @@ bool:@Entity_IsCustom(this) {
 @Entity_Init(this) {
   new Trie:itPData = @Entity_GetPData(this);
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  static szModel[MAX_RESOURCE_PATH_LENGTH];
+  ArrayGetString(g_rgCEData[CEData_Model], iId, szModel, charsmax(szModel));
+
+  if (equal(szModel, NULL_STRING)) {
+    pev(this, pev_model, szModel, charsmax(szModel));
+  }
+
+  if (!equal(szModel, NULL_STRING)) {
+    SetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel);
+  }
+
   ExecuteHookFunction(CEFunction_Init, iId, this);
+
   SetPDataMember(itPData, CE_MEMBER_INITIALIZED, true);
 }
 
 @Entity_Spawn(this) {
-  new Float:flGameTime = get_gametime();
-
   new Trie:itPData = @Entity_GetPData(this);
 
   if (!GetPDataMember(itPData, CE_MEMBER_INITIALIZED)) {
@@ -531,28 +551,25 @@ bool:@Entity_IsCustom(this) {
   }
 
   new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
-
-  new Float:flLifeTime = bIsWorld ? 0.0 : ArrayGetCell(g_rgCEData[CEData_LifeTime], iId);
-  if (flLifeTime > 0.0) {
-    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, flGameTime + flLifeTime);
-    set_pev(this, pev_nextthink, flGameTime + flLifeTime);
-  } else {
-    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
-  }
 
   set_pev(this, pev_deadflag, DEAD_NO);
-
   set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
   set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
 
-  static Float:vecMins[3];
-  ArrayGetArray(g_rgCEData[CEData_Mins], iId, vecMins);
+  new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
+  @Entity_ApplyPreset(this, iPreset);
 
-  static Float:vecMaxs[3];
-  ArrayGetArray(g_rgCEData[CEData_Maxs], iId, vecMaxs);
+  if (HasPDataMember(itPData, CE_MEMBER_MODEL)) {
+    static szModel[MAX_RESOURCE_PATH_LENGTH];
+    GetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel, charsmax(szModel));
+    engfunc(EngFunc_SetModel, this, szModel);
+  }
 
-  engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
+  static Float:vecMins[3]; ArrayGetArray(g_rgCEData[CEData_Mins], iId, vecMins);
+  static Float:vecMaxs[3]; ArrayGetArray(g_rgCEData[CEData_Maxs], iId, vecMaxs);
+  if (xs_vec_distance(vecMins, vecMaxs) > 0.0) {
+    engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
+  }
 
   if (HasPDataMember(itPData, CE_MEMBER_ORIGIN)) {
     static Float:vecOrigin[3];
@@ -566,15 +583,15 @@ bool:@Entity_IsCustom(this) {
     set_pev(this, pev_angles, vecAngles);
   }
 
-  new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
-  @Entity_ApplyPreset(this, iPreset);
-
-  new iModelIndex = ArrayGetCell(g_rgCEData[CEData_ModelIndex], iId);
-  if (iModelIndex > 0) {
-    set_pev(this, pev_modelindex, iModelIndex);
+  new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
+  new Float:flLifeTime = bIsWorld ? 0.0 : ArrayGetCell(g_rgCEData[CEData_LifeTime], iId);
+  if (flLifeTime > 0.0) {
+    new Float:flGameTime = get_gametime();
+    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, flGameTime + flLifeTime);
+    set_pev(this, pev_nextthink, flGameTime + flLifeTime);
+  } else {
+    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
   }
-
-  @Entity_UpdateModel(this);
 
   ExecuteHookFunction(CEFunction_Spawn, iId, this);
 }
@@ -589,14 +606,6 @@ bool:@Entity_IsCustom(this) {
 
   if (~iObjectCaps & FCAP_ACROSS_TRANSITION) {
     dllfunc(DLLFunc_Spawn, this);
-  }
-}
-
-@Entity_UpdateModel(this) {
-  static szModel[MAX_RESOURCE_PATH_LENGTH];
-  pev(this, pev_model, szModel, charsmax(szModel));
-  if (!equal(szModel, NULL_STRING)) {
-    engfunc(EngFunc_SetModel, this, szModel);
   }
 }
 
@@ -845,7 +854,7 @@ Trie:@Entity_AllocPData(this, iId) {
 InitStorages() {
   g_itEntityIds = TrieCreate();
   g_rgCEData[CEData_Name] = ArrayCreate(CE_MAX_NAME_LENGTH);
-  g_rgCEData[CEData_ModelIndex] = ArrayCreate();
+  g_rgCEData[CEData_Model] = ArrayCreate(MAX_RESOURCE_PATH_LENGTH);
   g_rgCEData[CEData_Mins] = ArrayCreate(3);
   g_rgCEData[CEData_Maxs] = ArrayCreate(3);
   g_rgCEData[CEData_LifeTime] = ArrayCreate();
@@ -877,7 +886,7 @@ DestroyStorages() {
 
 RegisterEntity(
   const szClassName[],
-  iModelIndex,
+  const szModel[],
   const Float:vecMins[3],
   const Float:vecMaxs[3],
   Float:flLifeTime,
@@ -890,7 +899,7 @@ RegisterEntity(
 
   TrieSetCell(g_itEntityIds, szClassName, iId);
   ArrayPushString(g_rgCEData[CEData_Name], szClassName);
-  ArrayPushCell(g_rgCEData[CEData_ModelIndex], iModelIndex);
+  ArrayPushString(g_rgCEData[CEData_Model], szModel);
   ArrayPushArray(g_rgCEData[CEData_Mins], vecMins);
   ArrayPushArray(g_rgCEData[CEData_Maxs], vecMaxs);
   ArrayPushCell(g_rgCEData[CEData_LifeTime], flLifeTime);
@@ -904,6 +913,10 @@ RegisterEntity(
   }
 
   g_iEntitiesNum++;
+
+  if (g_bPrecaching && !equal(szModel, NULL_STRING)) {
+    precache_model(szModel);
+  }
 
   log_amx("%s Entity %s successfully registred.", LOG_PREFIX, szClassName);
 

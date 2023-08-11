@@ -74,7 +74,7 @@ public plugin_precache() {
         precache_sound(g_rgszBurningSounds[i]);
     }
 
-    CE_Register(ENTITY_NAME, 0, Float:{-FIRE_BORDERS, -FIRE_BORDERS, -FIRE_BORDERS}, Float:{FIRE_BORDERS, FIRE_BORDERS, FIRE_BORDERS});
+    CE_Register(ENTITY_NAME, NULL_STRING, Float:{-FIRE_BORDERS, -FIRE_BORDERS, -FIRE_BORDERS}, Float:{FIRE_BORDERS, FIRE_BORDERS, FIRE_BORDERS});
     CE_RegisterHook(CEFunction_Init, ENTITY_NAME, "@Entity_Init");
     CE_RegisterHook(CEFunction_Spawn, ENTITY_NAME, "@Entity_Spawn");
     CE_RegisterHook(CEFunction_Touch, ENTITY_NAME, "@Entity_Touch");

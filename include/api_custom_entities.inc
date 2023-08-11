@@ -18,6 +18,7 @@
 #define CE_MEMBER_ORIGIN "_origin"
 #define CE_MEMBER_ANGLES "_angles"
 #define CE_MEMBER_MASTER "_master"
+#define CE_MEMBER_MODEL "_model"
 #define CE_MEMBER_DELAY "_delay"
 #define CE_MEMBER_NEXTKILL "_nextkill"
 #define CE_MEMBER_NEXTRESPAWN "_nextrespawn"
@@ -59,11 +60,11 @@ enum CEFunction {
  * @param preset Preset for entity.
  * @return Handler of registered entity.
  */
-native CE_Register (
+native CE_Register(
   const szName[],
-  modelIndex = 0,
-  const Float:vMins[3] = {-8.0, -8.0, -8.0},
-  const Float:vMaxs[3] = {8.0, 8.0, 8.0},
+  const szModel[] = "",
+  const Float:vMins[3] = {0.0, 0.0, 0.0},
+  const Float:vMaxs[3] = {0.0, 0.0, 0.0},
   Float:fLifeTime = 0.0,
   Float:fRespawnTime = 10.0,
   bool:ignoreRounds = false,
@@ -105,12 +106,14 @@ native bool:CE_Remove(ent);
 native CE_GetSize(const szName[], Float:vMins[3], Float:vMaxs[3]);
 
 /*
- * Gets modelindex of entity.
+ * Gets model of entity.
  *
  * @param szName Name of entity.
- * @return Modelindex of entity
+ * @param szModel Output string
+ * @param iLen Output string max length
+ * @return Result true/false
  */
-native CE_GetModelIndex(const szName[]);
+native bool:CE_GetModel(const szName[], szModel[], iLen);
 
 /*
  * Register new hook for entity.

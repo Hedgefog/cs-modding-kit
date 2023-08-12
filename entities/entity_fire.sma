@@ -15,7 +15,7 @@
 
 #define ENTITY_NAME "fire"
 
-#define FIRE_BORDERS 8.0
+#define FIRE_BORDERS 2.0
 #define FIRE_PADDING (FIRE_BORDERS + 16.0)
 #define FIRE_THINK_RATE 0.025
 #define FIRE_DAMAGE_RATE 0.5
@@ -372,7 +372,17 @@ bool:@Entity_Damage(this, pTarget) {
 
 @Entity_ParticlesEffect(this) {
     static Float:vecOrigin[3]; CE_GetMemberVec(this, m_vecEffectOrigin, vecOrigin);
-    static iScale; iScale = random_num(3, 8);
+
+    static Float:vecMins[3]; pev(this, pev_absmin, vecMins);
+    static Float:vecMaxs[3]; pev(this, pev_absmax, vecMaxs);
+
+    static Float:flAvgSize; flAvgSize = (
+        ((vecMaxs[0] - FIRE_PADDING) - (vecMins[0] + FIRE_PADDING)) +
+        ((vecMaxs[1] - FIRE_PADDING) - (vecMins[1] + FIRE_PADDING)) +
+        ((vecMaxs[2] - FIRE_PADDING) - (vecMins[2] + FIRE_PADDING))
+    ) / 3;
+
+    static iScale; iScale = clamp(floatround(flAvgSize * random_float(0.0975, 0.275)), 2, 80);
 
     static iSmokeIndex; iSmokeIndex = random(sizeof(g_rgiFlameModelIndex));
     static iSmokeFrameRate; iSmokeFrameRate = floatround(

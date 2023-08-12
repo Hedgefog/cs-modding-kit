@@ -5,7 +5,6 @@
 #include <nvault>
 
 #include <cellstruct>
-#include <nvault_array>
 
 #define VAULT_NAME "api_player_inventory"
 #define VAULT_VERSION 1
@@ -16,11 +15,17 @@
 
 enum InventorySlot { InventorySlot_Item, InventorySlot_Type[32] };
 
-new g_fwNewSlot;
-new g_fwTakeSlot;
+new g_fwInitialized;
+new g_fwLoad;
+new g_fwLoaded;
+new g_fwSave;
+new g_fwSaved;
+new g_fwSlotCreated;
+new g_fwSlotRemoved;
+new g_fwSlotLoad;
 new g_fwSlotLoaded;
+new g_fwSlotSave;
 new g_fwSlotSaved;
-new g_fwDestroy;
 
 new g_hVault;
 
@@ -34,15 +39,20 @@ public plugin_precache() {
 public plugin_init() {
     register_plugin(PLUGIN, VERSION, AUTHOR);
 
-    g_fwNewSlot = CreateMultiForward("PlayerInventory_Fw_NewSlot", ET_IGNORE, FP_CELL, FP_CELL);
-    g_fwTakeSlot = CreateMultiForward("PlayerInventory_Fw_TakeSlot", ET_IGNORE, FP_CELL, FP_CELL);
+    g_fwInitialized = CreateMultiForward("PlayerInventory_Fw_Initialized", ET_STOP, FP_CELL);
+    g_fwLoad = CreateMultiForward("PlayerInventory_Fw_Load", ET_STOP, FP_CELL);
+    g_fwLoaded = CreateMultiForward("PlayerInventory_Fw_Loaded", ET_IGNORE, FP_CELL);
+    g_fwSave = CreateMultiForward("PlayerInventory_Fw_Save", ET_STOP, FP_CELL);
+    g_fwSaved = CreateMultiForward("PlayerInventory_Fw_Saved", ET_IGNORE, FP_CELL);
+    g_fwSlotCreated = CreateMultiForward("PlayerInventory_Fw_SlotCreated", ET_IGNORE, FP_CELL, FP_CELL);
+    g_fwSlotRemoved = CreateMultiForward("PlayerInventory_Fw_SlotRemoved", ET_IGNORE, FP_CELL, FP_CELL);
+    g_fwSlotLoad = CreateMultiForward("PlayerInventory_Fw_SlotLoad", ET_STOP, FP_CELL, FP_CELL);
     g_fwSlotLoaded = CreateMultiForward("PlayerInventory_Fw_SlotLoaded", ET_IGNORE, FP_CELL, FP_CELL);
+    g_fwSlotSave = CreateMultiForward("PlayerInventory_Fw_SlotSave", ET_STOP, FP_CELL, FP_CELL);
     g_fwSlotSaved = CreateMultiForward("PlayerInventory_Fw_SlotSaved", ET_IGNORE, FP_CELL, FP_CELL);
-    g_fwDestroy = CreateMultiForward("PlayerInventory_Fw_Destroy", ET_IGNORE);
 }
 
 public plugin_end() {
-    ExecuteForward(g_fwDestroy);
     nvault_close(g_hVault);
 }
 
@@ -151,6 +161,8 @@ public client_connect(pPlayer) {
     }
 
     g_irgPlayerInventories[pPlayer] = ArrayCreate();
+
+    ExecuteForward(g_fwInitialized, _, pPlayer);
 }
 
 public client_authorized(pPlayer) {
@@ -171,7 +183,7 @@ public client_disconnected(pPlayer) {
     StructGetString(sSlot, InventorySlot_Type, szSavedType, charsmax(szSavedType));
 
     new iSlot = ArrayPushCell(g_irgPlayerInventories[this], sSlot);
-    ExecuteForward(g_fwNewSlot, _, this, iSlot);
+    ExecuteForward(g_fwSlotCreated, _, this, iSlot);
 
     return iSlot;
 }
@@ -187,15 +199,15 @@ public client_disconnected(pPlayer) {
 }
 
 @Player_TakeItem(this, iSlot) {
-    static iResult;
-    ExecuteForward(g_fwTakeSlot, iResult, this, iSlot);
-
-    if (iResult != PLUGIN_CONTINUE) {
+    new Struct:sSlot = ArrayGetCell(g_irgPlayerInventories[this], iSlot);
+    if (sSlot == Invalid_Struct) {
         return false;
     }
 
-    new Struct:sSlot = ArrayGetCell(g_irgPlayerInventories[this], iSlot);
-    if (sSlot == Invalid_Struct) {
+    static iResult;
+    ExecuteForward(g_fwSlotRemoved, iResult, this, iSlot);
+
+    if (iResult != PLUGIN_CONTINUE) {
         return false;
     }
 
@@ -264,6 +276,12 @@ LoadPlayerInventory(pPlayer) {
         return;
     }
 
+    static iLoadResult;
+    ExecuteForward(g_fwLoad, iLoadResult, pPlayer);
+    if (iLoadResult != PLUGIN_CONTINUE) {
+        return;
+    }
+
     ArrayClear(g_irgPlayerInventories[pPlayer]);
 
     new szKey[32];
@@ -274,28 +292,29 @@ LoadPlayerInventory(pPlayer) {
 
     //Save items
     for (new iSlot = 0; iSlot < iInventorySize; ++iSlot) {
+        static iSlotLoadResult;
+        ExecuteForward(g_fwSlotLoad, iSlotLoadResult, pPlayer, iSlot);
+        if (iSlotLoadResult != PLUGIN_CONTINUE) {
+            continue;
+        }
+
         // item type
         format(szKey, charsmax(szKey), "%s_item_%i_type", g_rgszPlayerAuthId[pPlayer], iSlot);
 
         new szType[32];
         nvault_get(g_hVault, szKey, szType, charsmax(szType));
 
-        // item struct size
-        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iSlot);
-
-        new iItemSize = nvault_get(g_hVault, szKey);
-
         // item struct
         format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iSlot);
-
-        new Struct:sItem = StructCreate(iItemSize);
-        nvault_get_array(g_hVault, szKey, szValue, iItemSize);
-        StructSetArray(sItem, 0, szValue, iItemSize);
+        nvault_get(g_hVault, szKey, szValue, charsmax(szValue));
+        new Struct:sItem = StructFromString(sItem, szValue);
 
         @Player_GiveItem(pPlayer, szType, sItem);
 
         ExecuteForward(g_fwSlotLoaded, _, pPlayer, iSlot);
     }
+
+    ExecuteForward(g_fwLoaded, _, pPlayer);
 }
 
 SavePlayerInventory(pPlayer) {
@@ -307,6 +326,12 @@ SavePlayerInventory(pPlayer) {
 
     new iInventorySize = ArraySize(irgInventory);
     if (!iInventorySize) {
+        return;
+    }
+
+    new iSaveResult = 0;
+    ExecuteForward(g_fwSave, iSaveResult, pPlayer);
+    if (iSaveResult != PLUGIN_CONTINUE) {
         return;
     }
 
@@ -322,23 +347,23 @@ SavePlayerInventory(pPlayer) {
             continue;
         }
 
+        static iSlotSaveResult;
+        ExecuteForward(g_fwSlotSave, iSlotSaveResult, pPlayer, iSlot);
+        if (iSlotSaveResult != PLUGIN_CONTINUE) {
+            continue;
+        }
+
         new Struct:sItem = StructGetCell(sSlot, InventorySlot_Item);
-        new iItemSize = StructSize(sItem);
 
         // item type
         format(szKey, charsmax(szKey), "%s_item_%i_type", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
         StructGetString(sSlot, InventorySlot_Type, szValue, charsmax(szValue));
         nvault_set(g_hVault, szKey, szValue);
 
-        // item struct size
-        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
-        format(szValue, charsmax(szValue), "%d", iItemSize);
-        nvault_set(g_hVault, szKey, szValue);
-
         // item struct
         format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iNewInventorySize);
-        StructGetArray(sItem, 0, szValue, iItemSize);
-        nvault_set_array(g_hVault, szKey, szValue, iItemSize);
+        StructStringify(sItem, szValue, charsmax(szValue));
+        nvault_set(g_hVault, szKey, szValue);
 
         iNewInventorySize++;
 
@@ -346,9 +371,6 @@ SavePlayerInventory(pPlayer) {
     }
 
     for (new iSlot = iNewInventorySize; iSlot < iInventorySize; ++iSlot) {
-        format(szKey, charsmax(szKey), "%s_item_%i_size", g_rgszPlayerAuthId[pPlayer], iSlot);
-        nvault_remove(g_hVault, szKey);
-
         format(szKey, charsmax(szKey), "%s_item_%i", g_rgszPlayerAuthId[pPlayer], iSlot);
         nvault_remove(g_hVault, szKey);
 
@@ -361,4 +383,6 @@ SavePlayerInventory(pPlayer) {
     format(szValue, charsmax(szValue), "%i", iNewInventorySize);
 
     nvault_set(g_hVault, szKey, szValue);
+
+    ExecuteForward(g_fwSaved, _, pPlayer);
 }

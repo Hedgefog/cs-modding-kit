@@ -135,7 +135,7 @@ public plugin_init() {
     static pAimEnt; pAimEnt = pev(this, pev_aiment);
 
     if (iMoveType == MOVETYPE_FOLLOW) {
-        if (pev(pAimEnt, pev_deadflag) != DEAD_NO) {
+        if (!pev_valid(pAimEnt) || pev(pAimEnt, pev_flags) & FL_KILLME || pev(pAimEnt, pev_deadflag) != DEAD_NO) {
             CE_Kill(this);
             return;
         }

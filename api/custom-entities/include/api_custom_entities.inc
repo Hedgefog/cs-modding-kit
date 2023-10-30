@@ -46,7 +46,10 @@ enum CEFunction {
   CEFunction_Init, // Calls when entity is initialized (on first spawn)
   CEFunction_Restart, // Calls when entity is restarting (on first spawn)
   CEFunction_Think, // Calls when entity thinking
-  CEFunction_Touch // Calls when entity touched
+  CEFunction_Touch, // Calls when entity touched
+  CEFunction_InitModel, // Calls when on entity model initialization
+  CEFunction_InitSize, // Calls when on entity model initialization
+  CEFunction_InitPhysics, // Calls when on entity model initialization
 };
 
 /*

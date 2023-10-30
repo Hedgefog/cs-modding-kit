@@ -556,19 +556,19 @@ bool:@Entity_IsCustom(this) {
   set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
   set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
 
+  @Entity_InitPhysics(this);
+  @Entity_InitModel(this);
+  @Entity_InitSize(this);
+
   new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
-  @Entity_ApplyPreset(this, iPreset);
 
-  if (HasPDataMember(itPData, CE_MEMBER_MODEL)) {
-    static szModel[MAX_RESOURCE_PATH_LENGTH];
-    GetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel, charsmax(szModel));
-    engfunc(EngFunc_SetModel, this, szModel);
-  }
-
-  static Float:vecMins[3]; ArrayGetArray(g_rgCEData[CEData_Mins], iId, vecMins);
-  static Float:vecMaxs[3]; ArrayGetArray(g_rgCEData[CEData_Maxs], iId, vecMaxs);
-  if (xs_vec_distance(vecMins, vecMaxs) > 0.0) {
-    engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
+  switch (iPreset) {
+    case CEPreset_Trigger: {
+      SetPDataMember(itPData, CE_MEMBER_DELAY, 0.1);
+    }
+    case CEPreset_NPC: {
+      set_pev(this, pev_flags, pev(this, pev_flags) | FL_MONSTER);
+    }
   }
 
   if (HasPDataMember(itPData, CE_MEMBER_ORIGIN)) {
@@ -606,6 +606,85 @@ bool:@Entity_IsCustom(this) {
 
   if (~iObjectCaps & FCAP_ACROSS_TRANSITION) {
     dllfunc(DLLFunc_Spawn, this);
+  }
+}
+
+@Entity_InitPhysics(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
+
+  if (ExecuteHookFunction(CEFunction_InitPhysics, iId, this) != PLUGIN_CONTINUE) {
+    return;
+  }
+
+  switch (iPreset) {
+    case CEPreset_Item: {
+      set_pev(this, pev_solid, SOLID_TRIGGER);
+      set_pev(this, pev_movetype, MOVETYPE_TOSS);
+      set_pev(this, pev_takedamage, DAMAGE_NO);
+    }
+    case CEPreset_NPC: {
+      set_pev(this, pev_solid, SOLID_BBOX);
+      set_pev(this, pev_movetype, MOVETYPE_PUSHSTEP);
+      set_pev(this, pev_takedamage, DAMAGE_AIM);
+      
+      set_pev(this, pev_controller_0, 125);
+      set_pev(this, pev_controller_1, 125);
+      set_pev(this, pev_controller_2, 125);
+      set_pev(this, pev_controller_3, 125);
+      
+      set_pev(this, pev_gamestate, 1);
+      set_pev(this, pev_gravity, 1.0);
+      set_pev(this, pev_fixangle, 1);
+      set_pev(this, pev_friction, 0.25);
+    }
+    case CEPreset_Prop: {
+      set_pev(this, pev_solid, SOLID_BBOX);
+      set_pev(this, pev_movetype, MOVETYPE_FLY);
+      set_pev(this, pev_takedamage, DAMAGE_NO);
+    }
+    case CEPreset_Trigger: {
+      set_pev(this, pev_solid, SOLID_TRIGGER);
+      set_pev(this, pev_movetype, MOVETYPE_NONE);
+      set_pev(this, pev_effects, EF_NODRAW);
+    }
+    case CEPreset_BSP: {
+      set_pev(this, pev_movetype, MOVETYPE_PUSH);
+      set_pev(this, pev_solid, SOLID_BSP);
+      set_pev(this, pev_flags, pev(this, pev_flags) | FL_WORLDBRUSH);
+    }
+  }
+}
+
+@Entity_InitModel(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  if (ExecuteHookFunction(CEFunction_InitModel, iId, this) != PLUGIN_CONTINUE) {
+    return;
+  }
+
+  if (HasPDataMember(itPData, CE_MEMBER_MODEL)) {
+    static szModel[MAX_RESOURCE_PATH_LENGTH];
+    GetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel, charsmax(szModel));
+    engfunc(EngFunc_SetModel, this, szModel);
+  }
+
+}
+
+@Entity_InitSize(this) {
+  new Trie:itPData = @Entity_GetPData(this);
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  if (ExecuteHookFunction(CEFunction_InitSize, iId, this) != PLUGIN_CONTINUE) {
+    return;
+  }
+
+  static Float:vecMins[3]; ArrayGetArray(g_rgCEData[CEData_Mins], iId, vecMins);
+  static Float:vecMaxs[3]; ArrayGetArray(g_rgCEData[CEData_Maxs], iId, vecMaxs);
+  if (xs_vec_distance(vecMins, vecMaxs) > 0.0) {
+    engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
   }
 }
 
@@ -765,50 +844,6 @@ bool:@Entity_CanActivate(this, pTarget) {
 
   set_pev(this, pev_nextthink, get_gametime() + flDelay);
   ExecuteHookFunction(CEFunction_Activated, iId, this, pActivator);
-}
-
-@Entity_ApplyPreset(this, CEPreset:iPreset) {
-  new Trie:itPData = @Entity_GetPData(this);
-
-  switch (iPreset) {
-    case CEPreset_Item: {
-      set_pev(this, pev_solid, SOLID_TRIGGER);
-      set_pev(this, pev_movetype, MOVETYPE_TOSS);
-      set_pev(this, pev_takedamage, DAMAGE_NO);
-    }
-    case CEPreset_NPC: {
-      set_pev(this, pev_solid, SOLID_BBOX);
-      set_pev(this, pev_movetype, MOVETYPE_PUSHSTEP);
-      set_pev(this, pev_takedamage, DAMAGE_AIM);
-      
-      set_pev(this, pev_controller_0, 125);
-      set_pev(this, pev_controller_1, 125);
-      set_pev(this, pev_controller_2, 125);
-      set_pev(this, pev_controller_3, 125);
-      
-      set_pev(this, pev_gamestate, 1);
-      set_pev(this, pev_gravity, 1.0);
-      set_pev(this, pev_flags, pev(this, pev_flags) | FL_MONSTER);
-      set_pev(this, pev_fixangle, 1);
-      set_pev(this, pev_friction, 0.25);
-    }
-    case CEPreset_Prop: {
-      set_pev(this, pev_solid, SOLID_BBOX);
-      set_pev(this, pev_movetype, MOVETYPE_FLY);
-      set_pev(this, pev_takedamage, DAMAGE_NO);
-    }
-    case CEPreset_Trigger: {
-      set_pev(this, pev_solid, SOLID_TRIGGER);
-      set_pev(this, pev_movetype, MOVETYPE_NONE);
-      set_pev(this, pev_effects, EF_NODRAW);
-      SetPDataMember(itPData, CE_MEMBER_DELAY, 0.1);
-    }
-    case CEPreset_BSP: {
-      set_pev(this, pev_movetype, MOVETYPE_PUSH);
-      set_pev(this, pev_solid, SOLID_BSP);
-      set_pev(this, pev_flags, pev(this, pev_flags) | FL_WORLDBRUSH);
-    }
-  }
 }
 
 @Entity_BloodColor(this) {
@@ -1054,7 +1089,7 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
           
           static szValue[32];
           for (new i = 0; i < charsmax(szValue); ++i) {
-            szValue[i] = getarg(4, i);            
+            szValue[i] = getarg(4, i);
             
             if (szValue[i]  == '^0') {
               break;
@@ -1066,7 +1101,7 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
         }
       }
 
-      iResult += callfunc_end();    
+      iResult += callfunc_end();
     }
   }
 

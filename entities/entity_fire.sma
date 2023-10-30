@@ -20,6 +20,7 @@
 #define FIRE_THINK_RATE 0.025
 #define FIRE_DAMAGE_RATE 0.5
 #define FIRE_WATER_CHECK_RATE 1.0
+#define FIRE_SPREAD_THINK_RATE 1.0
 #define FIRE_PARTICLES_EFFECT_RATE 0.025
 #define FIRE_LIGHT_EFFECT_RATE 0.05
 #define FIRE_SOUND_RATE 1.0
@@ -31,10 +32,13 @@
 #define m_flNextDamage "flNextDamage"
 #define m_flNextSizeUpdate "flNextSizeUpdate"
 #define m_flNextWaterCheck "flNextWaterCheck"
+#define m_flNextSpreadThink "flNextSpreadThink"
 #define m_flDamage "flDamage"
 #define m_vecEffectOrigin "vecEffectOrigin"
 #define m_bAllowSpread "bAllowSpread"
 #define m_bDamaged "bDamaged"
+#define m_flSpreadRange "flSpreadRange"
+#define m_flChildrenLifeTime "flChildrenLifeTime"
 
 new g_rgszFlameSprites[][] = {
     "sprites/bexplo.spr",
@@ -58,8 +62,18 @@ new g_rgiFlameModelIndex[sizeof(g_rgszFlameSprites)];
 new g_rgiFlameModelFramesNum[sizeof(g_rgszFlameSprites)];
 new g_rgiSmokeModelIndex[sizeof(g_rgszSmokeSprites)];
 new g_rgiSmokeModelFramesNum[sizeof(g_rgszSmokeSprites)];
+new Array:g_irgFireEntities;
+
+new g_pCvarDamage;
+new g_pCvarSpread;
+new g_pCvarSpreadRange;
+new g_pCvarLifeTime;
+
+new g_iCeHandler;
 
 public plugin_precache() {
+    g_irgFireEntities = ArrayCreate();
+
     for (new i = 0; i < sizeof(g_rgszFlameSprites); ++i) {
         g_rgiFlameModelIndex[i] = precache_model(g_rgszFlameSprites[i]);
         g_rgiFlameModelFramesNum[i] = engfunc(EngFunc_ModelFrames, g_rgiFlameModelIndex[i]);
@@ -74,28 +88,63 @@ public plugin_precache() {
         precache_sound(g_rgszBurningSounds[i]);
     }
 
-    CE_Register(ENTITY_NAME, NULL_STRING, Float:{-FIRE_BORDERS, -FIRE_BORDERS, -FIRE_BORDERS}, Float:{FIRE_BORDERS, FIRE_BORDERS, FIRE_BORDERS});
+    g_iCeHandler = CE_Register(ENTITY_NAME, NULL_STRING, Float:{-16.0, -16.0, -16.0}, Float:{16.0, 16.0, 16.0});
     CE_RegisterHook(CEFunction_Init, ENTITY_NAME, "@Entity_Init");
+    CE_RegisterHook(CEFunction_KVD, ENTITY_NAME, "@Entity_KeyValue");
     CE_RegisterHook(CEFunction_Spawn, ENTITY_NAME, "@Entity_Spawn");
     CE_RegisterHook(CEFunction_Touch, ENTITY_NAME, "@Entity_Touch");
     CE_RegisterHook(CEFunction_Think, ENTITY_NAME, "@Entity_Think");
     CE_RegisterHook(CEFunction_Killed, ENTITY_NAME, "@Entity_Killed");
     CE_RegisterHook(CEFunction_Remove, ENTITY_NAME, "@Entity_Remove");
+
+    register_forward(FM_OnFreeEntPrivateData, "FMHook_OnFreeEntPrivateData");
 }
 
 public plugin_init() {
     register_plugin(PLUGIN, VERSION, AUTHOR);
+
+    g_pCvarDamage = register_cvar("fire_damage", "5.0");
+    g_pCvarSpread = register_cvar("fire_spread", "1");
+    g_pCvarSpreadRange = register_cvar("fire_spread_range", "16.0");
+    g_pCvarLifeTime = register_cvar("fire_life_time", "10.0");
+}
+
+public plugin_end() {
+    ArrayDestroy(g_irgFireEntities);
+}
+
+@Entity_KeyValue(this, const szKey[], const szValue[]) {
+    if (equal(szKey, "damage")) {
+        CE_SetMember(this, m_flDamage, str_to_float(szValue));
+    } else if (equal(szKey, "lifetime")) {
+        CE_SetMember(this, m_flChildrenLifeTime, str_to_float(szValue));
+    } else if (equal(szKey, "range")) {
+        CE_SetMember(this, m_flSpreadRange, str_to_float(szValue));
+    } else if (equal(szKey, "spread")) {
+        CE_SetMember(this, m_bAllowSpread, str_to_num(szValue));
+    }
 }
 
 @Entity_Init(this) {
     CE_SetMemberVec(this, m_vecEffectOrigin, NULL_VECTOR);
 
-    /* 
-        Currently only partially works, because the touch doesn't handle for non-moving entities, 
-        as well as for entities with "MOVETYPE_FOLLOW" movetype,
-        so the fire will not spread if it's attached to something.
-    */
-    CE_SetMember(this, m_bAllowSpread, false);
+    if (!CE_HasMember(this, m_flDamage)) {
+        CE_SetMember(this, m_flDamage, get_pcvar_float(g_pCvarDamage));
+    }
+
+    if (!CE_HasMember(this, m_flChildrenLifeTime)) {
+        CE_SetMember(this, m_flChildrenLifeTime, get_pcvar_float(g_pCvarLifeTime));
+    }
+
+    if (!CE_HasMember(this, m_flSpreadRange)) {
+        CE_SetMember(this, m_flSpreadRange, get_pcvar_float(g_pCvarSpreadRange));
+    }
+
+    if (!CE_HasMember(this, m_bAllowSpread)) {
+        CE_SetMember(this, m_bAllowSpread, get_pcvar_bool(g_pCvarSpread));
+    }
+
+    ArrayPushCell(g_irgFireEntities, this);
 }
 
 @Entity_Spawn(this) {
@@ -107,14 +156,20 @@ public plugin_init() {
     CE_SetMember(this, m_flNextDamage, flGameTime);
     CE_SetMember(this, m_flNextSizeUpdate, flGameTime);
     CE_SetMember(this, m_flNextWaterCheck, flGameTime);
-    CE_SetMember(this, m_flDamage, 5.0);
+    CE_SetMember(this, m_flNextSpreadThink, flGameTime);
+    CE_SetMember(this, m_flDamage, Float:CE_GetMember(this, m_flDamage));
     CE_SetMember(this, m_bDamaged, false);
 
     set_pev(this, pev_takedamage, DAMAGE_NO);
     set_pev(this, pev_solid, SOLID_TRIGGER);
     set_pev(this, pev_movetype, MOVETYPE_TOSS);
 
-    set_pev(this, pev_nextthink, get_gametime());
+    set_pev(this, pev_nextthink, flGameTime);
+
+    // Limited lifetime for the real-time spawned entity 
+    if (!CE_GetMember(this, CE_MEMBER_WORLD)) {
+        CE_SetMember(this, CE_MEMBER_NEXTKILL, flGameTime + get_pcvar_float(g_pCvarLifeTime));
+    }
 }
 
 @Entity_Killed(this) {
@@ -123,6 +178,11 @@ public plugin_init() {
 
 @Entity_Remove(this) {
     @Entity_StopSound(this);
+
+    new iIndex = ArrayFindValue(g_irgFireEntities, this);
+    if (iIndex != -1) {
+        ArrayDeleteItem(g_irgFireEntities, iIndex);
+    }
 }
 
 @Entity_Touch(this, pToucher) {
@@ -148,6 +208,11 @@ public plugin_init() {
         }
 
         CE_SetMember(this, m_flNextWaterCheck, flGameTime + FIRE_WATER_CHECK_RATE);
+    }
+
+    if (CE_GetMember(this, m_flNextSpreadThink) <= flGameTime) {
+        @Entity_SpreadThink(this);
+        CE_SetMember(this, m_flNextSpreadThink, flGameTime + FIRE_SPREAD_THINK_RATE);
     }
 
     /*
@@ -205,6 +270,45 @@ public plugin_init() {
     set_pev(this, pev_nextthink, flGameTime + FIRE_THINK_RATE);
 }
 
+@Entity_SpreadThink(this) {
+    if (!@Entity_CanSpread(this)) {
+        return;
+    }
+
+    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+    new Float:flRange = CE_GetMember(this, m_flSpreadRange);
+
+    if (pev(this, pev_movetype) == MOVETYPE_FOLLOW) {
+        new pAimEnt = pev(this, pev_aiment);
+        static Float:vecMins[3]; pev(pAimEnt, pev_mins, vecMins);
+        static Float:vecMaxs[3]; pev(pAimEnt, pev_maxs, vecMaxs);
+
+        flRange = floatmax(
+            vecMaxs[2] - vecMins[2],
+            floatmax(vecMaxs[0] - vecMins[0], vecMaxs[1] - vecMins[1])
+        ) / 2;
+    }
+
+    new Array:irgNearbyEntities = ArrayCreate();
+
+    new pTarget = 0;
+    while ((pTarget = engfunc(EngFunc_FindEntityInSphere, pTarget, vecOrigin, flRange)) > 0) {
+        if (pev(pTarget, pev_takedamage) == DAMAGE_NO) {
+            continue;
+        }
+
+        ArrayPushCell(irgNearbyEntities, pTarget);
+    }
+
+    new iNearbyEntitiesNum = ArraySize(irgNearbyEntities);
+    for (new i = 0; i < iNearbyEntitiesNum; ++i) {
+        new pTarget = ArrayGetCell(irgNearbyEntities, i);
+        @Entity_Spread(this, pTarget);
+    }
+
+    ArrayDestroy(irgNearbyEntities);
+}
+
 @Entity_UpdateSize(this) {
     if (pev(this, pev_movetype) != MOVETYPE_FOLLOW) {
         return;
@@ -238,6 +342,18 @@ public plugin_init() {
     }
 
     engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
+}
+
+bool:@Entity_CanSpread(this) {
+    if (!get_pcvar_bool(g_pCvarSpread)) {
+        return false;
+    }
+
+    if (!CE_GetMember(this, m_bAllowSpread)) {
+        return false;
+    }
+
+    return true;
 }
 
 @Entity_InWater(this) {
@@ -292,25 +408,16 @@ bool:@Entity_Damage(this, pTarget) {
         }
     }
 
-    if (pev(this, pev_movetype) != MOVETYPE_FOLLOW) {
-        if (@Entity_CanIgnite(this, pTarget)) {
-            // Attach fire to the entity we damaged
-            set_pev(this, pev_movetype, MOVETYPE_FOLLOW);
-            set_pev(this, pev_aiment, pTarget);
-        }
-    } else if (CE_GetMember(this, m_bAllowSpread)) {
-        if (@Entity_CanIgnite(this, pTarget)) {
-            static Float:vecOrigin[3];
-            pev(this, pev_origin, vecOrigin);
-
-            new pChild = CE_Create(ENTITY_NAME, vecOrigin);
-            dllfunc(DLLFunc_Spawn, pChild);
-            set_pev(pChild, pev_movetype, MOVETYPE_FOLLOW);
-            set_pev(pChild, pev_aiment, pTarget);
-            set_pev(pChild, pev_owner, this);
-
-            CE_SetMember(pChild, CE_MEMBER_NEXTKILL, Float:CE_GetMember(this, CE_MEMBER_NEXTKILL));
-        }
+    // if (pev(this, pev_movetype) != MOVETYPE_FOLLOW) {
+    //     if (@Entity_CanIgnite(this, pTarget)) {
+    //         // Attach fire to the entity we damaged
+    //         set_pev(this, pev_movetype, MOVETYPE_FOLLOW);
+    //         set_pev(this, pev_aiment, pTarget);
+    //     }
+    // }
+    
+    if (@Entity_CanSpread(this)) {
+        @Entity_Spread(this, pTarget);
     }
 
     CE_SetMember(this, m_bDamaged, true);
@@ -318,22 +425,68 @@ bool:@Entity_Damage(this, pTarget) {
     return true;
 }
 
+@Entity_Spread(this, pTarget) {
+    if (!@Entity_CanIgnite(this, pTarget)) {
+        return 0;
+    }
+
+    new pChild = @Entity_CreateChild(this);
+    if (!pChild) {
+        return 0;
+    }
+
+    set_pev(pChild, pev_aiment, pTarget);
+    set_pev(pChild, pev_movetype, MOVETYPE_FOLLOW);
+
+    return pChild;
+}
+
+@Entity_CreateChild(this) {
+    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+
+    new pChild = CE_Create(ENTITY_NAME, vecOrigin);
+    if (!pChild) {
+        return 0;
+    }
+
+    dllfunc(DLLFunc_Spawn, pChild);
+
+    new Float:flLifeTime = CE_GetMember(this, m_flChildrenLifeTime);
+
+    CE_SetMember(pChild, m_flDamage, Float:CE_GetMember(this, m_flDamage));
+    CE_SetMember(pChild, m_bAllowSpread, CE_GetMember(this, m_bAllowSpread));
+    CE_SetMember(pChild, m_flSpreadRange, Float:CE_GetMember(this, m_flSpreadRange));
+    CE_SetMember(pChild, m_flChildrenLifeTime, flLifeTime);
+    CE_SetMember(pChild, CE_MEMBER_NEXTKILL, get_gametime() + flLifeTime);
+
+    new pOwner = pev(this, pev_owner);
+    set_pev(pChild, pev_owner, pOwner);
+
+    return pChild;
+}
+
 @Entity_CanIgnite(this, pTarget) {
-    new iCeFireHandler = CE_GetHandler(ENTITY_NAME);
+    if (pev(pTarget, pev_takedamage) == DAMAGE_NO) {
+        return false;
+    }
 
-    static Float:vecOrigin[3];
-    pev(pTarget, pev_origin, vecOrigin);
+    if (pev(pTarget, pev_deadflag) != DEAD_NO) {
+        return false;
+    }
 
-    new pNearbyTarget = 0;
-    while ((pNearbyTarget = engfunc(EngFunc_FindEntityInSphere, pNearbyTarget, vecOrigin, 4.0)) > 0) {
-        if (CE_GetHandlerByEntity(pNearbyTarget) != iCeFireHandler) {
-            continue;
-        }
+    // Fire entity cannot be ignited
+    if (CE_GetHandlerByEntity(pTarget) == g_iCeHandler) {
+        return false;
+    }
 
-        // If target is already on fire
-        if (pev(pNearbyTarget, pev_aiment) == pTarget) {
-            return false;
-        }
+    static iMoveType; iMoveType = pev(this, pev_movetype);
+    static pAimEnt; pAimEnt = pev(this, pev_aiment);
+    if (iMoveType == MOVETYPE_FOLLOW && pAimEnt == pTarget) {
+        return false;
+    }
+
+    if (@Base_IsOnFire(pTarget)) {
+        return false;
     }
 
     return true;
@@ -382,7 +535,7 @@ bool:@Entity_Damage(this, pTarget) {
         ((vecMaxs[2] - FIRE_PADDING) - (vecMins[2] + FIRE_PADDING))
     ) / 3;
 
-    static iScale; iScale = clamp(floatround(flAvgSize * random_float(0.0975, 0.275)), 2, 80);
+    static iScale; iScale = clamp(floatround(flAvgSize * random_float(0.0975, 0.275)), 4, 80);
 
     static iSmokeIndex; iSmokeIndex = random(sizeof(g_rgiFlameModelIndex));
     static iSmokeFrameRate; iSmokeFrameRate = floatround(
@@ -458,4 +611,34 @@ bool:@Entity_Damage(this, pTarget) {
     write_byte(iLifeTime);
     write_byte(iDecayRate);
     message_end();
+}
+
+bool:@Base_IsOnFire(this) {
+    new iSize = ArraySize(g_irgFireEntities);
+
+    for (new i = 0; i < iSize; ++i) {
+        new pFire = ArrayGetCell(g_irgFireEntities, i);
+
+        if (pev(pFire, pev_movetype) == MOVETYPE_FOLLOW && pev(pFire, pev_aiment) == this) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+@Base_Extinguish(this) {
+    new iSize = ArraySize(g_irgFireEntities);
+
+    for (new i = 0; i < iSize; ++i) {
+        new pFire = ArrayGetCell(g_irgFireEntities, i);
+
+        if (pev(pFire, pev_movetype) == MOVETYPE_FOLLOW && pev(pFire, pev_aiment) == this) {
+            CE_Kill(pFire);
+        }
+    }
+}
+
+public FMHook_OnFreeEntPrivateData(pEntity) {
+    @Base_Extinguish(pEntity);
 }

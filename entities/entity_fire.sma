@@ -141,7 +141,7 @@ public plugin_end() {
     }
 
     if (!CE_HasMember(this, m_bAllowSpread)) {
-        CE_SetMember(this, m_bAllowSpread, get_pcvar_bool(g_pCvarSpread));
+        CE_SetMember(this, m_bAllowSpread, false);
     }
 
     ArrayPushCell(g_irgFireEntities, this);

@@ -34,92 +34,99 @@ enum CEPreset {
 };
 
 enum CEFunction {
-  CEFunction_Spawn, // Calls when entity spawned
-  CEFunction_Kill, // Calls when some plugin try to kill entity. return PLUGIN_HANDLED to discard kill.
-  CEFunction_Killed, // Calls when entity killed
-  CEFunction_Remove, // Calls when entity removed
-  CEFunction_Picked, // Calls when player pick item
-  CEFunction_Pickup, // Calls when player touch item. Should return PLUGIN_HANDLED if picked.
   CEFunction_KVD, // Calls when new key value obtained
+  CEFunction_Spawn, // Calls during entity spawn
+  CEFunction_Init, // Calls when entity is initialized (on first spawn)
+  CEFunction_InitPhysics, // Calls during on entity physics initialization
+  CEFunction_InitModel, // Calls during on entity model initialization
+  CEFunction_InitSize, // Calls during on entity size initialization
+  CEFunction_Spawned, // Calls when entity spawned
+  CEFunction_Touch, // Calls during entity touch
+  CEFunction_Touched, // Calls when entity touched
+  CEFunction_Think, // Calls when entity thinking
+  CEFunction_Pickup, // Calls when player touch item. Should return PLUGIN_HANDLED if picked
+  CEFunction_Picked, // Calls when player pick item
   CEFunction_Activate, // Calls every trigger activation check
   CEFunction_Activated, // Calls when player activates trigger
-  CEFunction_Init, // Calls when entity is initialized (on first spawn)
-  CEFunction_Restart, // Calls when entity is restarting (on first spawn)
-  CEFunction_Think, // Calls when entity thinking
-  CEFunction_Touch, // Calls when entity touched
-  CEFunction_InitModel, // Calls when on entity model initialization
-  CEFunction_InitSize, // Calls when on entity model initialization
-  CEFunction_InitPhysics, // Calls when on entity model initialization
+  CEFunction_Restart, // Calls when entity is restarting
+  CEFunction_Kill, // Calls when something killing entity. return PLUGIN_HANDLED to block the kill.
+  CEFunction_Killed, // Calls when entity killed
+  CEFunction_Remove, // Calls before entity remove
 };
 
-/*
- * Register entity.
+/**
+ * Register entity
  *
- * @param szName Name of entity.
- * @param modelIndex Precached model index.
- * @param size Size of entity.
- * @param offset Offset of entity origin.
- * @param lifeTime Life time of entity.
- * @param preset Preset for entity.
- * @return Handler of registered entity.
+ * @param szName Name of an entity
+ * @param szModel Precached model
+ * @param vecMins Bounding box mins vector
+ * @param vecMaxs Bounding box maxs vector
+ * @param flLifeTime Life time of an entity
+ * @param flRespawnTime Respawn time of an entity
+ * @param bIgnoreRounds Entity will ignore rounds if true
+ * @param iPreset Preset for an entity
+ * @param iBloodColor Blood color of an entity
+ * @return Handler of the registered entity
  */
 native CE_Register(
   const szName[],
   const szModel[] = "",
-  const Float:vMins[3] = {0.0, 0.0, 0.0},
-  const Float:vMaxs[3] = {0.0, 0.0, 0.0},
-  Float:fLifeTime = 0.0,
-  Float:fRespawnTime = 10.0,
-  bool:ignoreRounds = false,
-  CEPreset:preset = CEPreset_None,
-  bloodColor = -1
+  const Float:vecMins[3] = {0.0, 0.0, 0.0},
+  const Float:vecMaxs[3] = {0.0, 0.0, 0.0},
+  Float:flLifeTime = 0.0,
+  Float:flRespawnTime = 10.0,
+  bool:bIgnoreRounds = false,
+  CEPreset:iPreset = CEPreset_None,
+  iBloodColor = -1
 );
 
-/*
- * Spawn entity.
+/**
+ * Spawn entity
  *
- * @param szName Name of entity.
- * @param vOrigin Spawn origin.
- * @return Entity index.
+ * @param szName Name of entity
+ * @param vecOrigin Spawn origin
+ * @param bTemp Mark entity as an temporary entity
+ * @return Entity index
  */
-native CE_Create(const szName[], const Float:vOrigin[3] = {0.0, 0.0, 0.0}, bool:temp = true);
+native CE_Create(const szName[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
 
-/*
- * Kill entity.
+/**
+ * Kill entity
  *
- * @param ent Index of entity.
- * @param killer Index of killer.
+ * @param pEntity Entity index
+ * @param pKiller Index of killer
  */
-native bool:CE_Kill(ent, killer = 0);
+native bool:CE_Kill(pEntity, pKiller = 0);
 
-/*
- * Remove entity correctly.
+/**
+ * Remove entity correctly
  *
- * @param ent Index of entity.
+ * @param pEntity Entity index
  * @return Result true/false
  */
-native bool:CE_Remove(ent);
+native bool:CE_Remove(pEntity);
 
-/*
- * Gets size of entity.
+/**
+ * Gets size of entity
  *
- * @param szName Name of entity.
- * @param vSize Output vector.
+ * @param szName Name of entity
+ * @param vecMins Output for bounding box mins vector
+ * @param vecMaxs Output for bounding box maxs vector
  */
-native CE_GetSize(const szName[], Float:vMins[3], Float:vMaxs[3]);
+native CE_GetSize(const szName[], Float:vecMins[3], Float:vecMaxs[3]);
 
-/*
- * Gets model of entity.
+/**
+ * Gets model of entity
  *
- * @param szName Name of entity.
+ * @param szName Name of entity
  * @param szModel Output string
  * @param iLen Output string max length
  * @return Result true/false
  */
 native bool:CE_GetModel(const szName[], szModel[], iLen);
 
-/*
- * Register new hook for entity.
+/**
+ * Register new hook for entity
  *
  * @param function Function handler
  * @param szName Name of entity
@@ -127,25 +134,86 @@ native bool:CE_GetModel(const szName[], szModel[], iLen);
  */
 native CE_RegisterHook(CEFunction:function, const szName[], const szCallback[]);
 
-/*
- * Gets handler of entity by name.
+/**
+ * Gets handler of entity by name
  *
- * @param szName Name of entity.
+ * @param szName Name of entity
  */
 native CE_GetHandler(const szName[]);
 
-/*
- * Gets handler of entity by index.
+/**
+ * Gets handler of entity by index
  *
- * @param ent Index of entity.
+ * @param pEntity Entity index
  */
-native CE_GetHandlerByEntity(ent);
+native CE_GetHandlerByEntity(pEntity);
 
-native bool:CE_HasMember(ent, const szMember[]);
-native any:CE_GetMember(ent, const szMember[]);
-native CE_DeleteMember(ent, const szMember[]);
-native CE_SetMember(ent, const szMember[], any:value);
-native bool:CE_GetMemberVec(ent, const szMember[], Float:vOut[3]);
-native CE_SetMemberVec(ent, const szMember[], const Float:vValue[3]);
-native bool:CE_GetMemberString(ent, const szMember[], szOut[], len);
-native CE_SetMemberString(ent, const szMember[], const szValue[]);
+/**
+ * Checks if entity has member
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ */
+native bool:CE_HasMember(pEntity, const szMember[]);
+
+/**
+ * Deletes member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ */
+native CE_DeleteMember(pEntity, const szMember[]);
+
+/**
+ * Gets member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ */
+native any:CE_GetMember(pEntity, const szMember[]);
+
+/**
+ * Sets member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ * @param value Value to set
+ */
+native CE_SetMember(pEntity, const szMember[], any:value);
+
+/**
+ * Gets vector member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ * @param vecOut Output vector
+ */
+native bool:CE_GetMemberVec(pEntity, const szMember[], Float:vecOut[3]);
+
+/**
+ * Sets vector member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ * @param vecValue Vector to set
+ */
+native CE_SetMemberVec(pEntity, const szMember[], const Float:vecValue[3]);
+
+/**
+ * Gets string member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ * @param szOut Buffer to copy the value
+ * @param iLen Maximum size of buffer
+ */
+native bool:CE_GetMemberString(pEntity, const szMember[], szOut[], iLen);
+
+/**
+ * Sets string member of an entity
+ *
+ * @param pEntity Entity index
+ * @param szMember Member name
+ * @param szValue String value to set
+ */
+native CE_SetMemberString(pEntity, const szMember[], const szValue[]);

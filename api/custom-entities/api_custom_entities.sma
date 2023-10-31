@@ -61,6 +61,7 @@ public plugin_precache() {
   RegisterHam(Ham_ObjectCaps, CE_BASE_CLASSNAME, "HamHook_Base_ObjectCaps", .Post = 0);
   RegisterHam(Ham_CS_Restart, CE_BASE_CLASSNAME, "HamHook_Base_Restart", .Post = 1);
   RegisterHam(Ham_Touch, CE_BASE_CLASSNAME, "HamHook_Base_Touch", .Post = 0);
+  RegisterHam(Ham_Touch, CE_BASE_CLASSNAME, "HamHook_Base_Touch_Post", .Post = 1);
   RegisterHam(Ham_Killed, CE_BASE_CLASSNAME, "HamHook_Base_Killed", .Post = 0);
   RegisterHam(Ham_Think, CE_BASE_CLASSNAME, "HamHook_Base_Think", .Post = 0);
   RegisterHam(Ham_BloodColor, CE_BASE_CLASSNAME, "HamHook_Base_BloodColor", .Post = 0);
@@ -462,6 +463,15 @@ public HamHook_Base_Touch(pEntity, pToucher) {
   return HAM_IGNORED;
 }
 
+public HamHook_Base_Touch_Post(pEntity, pToucher) {
+  if (@Entity_IsCustom(pEntity)) {
+    @Entity_Touched(pEntity, pToucher);
+    return HAM_HANDLED;
+  }
+
+  return HAM_IGNORED;
+}
+
 public HamHook_Base_Killed(pEntity, pKiller) {
   if (@Entity_IsCustom(pEntity)) {
     @Entity_Kill(pEntity, pKiller, false);
@@ -542,6 +552,12 @@ bool:@Entity_IsCustom(this) {
 @Entity_Spawn(this) {
   new Trie:itPData = @Entity_GetPData(this);
 
+  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  if (ExecuteHookFunction(CEFunction_Spawn, iId, this) != PLUGIN_CONTINUE) {
+    return;
+  }
+
   if (!GetPDataMember(itPData, CE_MEMBER_INITIALIZED)) {
     @Entity_Init(this);
   }
@@ -549,8 +565,6 @@ bool:@Entity_IsCustom(this) {
   if (!pev_valid(this) || pev(this, pev_flags) & FL_KILLME) {
     return;
   }
-
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
 
   set_pev(this, pev_deadflag, DEAD_NO);
   set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
@@ -593,7 +607,7 @@ bool:@Entity_IsCustom(this) {
     SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
   }
 
-  ExecuteHookFunction(CEFunction_Spawn, iId, this);
+  ExecuteHookFunction(CEFunction_Spawned, iId, this);
 }
 
 @Entity_Restart(this) {
@@ -755,14 +769,14 @@ bool:@Entity_IsCustom(this) {
 }
 
 @Entity_Touch(this, pToucher) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  static Trie:itPData; itPData = @Entity_GetPData(this);
+  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
 
   if (ExecuteHookFunction(CEFunction_Touch, iId, this, pToucher)) {
     return;
   }
 
-  new CEPreset:iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
+  static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgCEData[CEData_Preset], iId);
 
   switch (iPreset) {
     case CEPreset_Item: {
@@ -774,6 +788,13 @@ bool:@Entity_IsCustom(this) {
       @Entity_Trigger(this, pToucher);
     }
   }
+}
+
+@Entity_Touched(this, pToucher) {
+  static Trie:itPData; itPData = @Entity_GetPData(this);
+  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
+
+  ExecuteHookFunction(CEFunction_Touched, iId, this, pToucher);
 }
 
 @Entity_GetObjectCaps(this) {

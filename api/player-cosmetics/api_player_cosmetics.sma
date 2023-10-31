@@ -7,8 +7,6 @@
 
 #include <command_util>
 
-#tryinclude <cstrike>
-
 #define PLUGIN "[API] Player Cosmetics"
 #define VERSION "1.0.0"
 #define AUTHOR "Hedgehog Fog"

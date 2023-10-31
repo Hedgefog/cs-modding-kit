@@ -88,10 +88,10 @@ public plugin_precache() {
         precache_sound(g_rgszBurningSounds[i]);
     }
 
-    g_iCeHandler = CE_Register(ENTITY_NAME, NULL_STRING, Float:{-16.0, -16.0, -16.0}, Float:{16.0, 16.0, 16.0});
+    g_iCeHandler = CE_Register(ENTITY_NAME, _, Float:{-16.0, -16.0, -16.0}, Float:{16.0, 16.0, 16.0});
     CE_RegisterHook(CEFunction_Init, ENTITY_NAME, "@Entity_Init");
     CE_RegisterHook(CEFunction_KVD, ENTITY_NAME, "@Entity_KeyValue");
-    CE_RegisterHook(CEFunction_Spawn, ENTITY_NAME, "@Entity_Spawn");
+    CE_RegisterHook(CEFunction_Spawned, ENTITY_NAME, "@Entity_Spawned");
     CE_RegisterHook(CEFunction_Touch, ENTITY_NAME, "@Entity_Touch");
     CE_RegisterHook(CEFunction_Think, ENTITY_NAME, "@Entity_Think");
     CE_RegisterHook(CEFunction_Killed, ENTITY_NAME, "@Entity_Killed");
@@ -147,7 +147,7 @@ public plugin_end() {
     ArrayPushCell(g_irgFireEntities, this);
 }
 
-@Entity_Spawn(this) {
+@Entity_Spawned(this) {
     new Float:flGameTime = get_gametime();
 
     CE_SetMember(this, m_flNextParticlesEffect, flGameTime);

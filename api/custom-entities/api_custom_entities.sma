@@ -304,15 +304,14 @@ public bool:Native_GetMemberString(iPluginId, iArgc) {
   static szMember[CE_MAX_MEMBER_LENGTH];
   get_string(2, szMember, charsmax(szMember));
 
-  static szValue[128];
-  get_string(3, szValue, charsmax(szValue));
-
   new Trie:itPData = @Entity_GetPData(pEntity);
+
+  static szValue[128];
   if (!GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue))) {
     return false;
   }
 
-  set_string(4, szValue, get_param(5));
+  set_string(3, szValue, get_param(4));
 
   return true;
 }

@@ -277,12 +277,10 @@ public bool:Native_GetMemberVec(iPluginId, iArgc) {
   new Trie:itPData = @Entity_GetPData(pEntity);
 
   static Float:vecValue[3];
-  if (!GetPDataMemberVec(itPData, szMember, vecValue)) {
-    return false;
-  }
-
+  static bool:bResult; bResult = GetPDataMemberVec(itPData, szMember, vecValue);
   set_array_f(3, vecValue, sizeof(vecValue));
-  return true;
+
+  return bResult;
 }
 
 public Native_SetMemberVec(iPluginId, iArgc) {
@@ -307,13 +305,10 @@ public bool:Native_GetMemberString(iPluginId, iArgc) {
   new Trie:itPData = @Entity_GetPData(pEntity);
 
   static szValue[128];
-  if (!GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue))) {
-    return false;
-  }
-
+  static bool:bResult; bResult = GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue));
   set_string(3, szValue, get_param(4));
 
-  return true;
+  return bResult;
 }
 
 public Native_SetMemberString(iPluginId, iArgc) {

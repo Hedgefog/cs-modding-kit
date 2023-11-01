@@ -5,7 +5,7 @@
 #include <fakemeta>
 #include <xs>
 
-#include <api_advanced_pushing>
+#include <api_advanced_pushing_system>
 
 #define PLAYER_PREVENT_CLIMB (1<<5)
 

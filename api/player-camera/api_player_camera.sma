@@ -23,7 +23,7 @@ public plugin_precache() {
 }
 
 public plugin_init() {
-    register_plugin("[API] Player Camerea", "1.0.0", "Hedgehog Fog");
+    register_plugin("[API] Player Camera", "1.0.0", "Hedgehog Fog");
 
     RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
     RegisterHamPlayer(Ham_Player_PreThink, "HamHook_Player_PreThink_Post", .Post = 1);

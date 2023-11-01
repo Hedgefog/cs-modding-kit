@@ -382,9 +382,9 @@ bool:@Entity_Damage(this, pTarget) {
         return false;
     }
 
-    if (pev(pTarget, pev_solid) <= SOLID_TRIGGER) {
-        return false;
-    }
+    // if (pev(pTarget, pev_solid) <= SOLID_TRIGGER) {
+    //     return false;
+    // }
 
     static Float:flGameTime; flGameTime = get_gametime();
     static Float:flNextDamage; flNextDamage = CE_GetMember(this, m_flNextDamage);

@@ -24,11 +24,6 @@ new g_iFwRoundRestart;
 new g_iFwRoundTimerTick;
 new g_iFwCheckWinConditions;
 
-// deprecated
-new g_iFwCheckWinCondition;
-
-new Array:g_irgCheckWinConditionHooks;
-
 new g_pCvarRoundEndDelay;
 
 public plugin_init() {
@@ -48,11 +43,6 @@ public plugin_init() {
     g_iFwRoundTimerTick = CreateMultiForward("Round_Fw_RoundTimerTick", ET_IGNORE);
     g_iFwCheckWinConditions = CreateMultiForward("Round_Fw_CheckWinConditions", ET_STOP);
 
-    //deprecated
-    g_iFwCheckWinCondition = CreateMultiForward("Round_Fw_CheckWinCondition", ET_STOP);
-
-    g_irgCheckWinConditionHooks = ArrayCreate(Hook);
-
     g_pCvarRoundEndDelay = get_cvar_pointer("mp_round_restart_delay");
 }
 
@@ -64,11 +54,6 @@ public plugin_natives() {
     register_native("Round_GetTimeLeft", "Native_GetTimeLeft");
     register_native("Round_IsRoundStarted", "Native_IsRoundStarted");
     register_native("Round_IsRoundEnd", "Native_IsRoundEnd");
-    register_native("Round_HookCheckWinConditions", "Native_HookCheckWinConditions");
-}
-
-public plugin_destroy() {
-    ArrayDestroy(g_irgCheckWinConditionHooks);
 }
 
 public server_frame() {
@@ -135,26 +120,7 @@ public HC_RoundEnd(WinStatus:iStatus, ScenarioEventEndRound:iEvent, Float:flDela
 }
 
 public HC_CheckWinConditions() {
-    new iSize = ArraySize(g_irgCheckWinConditionHooks);
-
-    for (new i = 0; i < iSize; ++i) {
-        static hook[_:Hook];
-        ArrayGetArray(g_irgCheckWinConditionHooks, i, hook);
-
-        if (callfunc_begin_i(hook[Hook_FunctionId], hook[Hook_PluginId]) == 1) {
-            if (callfunc_end() > PLUGIN_CONTINUE) {
-                return HC_SUPERCEDE;
-            }
-        }
-    }
-
     static iReturn;
-
-    ExecuteForward(g_iFwCheckWinCondition, iReturn);
-    if (iReturn != PLUGIN_CONTINUE) {
-        log_amx("CheckWinCondition forward is deprecated!");
-        return HC_SUPERCEDE;
-    }
 
     ExecuteForward(g_iFwCheckWinConditions, iReturn);
     if (iReturn != PLUGIN_CONTINUE) {
@@ -189,17 +155,6 @@ public bool:Native_IsRoundStarted(iPluginId, iArgc) {
 
 public bool:Native_IsRoundEnd(iPluginId, iArgc) {
     return g_iGameState == GameState_RoundEnd;
-}
-
-public Native_HookCheckWinConditions(iPluginId, iArgc) {
-    new szFunctionName[32];
-    get_string(1, szFunctionName, charsmax(szFunctionName));
-
-    new hook[Hook];
-    hook[Hook_PluginId] = iPluginId;
-    hook[Hook_FunctionId] = get_func_id(szFunctionName, iPluginId);
-
-    ArrayPushArray(g_irgCheckWinConditionHooks, hook);
 }
 
 DispatchWin(iTeam, Float:flDelay = -1.0) {

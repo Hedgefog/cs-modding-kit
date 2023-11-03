@@ -12,3 +12,8 @@ native PlayerCamera_SetOffset(pPlayer, const Float:vecOffset[3]);
 native PlayerCamera_SetAngles(pPlayer, const Float:vecAngles[3]);
 native PlayerCamera_SetDistance(pPlayer, Float:flDistance);
 native PlayerCamera_SetThinkDelay(pPlayer, Float:flThinkDelay);
+
+forward PlayerCamera_Fw_Activate(pPlayer);
+forward PlayerCamera_Fw_Deactivate(pPlayer);
+forward PlayerCamera_Fw_Activated(pPlayer);
+forward PlayerCamera_Fw_Deactivated(pPlayer);

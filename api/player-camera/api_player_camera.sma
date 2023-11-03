@@ -12,6 +12,11 @@ new Float:g_rgflPlayerCamerOffset[MAX_PLAYERS][3];
 new Float:g_rgflPlayerCameraThinkDelay[MAX_PLAYERS];
 new Float:g_rgflPlayerCameraNextThink[MAX_PLAYERS];
 
+new g_fwActivate;
+new g_fwDeactivate;
+new g_fwActivated;
+new g_fwDeactivated;
+
 new g_iszTriggerCameraClassname;
 
 new g_iCameraModelIndex;
@@ -23,10 +28,15 @@ public plugin_precache() {
 }
 
 public plugin_init() {
-    register_plugin("[API] Player Camera", "1.0.0", "Hedgehog Fog");
+    register_plugin("[API] Player Camerea", "1.0.0", "Hedgehog Fog");
 
     RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
     RegisterHamPlayer(Ham_Player_PreThink, "HamHook_Player_PreThink_Post", .Post = 1);
+
+    g_fwActivate = CreateMultiForward("PlayerCamera_Fw_Activate", ET_STOP, FP_CELL);
+    g_fwDeactivate = CreateMultiForward("PlayerCamera_Fw_Deactivate", ET_STOP, FP_CELL);
+    g_fwActivated = CreateMultiForward("PlayerCamera_Fw_Activated", ET_IGNORE, FP_CELL);
+    g_fwDeactivated = CreateMultiForward("PlayerCamera_Fw_Deactivated", ET_IGNORE, FP_CELL);
 }
 
 public plugin_natives() {
@@ -115,10 +125,15 @@ ActivatePlayerCamera(pPlayer) {
     return;
   }
 
+  new iResult = 0; ExecuteForward(g_fwActivate, iResult, pPlayer);
+  if (iResult != PLUGIN_CONTINUE) return;
+
   g_rgpPlayerCamera[pPlayer] = CreatePlayerCamera(pPlayer);
   g_rgflPlayerCameraNextThink[pPlayer] = 0.0;
 
   engfunc(EngFunc_SetView, pPlayer, g_rgpPlayerCamera[pPlayer]);
+
+  ExecuteForward(g_fwActivated, _, pPlayer);
 }
 
 DeactivatePlayerCamera(pPlayer) {
@@ -126,12 +141,17 @@ DeactivatePlayerCamera(pPlayer) {
     return;
   }
 
+  new iResult = 0; ExecuteForward(g_fwDeactivate, iResult, pPlayer);
+  if (iResult != PLUGIN_CONTINUE) return;
+
   engfunc(EngFunc_RemoveEntity, g_rgpPlayerCamera[pPlayer]);
   g_rgpPlayerCamera[pPlayer] = -1;
 
   if (is_user_connected(pPlayer)) {
     engfunc(EngFunc_SetView, pPlayer, pPlayer);
   }
+
+  ExecuteForward(g_fwDeactivated, _, pPlayer);
 }
 
 SetCameraOffset(pPlayer, const Float:vecOffset[3]) {

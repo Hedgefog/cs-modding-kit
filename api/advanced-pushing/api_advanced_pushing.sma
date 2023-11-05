@@ -36,8 +36,8 @@ public Native_Push(iPluginId, iArgc) {
 
 public Native_PushFromOrigin(iPluginId, iArgc) {
   new pEntity = get_param(1);
-  new Float:vecPushOrigin[3]; get_array_f(2, vecPushOrigin, sizeof(vecPushOrigin));
-  new Float:flForce = get_param_f(3);
+  new Float:flForce = get_param_f(2);
+  new Float:vecPushOrigin[3]; get_array_f(3, vecPushOrigin, sizeof(vecPushOrigin));
   new APS_Flags:iFlags = APS_Flags:get_param(4);
 
   @Base_PushFromOrigin(pEntity, flForce, vecPushOrigin, iFlags);

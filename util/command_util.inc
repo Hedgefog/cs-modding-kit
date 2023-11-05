@@ -59,7 +59,7 @@ stock bool:CMD_SHOULD_TARGET_PLAYER(pPlayer, iTarget) {
   }
 
   new bool:bShouldBeAlive = (
-    iTarget == CMD_TARGET_DEAD ||
+    iTarget == CMD_TARGET_ALIVE ||
     iTarget == CMD_TARGET_TEAM_T_ALIVE ||
     iTarget == CMD_TARGET_TEAM_CT_ALIVE
   );
@@ -78,8 +78,8 @@ stock bool:CMD_SHOULD_TARGET_PLAYER(pPlayer, iTarget) {
 
   new bool:bShouldBeCT = (
     iTarget == CMD_TARGET_TEAM_CT ||
-    iTarget == CMD_TARGET_TEAM_CT ||
-    iTarget == CMD_TARGET_TEAM_CT
+    iTarget == CMD_TARGET_TEAM_CT_ALIVE ||
+    iTarget == CMD_TARGET_TEAM_CT_DEAD
   );
 
   if (cstrike_running()) {

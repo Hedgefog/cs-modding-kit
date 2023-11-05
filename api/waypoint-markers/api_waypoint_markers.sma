@@ -61,6 +61,7 @@ public plugin_init() {
 
   RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", 1);
 
+  register_forward(FM_AddToFullPack, "FMHook_AddToFullPack", 0);
   register_forward(FM_AddToFullPack, "FMHook_AddToFullPack_Post", 1);
   register_forward(FM_CheckVisibility, "FMHook_CheckVisibility", 0);
   register_forward(FM_OnFreeEntPrivateData, "FMHook_OnFreeEntPrivateData", 0);
@@ -128,6 +129,22 @@ public HamHook_Player_PostThink_Post(pPlayer) {
   }
 }
 
+public FMHook_AddToFullPack(es, e, pEntity, pHost, pHostFlags, iPlayer, pSet) {
+  if (!IS_PLAYER(pHost)) return FMRES_IGNORED;
+  if (!is_user_alive(pHost)) return FMRES_IGNORED;
+  if (is_user_bot(pHost)) return FMRES_IGNORED;
+  if (!pev_valid(pEntity)) return FMRES_IGNORED;
+
+  if (@Base_IsMarker(pEntity)) {
+    static Struct:sPlayerData; sPlayerData = @Marker_GetPlayerData(pEntity, pHost);
+
+    if (!StructGetCell(sPlayerData, MarkerPlayerData_IsVisible)) return FMRES_SUPERCEDE;
+    if (StructGetCell(sPlayerData, MarkerPlayerData_ShouldHide)) return FMRES_SUPERCEDE;
+  }
+
+  return FMRES_IGNORED;
+}
+
 public FMHook_AddToFullPack_Post(es, e, pEntity, pHost, pHostFlags, iPlayer, pSet) {
   if (!IS_PLAYER(pHost)) return FMRES_IGNORED;
   if (!is_user_alive(pHost)) return FMRES_IGNORED;
@@ -135,8 +152,7 @@ public FMHook_AddToFullPack_Post(es, e, pEntity, pHost, pHostFlags, iPlayer, pSe
   if (!pev_valid(pEntity)) return FMRES_IGNORED;
 
   if (@Base_IsMarker(pEntity)) {
-    static Array:irgsPlayersData; irgsPlayersData = Array:pev(pEntity, pev_iuser1);
-    static Struct:sPlayerData; sPlayerData = ArrayGetCell(irgsPlayersData, pHost);
+    static Struct:sPlayerData; sPlayerData = @Marker_GetPlayerData(pEntity, pHost);
 
     if (!StructGetCell(sPlayerData, MarkerPlayerData_IsVisible)) return FMRES_SUPERCEDE;
     if (StructGetCell(sPlayerData, MarkerPlayerData_ShouldHide)) return FMRES_SUPERCEDE;

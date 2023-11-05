@@ -5,7 +5,7 @@
 #include <fakemeta>
 #include <xs>
 
-#include <api_advanced_pushing_system>
+#include <api_advanced_pushing>
 
 #define PLAYER_PREVENT_CLIMB (1<<5)
 
@@ -14,14 +14,14 @@
 new Float:g_flPlayerReleaseClimbBlock[MAX_PLAYERS + 1];
 
 public plugin_init() {
-  register_plugin("[API] Advanced Pushing System", "1.0.0", "Hedgehog Fog");
+  register_plugin("[API] Advanced Pushing", "1.0.0", "Hedgehog Fog");
 
   RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
   RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
 }
 
 public plugin_natives() {
-  register_library("api_advanced_pushing_system");
+  register_library("api_advanced_pushing");
   register_native("APS_Push", "Native_Push");
   register_native("APS_PushFromOrigin", "Native_PushFromOrigin");
   register_native("APS_PushFromBBox", "Native_PushFromBBox");
@@ -36,8 +36,8 @@ public Native_Push(iPluginId, iArgc) {
 
 public Native_PushFromOrigin(iPluginId, iArgc) {
   new pEntity = get_param(1);
-  new Float:flForce = get_param_f(2);
-  new Float:vecPushOrigin[3]; get_array_f(3, vecPushOrigin, sizeof(vecPushOrigin));
+  new Float:vecPushOrigin[3]; get_array_f(2, vecPushOrigin, sizeof(vecPushOrigin));
+  new Float:flForce = get_param_f(3);
   new APS_Flags:iFlags = APS_Flags:get_param(4);
 
   @Base_PushFromOrigin(pEntity, flForce, vecPushOrigin, iFlags);

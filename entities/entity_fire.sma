@@ -69,7 +69,7 @@ new g_pCvarSpread;
 new g_pCvarSpreadRange;
 new g_pCvarLifeTime;
 
-new g_iCeHandler;
+new CE:g_iCeHandler;
 
 public plugin_precache() {
     g_irgFireEntities = ArrayCreate();

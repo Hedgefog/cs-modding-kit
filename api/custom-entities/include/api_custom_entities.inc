@@ -30,6 +30,10 @@
 #define CE_MEMBER_MINS "_vecMins"
 #define CE_MEMBER_MAXS "_vecMaxs"
 
+enum CE {
+  CE_InvalidHandler = -1
+};
+
 enum CEPreset {
   CEPreset_None = 0,
   CEPreset_Item,
@@ -65,9 +69,10 @@ enum CEFunction {
  *
  * @param szName Name of an entity
  * @param iPreset Preset for an entity
+ *
  * @return Handler of the registered entity
  */
-native CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
+native CE:CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
 
 /**
  * Spawn entity
@@ -75,6 +80,7 @@ native CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
  * @param szName Name of entity
  * @param vecOrigin Spawn origin
  * @param bTemp Mark entity as an temporary entity
+ *
  * @return Entity index
  */
 native CE_Create(const szName[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
@@ -91,6 +97,7 @@ native bool:CE_Kill(pEntity, pKiller = 0);
  * Remove entity correctly
  *
  * @param pEntity Entity index
+ *
  * @return Result true/false
  */
 native bool:CE_Remove(pEntity);
@@ -108,15 +115,19 @@ native CE_RegisterHook(CEFunction:function, const szName[], const szCallback[]);
  * Gets handler of entity by name
  *
  * @param szName Name of entity
+ *
+ * @return Handler of the registered entity or -1 otherwise
  */
-native CE_GetHandler(const szName[]);
+native CE:CE_GetHandler(const szName[]);
 
 /**
  * Gets handler of entity by index
  *
  * @param pEntity Entity index
+ *
+ * @return Handler of the entity or -1 otherwise
  */
-native CE_GetHandlerByEntity(pEntity);
+native CE:CE_GetHandlerByEntity(pEntity);
 
 /**
  * Checks if entity has member
@@ -139,6 +150,8 @@ native CE_DeleteMember(pEntity, const szMember[]);
  *
  * @param pEntity Entity index
  * @param szMember Member name
+ *
+ * @return Member value
  */
 native any:CE_GetMember(pEntity, const szMember[]);
 

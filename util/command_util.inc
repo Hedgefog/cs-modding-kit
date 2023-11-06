@@ -10,6 +10,7 @@ enum (<<=1) {
   CMD_TARGET_ALL,
   CMD_TARGET_NO_ONE = 1,
   CMD_TARGET_HAS_CALLER,
+  CMD_TARGET_CALLER,
   CMD_TARGET_IGNORE_CALLER,
   CMD_TARGET_ALIVE,
   CMD_TARGET_DEAD,
@@ -23,9 +24,9 @@ enum (<<=1) {
   CMD_TARGET_TEAM_SPEC
 };
 
-stock CMD_RESOLVE_TARGET(pPlayer, const szTarget[]) {
+stock CMD_RESOLVE_TARGET(const szTarget[]) {
   if (szTarget[0] == '@') {
-    return -CMD_RESOLVE_ALIASES_BITS(pPlayer, szTarget[1]);
+    return -CMD_RESOLVE_ALIASES_BITS(szTarget[1]);
   } else if (szTarget[0] == '#') {
     static pTarget; pTarget = find_player("k", str_to_num(szTarget[1]));
     if (pTarget) return pTarget;
@@ -37,7 +38,7 @@ stock CMD_RESOLVE_TARGET(pPlayer, const szTarget[]) {
   return CMD_TARGET_NO_ONE;
 }
 
-stock CMD_RESOLVE_ALIASES_BITS(pPlayer, const szAliases[]) {
+stock CMD_RESOLVE_ALIASES_BITS(const szAliases[]) {
   static iBits; iBits = 0;
   static iAliasStartPos; iAliasStartPos = 0;
   static iCursor; iCursor = 0;
@@ -45,7 +46,7 @@ stock CMD_RESOLVE_ALIASES_BITS(pPlayer, const szAliases[]) {
   do {
     if (iCursor && (szAliases[iCursor] == '_' || szAliases[iCursor] == '^0')) {
       if (iCursor > iAliasStartPos && szAliases[iAliasStartPos] != '_') {
-        iBits |= CMD_RESOLVE_ALIAS_BITS(pPlayer, szAliases[iAliasStartPos], iCursor - iAliasStartPos);
+        iBits |= CMD_RESOLVE_ALIAS_BITS(szAliases[iAliasStartPos], iCursor - iAliasStartPos);
         static szSubAlias[32]; copy(szSubAlias, iCursor - iAliasStartPos, szAliases[iAliasStartPos]);
       }
 
@@ -58,9 +59,8 @@ stock CMD_RESOLVE_ALIASES_BITS(pPlayer, const szAliases[]) {
   return iBits;
 }
 
-stock CMD_RESOLVE_ALIAS_BITS(pPlayer, const szAlias[], iMaxLen = 0) {
-  if (equal(szAlias, "me", iMaxLen)) return pPlayer;
-  else if (equal(szAlias, "all", iMaxLen)) return CMD_TARGET_ALL;
+stock CMD_RESOLVE_ALIAS_BITS(const szAlias[], iMaxLen = 0) {
+  if (equal(szAlias, "all", iMaxLen)) return CMD_TARGET_ALL;
   else if (equal(szAlias, "alive", iMaxLen)) return CMD_TARGET_ALIVE;
   else if (equal(szAlias, "dead", iMaxLen)) return CMD_TARGET_DEAD;
   else if (equal(szAlias, "human", iMaxLen)) return CMD_TARGET_HUMAN;
@@ -69,6 +69,7 @@ stock CMD_RESOLVE_ALIAS_BITS(pPlayer, const szAlias[], iMaxLen = 0) {
   else if (equal(szAlias, "t", iMaxLen)) return CMD_TARGET_TEAM_T;
   else if (equal(szAlias, "ct", iMaxLen)) return CMD_TARGET_TEAM_CT;
   else if (equal(szAlias, "spec", iMaxLen)) return CMD_TARGET_TEAM_SPEC;
+  else if (equal(szAlias, "me", iMaxLen)) return CMD_TARGET_HAS_CALLER | CMD_TARGET_CALLER;
   else if (equal(szAlias, "notme", iMaxLen)) return CMD_TARGET_HAS_CALLER | CMD_TARGET_IGNORE_CALLER;
   else if (equal(szAlias, "view", iMaxLen)) return CMD_TARGET_HAS_CALLER | CMD_TARGET_VIEWCONE | CMD_TARGET_VISIBLE | CMD_TARGET_ALIVE;
 
@@ -86,6 +87,7 @@ stock bool:CMD_SHOULD_TARGET_PLAYER(pPlayer, iTarget, pCaller = 0) {
   if (iTargetBits & CMD_TARGET_ALL) return true;
   if (iTargetBits & CMD_TARGET_NO_ONE) return false;
   if (iTargetBits & CMD_TARGET_HAS_CALLER && !pCaller) return false;
+  if (iTargetBits & CMD_TARGET_CALLER && pPlayer != pCaller) return false;
   if (iTargetBits & CMD_TARGET_IGNORE_CALLER && pPlayer == pCaller) return false;
 
   static bool:bAlive; bAlive = !!is_user_alive(pPlayer);

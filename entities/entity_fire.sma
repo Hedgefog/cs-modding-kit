@@ -88,7 +88,7 @@ public plugin_precache() {
         precache_sound(g_rgszBurningSounds[i]);
     }
 
-    g_iCeHandler = CE_Register(ENTITY_NAME, _, Float:{-16.0, -16.0, -16.0}, Float:{16.0, 16.0, 16.0});
+    g_iCeHandler = CE_Register(ENTITY_NAME);
     CE_RegisterHook(CEFunction_Init, ENTITY_NAME, "@Entity_Init");
     CE_RegisterHook(CEFunction_KVD, ENTITY_NAME, "@Entity_KeyValue");
     CE_RegisterHook(CEFunction_Spawned, ENTITY_NAME, "@Entity_Spawned");
@@ -126,6 +126,9 @@ public plugin_end() {
 }
 
 @Entity_Init(this) {
+    CE_SetMemberVec(this, CE_MEMBER_MINS, Float:{-16.0, -16.0, -16.0});
+    CE_SetMemberVec(this, CE_MEMBER_MAXS, Float:{16.0, 16.0, 16.0});
+
     CE_SetMemberVec(this, m_vecEffectOrigin, NULL_VECTOR);
 
     if (!CE_HasMember(this, m_flDamage)) {

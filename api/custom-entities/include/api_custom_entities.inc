@@ -14,15 +14,21 @@
 
 #define CE_MEMBER_ID "_id"
 #define CE_MEMBER_POINTER "_ptr"
-#define CE_MEMBER_WORLD "_world"
-#define CE_MEMBER_ORIGIN "_origin"
-#define CE_MEMBER_ANGLES "_angles"
-#define CE_MEMBER_MASTER "_master"
-#define CE_MEMBER_MODEL "_model"
-#define CE_MEMBER_DELAY "_delay"
-#define CE_MEMBER_NEXTKILL "_nextkill"
-#define CE_MEMBER_NEXTRESPAWN "_nextrespawn"
-#define CE_MEMBER_INITIALIZED "_initialized"
+#define CE_MEMBER_WORLD "_bWorld"
+#define CE_MEMBER_ORIGIN "_vecOrigin"
+#define CE_MEMBER_ANGLES "_vecAngles"
+#define CE_MEMBER_MASTER "_szMaster"
+#define CE_MEMBER_MODEL "_szModel"
+#define CE_MEMBER_DELAY "_flDelay"
+#define CE_MEMBER_NEXTKILL "_flNextKill"
+#define CE_MEMBER_NEXTRESPAWN "_flNextRespawn"
+#define CE_MEMBER_INITIALIZED "_bInitialized"
+#define CE_MEMBER_BLOODCOLOR "_iBloodColor"
+#define CE_MEMBER_LIFETIME "_flLifeTime"
+#define CE_MEMBER_IGNOREROUNDS "_bIgnoreRounds"
+#define CE_MEMBER_RESPAWNTIME "_flRespawnTime"
+#define CE_MEMBER_MINS "_vecMins"
+#define CE_MEMBER_MAXS "_vecMaxs"
 
 enum CEPreset {
   CEPreset_None = 0,
@@ -58,27 +64,10 @@ enum CEFunction {
  * Register entity
  *
  * @param szName Name of an entity
- * @param szModel Precached model
- * @param vecMins Bounding box mins vector
- * @param vecMaxs Bounding box maxs vector
- * @param flLifeTime Life time of an entity
- * @param flRespawnTime Respawn time of an entity
- * @param bIgnoreRounds Entity will ignore rounds if true
  * @param iPreset Preset for an entity
- * @param iBloodColor Blood color of an entity
  * @return Handler of the registered entity
  */
-native CE_Register(
-  const szName[],
-  const szModel[] = "",
-  const Float:vecMins[3] = {0.0, 0.0, 0.0},
-  const Float:vecMaxs[3] = {0.0, 0.0, 0.0},
-  Float:flLifeTime = 0.0,
-  Float:flRespawnTime = 10.0,
-  bool:bIgnoreRounds = false,
-  CEPreset:iPreset = CEPreset_None,
-  iBloodColor = -1
-);
+native CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
 
 /**
  * Spawn entity
@@ -105,25 +94,6 @@ native bool:CE_Kill(pEntity, pKiller = 0);
  * @return Result true/false
  */
 native bool:CE_Remove(pEntity);
-
-/**
- * Gets size of entity
- *
- * @param szName Name of entity
- * @param vecMins Output for bounding box mins vector
- * @param vecMaxs Output for bounding box maxs vector
- */
-native CE_GetSize(const szName[], Float:vecMins[3], Float:vecMaxs[3]);
-
-/**
- * Gets model of entity
- *
- * @param szName Name of entity
- * @param szModel Output string
- * @param iLen Output string max length
- * @return Result true/false
- */
-native bool:CE_GetModel(const szName[], szModel[], iLen);
 
 /**
  * Register new hook for entity

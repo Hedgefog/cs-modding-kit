@@ -42,7 +42,7 @@ enum CW_Data {
   CW_Data_WeaponFlags,
   CW_Data_Bindings,
   CW_Data_Flags
-}
+};
 
 enum CW_Binding {
   CWB_Idle,
@@ -58,7 +58,7 @@ enum CW_Binding {
   CWB_WeaponBoxModelUpdate,
   CWB_Pump,
   CWB_GrenadeThrow
-}
+};
 
 enum CW_Flags (<<=1) {
   CWF_None,
@@ -66,7 +66,7 @@ enum CW_Flags (<<=1) {
   CWF_NoBulletDecal,
   CWF_CustomReload,
   CWF_NotRefillable
-}
+};
 
 native CW:CW_Register(const szName[], iWeaponId, iClipSize = WEAPON_NOCLIP, iPrimaryAmmoType = -1, iPrimaryAmmoMaxAmount = -1, iSecondaryAmmoType = -1, iSecondaryAmmoMaxAmount = -1, iSlotId = 0, iPosition = 0, iWeaponFlags = 0, const szIcon[] = "", CW_Flags:iFlags = CWF_None);
 native CW_Bind(CW:iHandler, CW_Binding:iBinding, const szFunctionName[]);

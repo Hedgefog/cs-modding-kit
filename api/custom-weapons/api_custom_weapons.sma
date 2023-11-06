@@ -32,12 +32,12 @@ enum _:WeaponListMessage {
     WL_NumberInSlot,
     WL_WeaponId,
     WL_Flags
-}
+};
 
 enum _:Function {
     Function_PluginId,
     Function_FunctionId
-}
+};
 
 new const g_rgszWeaponNames[CSW_LAST_WEAPON + 1][] = {
     "",

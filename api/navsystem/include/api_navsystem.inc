@@ -8,7 +8,7 @@
 #include <api_navsystem_const>
 
 enum NavArea {
-    Invalid_NavArea
+    Invalid_NavArea = 0
 };
 
 enum NavBuildPathTask {

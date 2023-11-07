@@ -93,12 +93,12 @@ public Command_Equip(pPlayer, iLevel, iCId) {
   static szModel[256];
   read_argv(2, szModel, charsmax(szModel));
 
-  new iTarget = CMD_RESOLVE_TARGET(pPlayer, szTarget);
+  new iTarget = CMD_RESOLVE_TARGET(szTarget);
   new iModelIndex = engfunc(EngFunc_ModelIndex, szModel);
 
-  for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
-    if (CMD_SHOULD_TARGET_PLAYER(pPlayer, iTarget)) {
-      @Player_EquipCosmetic(pPlayer, iModelIndex);
+  for (new pTarget = 1; pTarget <= MaxClients; ++pTarget) {
+    if (CMD_SHOULD_TARGET_PLAYER(pTarget, iTarget, pPlayer)) {
+      @Player_EquipCosmetic(pTarget, iModelIndex);
     }
   }
 
@@ -110,18 +110,15 @@ public Command_Unequip(pPlayer, iLevel, iCId) {
     return PLUGIN_HANDLED;
   }
 
-  static szTarget[32];
-  read_argv(1, szTarget, charsmax(szTarget));
+  static szTarget[32]; read_argv(1, szTarget, charsmax(szTarget));
+  static szModel[256]; read_argv(2, szModel, charsmax(szModel));
 
-  static szModel[256];
-  read_argv(2, szModel, charsmax(szModel));
-
-  new iTarget = CMD_RESOLVE_TARGET(pPlayer, szTarget);
+  new iTarget = CMD_RESOLVE_TARGET(szTarget);
   new iModelIndex = engfunc(EngFunc_ModelIndex, szModel);
 
-  for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
-    if (CMD_SHOULD_TARGET_PLAYER(pPlayer, iTarget)) {
-      @Player_UnequipCosmetic(pPlayer, iModelIndex);
+  for (new pTarget = 1; pTarget <= MaxClients; ++pTarget) {
+    if (CMD_SHOULD_TARGET_PLAYER(pTarget, iTarget, pPlayer)) {
+      @Player_UnequipCosmetic(pTarget, iModelIndex);
     }
   }
 

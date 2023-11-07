@@ -462,7 +462,7 @@ bool:@Entity_IsCustom(this) {
   if (!HasPDataMember(itPData, CE_MEMBER_MODEL) && !equal(szModel, NULL_STRING)) {
     SetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel);
 
-    if (g_bPrecaching && szModel[0] != '&') {
+    if (g_bPrecaching && szModel[0] != '*') {
       precache_model(szModel);
     }
   }

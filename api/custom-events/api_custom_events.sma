@@ -52,6 +52,18 @@ public plugin_init() {
 }
 
 public plugin_end() {
+  for (new TrieIter:iIterator = TrieIterCreate(g_itEventParamTypes); !TrieIterEnded(iIterator); TrieIterNext(iIterator)) {
+    new Array:irgParamTypes = Invalid_Array;
+    if (!TrieIterGetCell(iIterator, irgParamTypes)) continue;
+    if (irgParamTypes != Invalid_Array) ArrayDestroy(irgParamTypes);
+  }
+
+  for (new TrieIter:iIterator = TrieIterCreate(g_itEventSubscribers); !TrieIterEnded(iIterator); TrieIterNext(iIterator)) {
+    new Array:irgSubscribers = Invalid_Array;
+    if (!TrieIterGetCell(iIterator, irgSubscribers)) continue;
+    if (irgSubscribers != Invalid_Array) ArrayDestroy(irgSubscribers);
+  }
+
   TrieDestroy(g_itEventParamTypes);
   TrieDestroy(g_itEventSubscribers);
 }

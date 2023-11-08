@@ -21,6 +21,8 @@ enum EventSubscriber {
   EventSubscriber_FunctionId
 };
 
+new g_fwEmit;
+
 new g_szBuffer[MAX_STRING_LENGTH]
 new g_rgiBuffer[MAX_STRING_LENGTH];
 new Float:g_rgflBuffer[MAX_STRING_LENGTH];
@@ -31,9 +33,8 @@ new Array:g_rgirgEventParamTypes;
 new Array:g_rgirgEventSubscribers;
 new g_iEventsNum = 0;
 
-new g_fwEmit;
-
 new g_pCurrentEmitter = 0;
+new g_iCurrentEvent = -1;
 new DataPack:g_dpCurrentParamData = Invalid_DataPack;
 new Array:g_irgCurrentParamOffsets = Invalid_Array;
 
@@ -246,21 +247,30 @@ public Native_GetParamType(iPluginId, iArgc) {
 }
 
 public any:Native_GetParam(iPluginId, iArgc) {
-  if (g_dpCurrentParamData == Invalid_DataPack) return 0;
+  if (g_iCurrentEvent == -1) {
+    log_error(AMX_ERR_NATIVE, "%sNot currently in a event callback.", LOG_PREFIX);
+    return 0;
+  }
 
   static iParam; iParam = get_param(1);
   return GetCurrentEventParam(iParam - 1);
 }
 
 public Float:Native_GetParamFloat(iPluginId, iArgc) {
-  if (g_dpCurrentParamData == Invalid_DataPack) return 0.0;
+  if (g_iCurrentEvent == -1) {
+    log_error(AMX_ERR_NATIVE, "%sNot currently in a event callback.", LOG_PREFIX);
+    return 0.0;
+  }
 
   static iParam; iParam = get_param(1);
   return GetCurrentEventParamFloat(iParam - 1);
 }
 
 public Float:Native_GetParamString(iPluginId, iArgc) {
-  if (g_dpCurrentParamData == Invalid_DataPack) return;
+  if (g_iCurrentEvent == -1) {
+    log_error(AMX_ERR_NATIVE, "%sNot currently in a event callback.", LOG_PREFIX);
+    return;
+  }
 
   static iParam; iParam = get_param(1);
   static iLen; iLen = get_param(3);
@@ -269,7 +279,10 @@ public Float:Native_GetParamString(iPluginId, iArgc) {
 }
 
 public Native_GetParamArray(iPluginId, iArgc) {
-  if (g_dpCurrentParamData == Invalid_DataPack) return;
+  if (g_iCurrentEvent == -1) {
+    log_error(AMX_ERR_NATIVE, "%sNot currently in a event callback.", LOG_PREFIX);
+    return;
+  }
 
   static iParam; iParam = get_param(1);
   static iLen; iLen = get_param(3);
@@ -278,7 +291,10 @@ public Native_GetParamArray(iPluginId, iArgc) {
 }
 
 public Native_GetParamFloatArray(iPluginId, iArgc) {
-  if (g_dpCurrentParamData == Invalid_DataPack) return;
+  if (g_iCurrentEvent == -1) {
+    log_error(AMX_ERR_NATIVE, "%sNot currently in a event callback.", LOG_PREFIX);
+    return;
+  }
 
   static iParam; iParam = get_param(1);
   static iLen; iLen = get_param(3);
@@ -359,10 +375,11 @@ EmitEvent(const szEvent[], DataPack:dpParams, pEmitter) {
   static iEvent; iEvent = GetEventId(szEvent);
 
   if (pEmitter && !pev_valid(pEmitter)) {
-    log_error(AMX_ERR_NATIVE, "Cannot emit event ^"%s^" from entity! Invalid entity %d.", szEvent, pEmitter);
+    log_error(AMX_ERR_NATIVE, "%sCannot emit event ^"%s^" from entity! Invalid entity %d.", LOG_PREFIX, szEvent, pEmitter);
     return;
   }
 
+  g_iCurrentEvent = iEvent;
   g_pCurrentEmitter = pEmitter;
   g_irgCurrentParamOffsets = GetEventParamOffsets(iEvent, dpParams);
   g_dpCurrentParamData = dpParams;
@@ -385,6 +402,7 @@ EmitEvent(const szEvent[], DataPack:dpParams, pEmitter) {
 
   ArrayDestroy(g_irgCurrentParamOffsets);
 
+  g_iCurrentEvent = -1;
   g_pCurrentEmitter = 0;
   g_irgCurrentParamOffsets = Invalid_Array;
   g_dpCurrentParamData = Invalid_DataPack;

@@ -1,3 +1,5 @@
+#pragma semicolon 1
+
 #include <amxmodx>
 #include <fakemeta>
 
@@ -29,7 +31,7 @@ enum EventSubscriber {
 
 new g_fwEmit;
 
-new g_szBuffer[MAX_STRING_LENGTH]
+new g_szBuffer[MAX_STRING_LENGTH];
 new g_rgiBuffer[MAX_STRING_LENGTH];
 new Float:g_rgflBuffer[MAX_STRING_LENGTH];
 
@@ -296,7 +298,7 @@ GetCurrentEventParamArray(iParam, rgiOut[], iLen) {
 
   SetPackPosition(g_dpCurrentParamData, GetCurrentOffset(iParam));
 
-  ReadPackArray(g_dpCurrentParamData, rgiOut, iLen)
+  ReadPackArray(g_dpCurrentParamData, rgiOut, iLen);
 }
 
 GetCurrentEventParamFloatArray(iParam, Float:rgflOut[], iLen) {
@@ -307,7 +309,7 @@ GetCurrentEventParamFloatArray(iParam, Float:rgflOut[], iLen) {
 
   SetPackPosition(g_dpCurrentParamData, GetCurrentOffset(iParam));
 
-  ReadPackFloatArray(g_dpCurrentParamData, rgflOut, iLen)
+  ReadPackFloatArray(g_dpCurrentParamData, rgflOut, iLen);
 }
 
 DataPackPos:GetCurrentOffset(iParam) {
@@ -327,7 +329,7 @@ EmitEvent(const szEvent[], DataPack:dpParams) {
 
   if (TrieKeyExists(g_itEventParamTypes, szEvent)) {
     TrieGetCell(g_itEventParamTypes, szEvent, irgParamTypes);
-    g_irgCurrentParamOffsets = GetEventParamOffsets(dpParams, irgParamTypes)
+    g_irgCurrentParamOffsets = GetEventParamOffsets(dpParams, irgParamTypes);
   }
 
   static iForwardReturn; ExecuteForward(g_fwEmit, iForwardReturn, szEvent, g_pCurrentActivator);

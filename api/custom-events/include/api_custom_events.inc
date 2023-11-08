@@ -27,4 +27,4 @@ native CustomEvent_GetParamFloatArray(iParam, Float:rgflOut[], iLen);
 native CustomEvent_SetActivator(pEntity);
 native CustomEvent_GetActivator();
 
-forward CustomEvent_Fw_Emit(const szId[]);
+forward CustomEvent_Fw_Emit(const szId[], pActivator);

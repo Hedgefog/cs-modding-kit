@@ -1,3 +1,5 @@
+#pragma semicolon 1
+
 #include <amxmodx>
 
 #define PLUGIN "[API] Player View Range"

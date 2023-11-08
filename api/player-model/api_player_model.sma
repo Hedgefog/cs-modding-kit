@@ -1,3 +1,5 @@
+#pragma semicolon 1
+
 #include <amxmodx>
 #include <fakemeta>
 #include <hamsandwich>
@@ -366,9 +368,9 @@ PrecachePlayerAnimation(const szAnim[]) {
 
     new iModelIndex = precache_model(szFilePath);
 
-    new iFile = fopen(szFilePath, "rb")
+    new iFile = fopen(szFilePath, "rb");
     if (!iFile) {
-        return 0
+        return 0;
     }
     
     // Got to "numseq" position of the studiohdr_t structure

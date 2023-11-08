@@ -14,7 +14,7 @@
             https://github.com/s1lentq/ReGameDLL_CS/blob/master/regamedll/game_shared/bot/nav_path.cpp
 */
 
-#pragma semicolon 1;
+#pragma semicolon 1
 
 #include <amxmodx>
 #include <fakemeta>

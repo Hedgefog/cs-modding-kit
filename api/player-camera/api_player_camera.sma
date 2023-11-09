@@ -28,15 +28,15 @@ public plugin_precache() {
 }
 
 public plugin_init() {
-    register_plugin("[API] Player Camerea", "1.0.0", "Hedgehog Fog");
+  register_plugin("[API] Player Camerea", "1.0.0", "Hedgehog Fog");
 
-    RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
-    RegisterHamPlayer(Ham_Player_PreThink, "HamHook_Player_PreThink_Post", .Post = 1);
+  RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
+  RegisterHamPlayer(Ham_Player_PreThink, "HamHook_Player_PreThink_Post", .Post = 1);
 
-    g_fwActivate = CreateMultiForward("PlayerCamera_Fw_Activate", ET_STOP, FP_CELL);
-    g_fwDeactivate = CreateMultiForward("PlayerCamera_Fw_Deactivate", ET_STOP, FP_CELL);
-    g_fwActivated = CreateMultiForward("PlayerCamera_Fw_Activated", ET_IGNORE, FP_CELL);
-    g_fwDeactivated = CreateMultiForward("PlayerCamera_Fw_Deactivated", ET_IGNORE, FP_CELL);
+  g_fwActivate = CreateMultiForward("PlayerCamera_Fw_Activate", ET_STOP, FP_CELL);
+  g_fwDeactivate = CreateMultiForward("PlayerCamera_Fw_Deactivate", ET_STOP, FP_CELL);
+  g_fwActivated = CreateMultiForward("PlayerCamera_Fw_Activated", ET_IGNORE, FP_CELL);
+  g_fwDeactivated = CreateMultiForward("PlayerCamera_Fw_Deactivated", ET_IGNORE, FP_CELL);
 }
 
 public plugin_natives() {
@@ -171,71 +171,71 @@ SetCameraThinkDelay(pPlayer, Float:flThinkDelay) {
 }
 
 CreatePlayerCamera(pPlayer) {
-    new pCamera = engfunc(EngFunc_CreateNamedEntity, g_iszTriggerCameraClassname);
+  new pCamera = engfunc(EngFunc_CreateNamedEntity, g_iszTriggerCameraClassname);
 
-    set_pev(pCamera, pev_classname, "trigger_camera");
-    set_pev(pCamera, pev_modelindex, g_iCameraModelIndex);
-    set_pev(pCamera, pev_owner, pPlayer);
-    set_pev(pCamera, pev_solid, SOLID_NOT);
-    set_pev(pCamera, pev_movetype, MOVETYPE_FLY);
-    set_pev(pCamera, pev_rendermode, kRenderTransTexture);
+  set_pev(pCamera, pev_classname, "trigger_camera");
+  set_pev(pCamera, pev_modelindex, g_iCameraModelIndex);
+  set_pev(pCamera, pev_owner, pPlayer);
+  set_pev(pCamera, pev_solid, SOLID_NOT);
+  set_pev(pCamera, pev_movetype, MOVETYPE_FLY);
+  set_pev(pCamera, pev_rendermode, kRenderTransTexture);
 
-    return pCamera;
+  return pCamera;
 }
 
 PlayerCameraThink(pPlayer) {
-    if (g_rgflPlayerCameraNextThink[pPlayer] > get_gametime()) {
-        return;
-    }
+  if (g_rgflPlayerCameraNextThink[pPlayer] > get_gametime()) {
+    return;
+  }
 
-    g_rgflPlayerCameraNextThink[pPlayer] = get_gametime() + g_rgflPlayerCameraThinkDelay[pPlayer];
+  g_rgflPlayerCameraNextThink[pPlayer] = get_gametime() + g_rgflPlayerCameraThinkDelay[pPlayer];
 
-    if (g_rgpPlayerCamera[pPlayer] == -1) {
-        return;
-    }
+  if (g_rgpPlayerCamera[pPlayer] == -1) {
+    return;
+  }
 
-    if (!is_user_alive(pPlayer)) {
-        return;
-    }
+  if (!is_user_alive(pPlayer)) {
+    return;
+  }
 
-    static Float:vecOrigin[3];
-    pev(pPlayer, pev_origin, vecOrigin);
-    xs_vec_add(vecOrigin, g_rgflPlayerCamerOffset[pPlayer], vecOrigin);
+  static Float:vecOrigin[3];
+  pev(pPlayer, pev_origin, vecOrigin);
+  xs_vec_add(vecOrigin, g_rgflPlayerCamerOffset[pPlayer], vecOrigin);
 
-    static Float:vecAngles[3];
-    pev(pPlayer, pev_angles, vecAngles);
-    vecAngles[0] = vecAngles[2] = 0.0;
-    xs_vec_add(vecAngles, g_rgflPlayerCameraAngles[pPlayer], vecAngles);
+  static Float:vecAngles[3];
+  pev(pPlayer, pev_angles, vecAngles);
+  vecAngles[0] = vecAngles[2] = 0.0;
+  xs_vec_add(vecAngles, g_rgflPlayerCameraAngles[pPlayer], vecAngles);
 
-    static Float:vecBack[3];
-    angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecBack);
-    xs_vec_neg(vecBack, vecBack);
+  static Float:vecBack[3];
+  angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecBack);
+  xs_vec_neg(vecBack, vecBack);
 
-    static Float:vecVelocity[3];
-    pev(pPlayer, pev_velocity, vecVelocity);
+  static Float:vecVelocity[3];
+  pev(pPlayer, pev_velocity, vecVelocity);
 
-    static Float:vecCameraOrigin[3];
+  static Float:vecCameraOrigin[3];
+  for (new i = 0; i < 3; ++i) {
+    vecCameraOrigin[i] = vecOrigin[i] + (vecBack[i] * g_rgflPlayerCameraDistance[pPlayer]);
+  }
+
+  new pTr = create_tr2();
+  engfunc(EngFunc_TraceLine, vecOrigin, vecCameraOrigin, IGNORE_MONSTERS, pPlayer, pTr);
+
+  static Float:flFraction;
+  get_tr2(pTr, TR_flFraction, flFraction);
+
+  free_tr2(pTr);
+
+  if(flFraction != 1.0) { 
     for (new i = 0; i < 3; ++i) {
-        vecCameraOrigin[i] = vecOrigin[i] + (vecBack[i] * g_rgflPlayerCameraDistance[pPlayer]);
+      vecCameraOrigin[i] = vecOrigin[i] + (vecBack[i] * (g_rgflPlayerCameraDistance[pPlayer] * flFraction));
     }
+  }
 
-    new pTr = create_tr2();
-    engfunc(EngFunc_TraceLine, vecOrigin, vecCameraOrigin, IGNORE_MONSTERS, pPlayer, pTr);
-
-    static Float:flFraction;
-    get_tr2(pTr, TR_flFraction, flFraction);
-
-    free_tr2(pTr);
-
-    if(flFraction != 1.0) { 
-      for (new i = 0; i < 3; ++i) {
-        vecCameraOrigin[i] = vecOrigin[i] + (vecBack[i] * (g_rgflPlayerCameraDistance[pPlayer] * flFraction));
-      }
-    }
-
-    set_pev(g_rgpPlayerCamera[pPlayer], pev_origin, vecCameraOrigin);
-    set_pev(g_rgpPlayerCamera[pPlayer], pev_angles, vecAngles);
-    set_pev(g_rgpPlayerCamera[pPlayer], pev_velocity, vecVelocity);
+  set_pev(g_rgpPlayerCamera[pPlayer], pev_origin, vecCameraOrigin);
+  set_pev(g_rgpPlayerCamera[pPlayer], pev_angles, vecAngles);
+  set_pev(g_rgpPlayerCamera[pPlayer], pev_velocity, vecVelocity);
 }
 
 ReattachCamera(pPlayer) {

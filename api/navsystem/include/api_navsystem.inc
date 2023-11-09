@@ -8,15 +8,15 @@
 #include <api_navsystem_const>
 
 enum NavArea {
-    Invalid_NavArea = 0
+  Invalid_NavArea = 0
 };
 
 enum NavBuildPathTask {
-    Invalid_NavBuildPathTask = 0
+  Invalid_NavBuildPathTask = 0
 };
 
 enum NavPath {
-    Invalid_NavPath = 0
+  Invalid_NavPath = 0
 };
 
 native Nav_Precache();

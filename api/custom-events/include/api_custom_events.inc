@@ -5,6 +5,8 @@
 
 #pragma reqlib api_custom_events
 
+#define MAX_CUSTOM_EVENT_KEY_LENGTH 64
+
 enum {
   EP_Invalid = -1,
   EP_Cell,

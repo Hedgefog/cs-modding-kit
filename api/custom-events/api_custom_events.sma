@@ -13,8 +13,6 @@
 
 #define LOG_PREFIX "[Custom Events] "
 
-#define MAX_EVENT_KEY_LENGTH 64
-
 #define DEFAULT_CELL_VALUE 0
 #define DEFAULT_FLOAT_VALUE 0.0
 #define DEFAULT_STRING_VALUE NULL_STRING
@@ -87,7 +85,7 @@ public plugin_natives() {
 }
 
 public Native_RegisterEvent(iPluginId, iArgc) {
-  static szEvent[MAX_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
+  static szEvent[MAX_CUSTOM_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
 
   if (TrieKeyExists(g_itEventParamTypes, szEvent)) {
     log_error(AMX_ERR_NATIVE, "%sEvent ^"%s^" is already registered.", LOG_PREFIX);
@@ -115,7 +113,7 @@ public Native_RegisterEvent(iPluginId, iArgc) {
 }
 
 public Native_SubscribeEvent(iPluginId, iArgc) {
-  static szEvent[MAX_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
+  static szEvent[MAX_CUSTOM_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
   static szCallback[64]; get_string(2, szCallback, charsmax(szCallback));
 
   if (!TrieKeyExists(g_itEventSubscribers, szEvent)) {
@@ -131,7 +129,7 @@ public Native_SubscribeEvent(iPluginId, iArgc) {
 }
 
 public Native_EmitEvent(iPluginId, iArgc) {
-  static szEvent[MAX_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
+  static szEvent[MAX_CUSTOM_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
 
   static DataPack:dpParams; dpParams = CreateDataPack();
 
@@ -205,13 +203,13 @@ public Native_GetActivator(iPluginId, iArgc) {
 }
 
 public Native_GetParamsNum(iPluginId, iArgc) {
-  static szEvent[MAX_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
+  static szEvent[MAX_CUSTOM_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
 
   return GetEventParamsNum(szEvent);
 }
 
 public Native_GetParamType(iPluginId, iArgc) {
-  static szEvent[MAX_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
+  static szEvent[MAX_CUSTOM_EVENT_KEY_LENGTH]; get_string(1, szEvent, charsmax(szEvent));
   static iParam; iParam = get_param(2);
 
   return GetEventParamType(szEvent, iParam);

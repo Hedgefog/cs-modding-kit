@@ -21,7 +21,7 @@ Event subscriber function:
 
 ```cpp
 public EventSubscriber_MyEvent() {
-    log_amx("Subscriber 1");
+    log_amx("Subscriber");
 }
 ```
 

@@ -87,8 +87,7 @@ public HamHook_Player_PostThink_Post(pPlayer) {
 }
 
 @Base_Push(this, const Float:vecForce[3], APS_Flags:iFlags) {
-  static Float:vecVelocity[3];
-  pev(this, pev_velocity, vecVelocity);
+  static Float:vecVelocity[3]; pev(this, pev_velocity, vecVelocity);
 
   if (iFlags & APS_Flag_AddForce) {
     xs_vec_add(vecVelocity, vecForce, vecVelocity);
@@ -111,8 +110,7 @@ public HamHook_Player_PostThink_Post(pPlayer) {
 }
 
 @Base_PushFromOrigin(this, Float:flForce, Float:vecPushOrigin[3], APS_Flags:iFlags) {
-  static Float:vecOrigin[3];
-  pev(this, pev_origin, vecOrigin);
+  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
   static Float:vecForce[3];
   xs_vec_sub(vecOrigin, vecPushOrigin, vecForce);
@@ -133,14 +131,9 @@ public HamHook_Player_PostThink_Post(pPlayer) {
   Float:flDepthInfluenceMax,
   APS_Flags:iFlags
 ) {
-  static Float:vecOrigin[3];
-  pev(this, pev_origin, vecOrigin);
-
-  static Float:vecToucherAbsMin[3];
-  pev(this, pev_absmin, vecToucherAbsMin);
-
-  static Float:vecToucherAbsMax[3];
-  pev(this, pev_absmax, vecToucherAbsMax);
+  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+  static Float:vecToucherAbsMin[3]; pev(this, pev_absmin, vecToucherAbsMin);
+  static Float:vecToucherAbsMax[3]; pev(this, pev_absmax, vecToucherAbsMax);
 
   // Find and check intersection point
   for (new iAxis = 0; iAxis < 3; ++iAxis) {

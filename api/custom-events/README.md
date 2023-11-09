@@ -120,11 +120,11 @@ public plugin_init() {
 
 public Command_Boo(pPlayer) {
     CustomEvent_SetActivator(pPlayer);
-    CustomEvent_Emit("my-event");
+    CustomEvent_Emit("boo-event");
 }
 
 public CustomEvent_Fw_Emit(const szEvent[]) {
-    if (equal(szEvent, "my-event")) {
+    if (equal(szEvent, "boo-event")) {
         new pActivator = CustomEvent_GetActivator();
         client_print(pActivator, print_center, "Boo!");
     }

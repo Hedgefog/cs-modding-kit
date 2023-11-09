@@ -88,6 +88,7 @@ public CustomEvent_Fw_Emit(const szEvent[]) {
       log_amx("szString: %s", szString);
     }
 }
+```
 
 To block the event emit, return `PLUGIN_HANDLED` from the forward function. It will stop subscribers from being called.
 

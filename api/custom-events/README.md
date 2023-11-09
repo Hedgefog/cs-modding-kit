@@ -37,7 +37,7 @@ There are two ways to obtain event parameters.
 Using arguments in the subscriber function:
 ```cpp
 public EventSubscriber_MyEvent(iCell, Float:flFloat, const rgiArray[3], const Float:rgflArray[3], const szString[]) {
-    log_amx("Subscriber 1");
+    log_amx("Subscriber");
 
     log_amx("iCell: %d", iCell);
     log_amx("flFloat: %f", flFloat);
@@ -51,7 +51,7 @@ Using getter functions in the subscriber function:
 
 ```cpp
 public EventSubscriber_MyEvent() {
-    log_amx("Event Forward %s", szEvent);
+    log_amx("Subscriber");
 
     new iCell = CustomEvent_GetParam(1);
     new Float:flFloat = CustomEvent_GetParamFloat(2);

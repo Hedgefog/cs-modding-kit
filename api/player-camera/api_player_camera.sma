@@ -5,12 +5,13 @@
 #include <hamsandwich>
 #include <xs>
 
-new g_rgpPlayerCamera[MAX_PLAYERS];
-new Float:g_rgflPlayerCameraDistance[MAX_PLAYERS];
-new Float:g_rgflPlayerCameraAngles[MAX_PLAYERS][3];
-new Float:g_rgflPlayerCamerOffset[MAX_PLAYERS][3];
-new Float:g_rgflPlayerCameraThinkDelay[MAX_PLAYERS];
-new Float:g_rgflPlayerCameraNextThink[MAX_PLAYERS];
+new g_rgpPlayerCamera[MAX_PLAYERS + 1];
+new Float:g_rgflPlayerCameraDistance[MAX_PLAYERS + 1];
+new Float:g_rgflPlayerCameraAngles[MAX_PLAYERS + 1][3];
+new Float:g_rgflPlayerCamerOffset[MAX_PLAYERS + 1][3];
+new Float:g_rgflPlayerCameraThinkDelay[MAX_PLAYERS + 1];
+new Float:g_rgflPlayerCameraNextThink[MAX_PLAYERS + 1];
+new g_pPlayerTargetEntity[MAX_PLAYERS + 1];
 
 new g_fwActivate;
 new g_fwDeactivate;
@@ -48,6 +49,7 @@ public plugin_natives() {
   register_native("PlayerCamera_SetAngles", "Native_SetAngles");
   register_native("PlayerCamera_SetDistance", "Native_SetDistance");
   register_native("PlayerCamera_SetThinkDelay", "Native_SetThinkDelay");
+  register_native("PlayerCamera_SetTargetEntity", "Native_SetTargetEntity");
 }
 
 public bool:Native_Activate(iPluginId, iArgc) {
@@ -100,6 +102,13 @@ public Native_SetThinkDelay(iPluginId, iArgc) {
   SetCameraThinkDelay(pPlayer, flThinkDelay);
 }
 
+public Native_SetTargetEntity(iPluginId, iArgc) {
+  new pPlayer = get_param(1);
+  new pTarget = get_param(2);
+
+  SetCameraTarget(pPlayer, pTarget);
+}
+
 public HamHook_Player_Spawn_Post(pPlayer) {
   ReattachCamera(pPlayer);
 }
@@ -110,6 +119,7 @@ public HamHook_Player_PreThink_Post(pPlayer) {
 
 public client_connect(pPlayer) {
   g_rgpPlayerCamera[pPlayer] = -1;
+  SetCameraTarget(pPlayer, pPlayer);
   SetCameraDistance(pPlayer, 200.0);
   SetCameraAngles(pPlayer, Float:{0.0, 0.0, 0.0});
   SetCameraOffset(pPlayer, Float:{0.0, 0.0, 0.0});
@@ -146,6 +156,7 @@ DeactivatePlayerCamera(pPlayer) {
 
   engfunc(EngFunc_RemoveEntity, g_rgpPlayerCamera[pPlayer]);
   g_rgpPlayerCamera[pPlayer] = -1;
+  g_pPlayerTargetEntity[pPlayer] = pPlayer;
 
   if (is_user_connected(pPlayer)) {
     engfunc(EngFunc_SetView, pPlayer, pPlayer);
@@ -168,6 +179,10 @@ SetCameraDistance(pPlayer, Float:flDistance) {
 
 SetCameraThinkDelay(pPlayer, Float:flThinkDelay) {
   g_rgflPlayerCameraThinkDelay[pPlayer] = flThinkDelay;
+}
+
+SetCameraTarget(pPlayer, pTarget) {
+  g_pPlayerTargetEntity[pPlayer] = pTarget;
 }
 
 CreatePlayerCamera(pPlayer) {
@@ -199,11 +214,11 @@ PlayerCameraThink(pPlayer) {
   }
 
   static Float:vecOrigin[3];
-  pev(pPlayer, pev_origin, vecOrigin);
+  pev(g_pPlayerTargetEntity[pPlayer], pev_origin, vecOrigin);
   xs_vec_add(vecOrigin, g_rgflPlayerCamerOffset[pPlayer], vecOrigin);
 
   static Float:vecAngles[3];
-  pev(pPlayer, pev_angles, vecAngles);
+  pev(g_pPlayerTargetEntity[pPlayer], pev_angles, vecAngles);
   vecAngles[0] = vecAngles[2] = 0.0;
   xs_vec_add(vecAngles, g_rgflPlayerCameraAngles[pPlayer], vecAngles);
 
@@ -212,7 +227,7 @@ PlayerCameraThink(pPlayer) {
   xs_vec_neg(vecBack, vecBack);
 
   static Float:vecVelocity[3];
-  pev(pPlayer, pev_velocity, vecVelocity);
+  pev(g_pPlayerTargetEntity[pPlayer], pev_velocity, vecVelocity);
 
   static Float:vecCameraOrigin[3];
   for (new i = 0; i < 3; ++i) {

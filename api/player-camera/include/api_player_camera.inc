@@ -63,6 +63,16 @@ native PlayerCamera_SetAngles(pPlayer, const Float:vecAngles[3]);
 native PlayerCamera_SetDistance(pPlayer, Float:flDistance);
 
 /**
+ * Sets the target entity of the player's camera.
+ *
+ * @param pPlayer    The player entity.
+ * @param pTarget    The target entity.
+ *
+ * @noreturn
+ */
+native PlayerCamera_SetTargetEntity(pPlayer, pTarget);
+
+/**
  * Sets the thinking delay of the player's camera.
  *
  * @param pPlayer      The player entity.

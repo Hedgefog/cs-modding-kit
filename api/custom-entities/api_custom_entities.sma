@@ -86,167 +86,164 @@ public plugin_end() {
 /*--------------------------------[ Natives ]--------------------------------*/
 
 public Native_Register(iPluginId, iArgc) {
-  static szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
   new CEPreset:iPreset = CEPreset:get_param(2);
   
   return RegisterEntity(szClassName, iPreset);
 }
 
 public Native_Create(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH];
-  get_string(1, szClassName, charsmax(szClassName));
-  
-  new Float:vecOrigin[3];
-  get_array_f(2, vecOrigin, 3);
-  
-  new bool:bTemp = !!get_param(3);
-  
-  return @Entity_Create(szClassName, vecOrigin, bTemp);
+  static szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  static Float:vecOrigin[3]; get_array_f(2, vecOrigin, 3);
+  static bool:bTemp; bTemp = !!get_param(3);
+
+  static pEntity; pEntity = @Entity_Create(szClassName, vecOrigin, bTemp);
+  if (pEntity) {
+    static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+    SetPDataMember(itPData, CE_MEMBER_PLUGINID, iPluginId);
+  }
+
+  return pEntity;
 }
 
 public Native_Kill(iPluginId, iArgc) {
-  new pEntity = get_param(1);
-  new pKiller = get_param(2);
+  static pEntity; pEntity = get_param(1);
+  static pKiller; pKiller = get_param(2);
 
-  // ExecuteHamB(Ham_Killed, pEntity, pKiller, 0);
+  if (!@Entity_IsCustom(pEntity)) return;
+
   @Entity_Kill(pEntity, pKiller, false);
 }
 
 public bool:Native_Remove(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+
+  if (!@Entity_IsCustom(pEntity)) return;
+
   set_pev(pEntity, pev_flags, pev(pEntity, pev_flags) | FL_KILLME);
   dllfunc(DLLFunc_Think, pEntity);
 }
 
 public Native_RegisterHook(iPluginId, iArgc) {
   new CEFunction:iFunction = CEFunction:get_param(1);
-  
-  new szClassname[CE_MAX_NAME_LENGTH];
-  get_string(2, szClassname, charsmax(szClassname));
-  
-  new szCallback[CE_MAX_CALLBACK_LENGTH];
-  get_string(3, szCallback, charsmax(szCallback));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(2, szClassname, charsmax(szClassname));
+  new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
   RegisterEntityHook(iFunction, szClassname, szCallback, iPluginId);
 }
 
 public Native_GetHandler(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH];
-  get_string(1, szClassName, charsmax(szClassName));
-  
+  static szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+
   return GetIdByClassName(szClassName);
 }
 
 public Native_GetHandlerByEntity(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
 
-  if (!@Entity_IsCustom(pEntity)) {
-    return -1;
-  }
+  if (!@Entity_IsCustom(pEntity)) return -1;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+
   return GetPDataMember(itPData, CE_MEMBER_ID);
 }
 
 public bool:Native_HasMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return false;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   return HasPDataMember(itPData, szMember);
 }
 
 public any:Native_GetMember(iPluginId, iArgc) {
   new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return 0;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   return GetPDataMember(itPData, szMember);
 }
 
 public Native_DeleteMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   DeletePDataMember(itPData, szMember);
 }
 
 public Native_SetMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  static iValue; iValue = get_param(3);
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return;
 
-  new iValue = get_param(3);
-
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   SetPDataMember(itPData, szMember, iValue);
 }
 
 public bool:Native_GetMemberVec(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return false;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   static Float:vecValue[3];
-  static bool:bResult; bResult = GetPDataMemberVec(itPData, szMember, vecValue);
+  if (!GetPDataMemberVec(itPData, szMember, vecValue)) return false;
+
   set_array_f(3, vecValue, sizeof(vecValue));
 
-  return bResult;
+  return true;
 }
 
 public Native_SetMemberVec(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  static Float:vecValue[3]; get_array_f(3, vecValue, sizeof(vecValue));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return;
 
-  static Float:vecValue[3];
-  get_array_f(3, vecValue, sizeof(vecValue));
-
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
   SetPDataMemberVec(itPData, szMember, vecValue);
 }
 
 public bool:Native_GetMemberString(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
+  if (!@Entity_IsCustom(pEntity)) return false;
 
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
 
   static szValue[128];
-  static bool:bResult; bResult = GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue));
+  if (!GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue))) return false;
+
   set_string(3, szValue, get_param(4));
 
-  return bResult;
+  return true;
 }
 
 public Native_SetMemberString(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  static szValue[128]; get_string(3, szValue, charsmax(szValue));
+  
+  if (!@Entity_IsCustom(pEntity)) return;
 
-  static szMember[CE_MAX_MEMBER_LENGTH];
-  get_string(2, szMember, charsmax(szMember));
-
-  static szValue[128];
-  get_string(3, szValue, charsmax(szValue));
-
-  new Trie:itPData = @Entity_GetPData(pEntity);
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
   SetPDataMemberString(itPData, szMember, szValue);
 }
 
@@ -427,6 +424,10 @@ public HamHook_Base_BloodColor(pEntity) {
 /*--------------------------------[ Methods ]--------------------------------*/
 
 bool:@Entity_IsCustom(this) {
+  if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER) == this) {
+    return true;
+  }
+
   return pev(this, pev_gaitsequence) == CE_ENTITY_SECRET;
 }
 
@@ -468,6 +469,7 @@ bool:@Entity_IsCustom(this) {
   }
 
   SetPDataMember(itPData, CE_MEMBER_INITIALIZED, true);
+  SetPDataMember(itPData, CE_MEMBER_LASTINIT, get_gametime());
 }
 
 @Entity_Spawn(this) {
@@ -486,6 +488,8 @@ bool:@Entity_IsCustom(this) {
   if (!pev_valid(this) || pev(this, pev_flags) & FL_KILLME) {
     return;
   }
+
+  static Float:flGameTime; flGameTime = get_gametime();
 
   set_pev(this, pev_deadflag, DEAD_NO);
   set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
@@ -526,12 +530,13 @@ bool:@Entity_IsCustom(this) {
   }
 
   if (flLifeTime > 0.0) {
-    new Float:flGameTime = get_gametime();
     SetPDataMember(itPData, CE_MEMBER_NEXTKILL, flGameTime + flLifeTime);
     set_pev(this, pev_nextthink, flGameTime + flLifeTime);
   } else {
     SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
   }
+
+  SetPDataMember(itPData, CE_MEMBER_LASTSPAWN, flGameTime);
 
   ExecuteHookFunction(CEFunction_Spawned, iId, this);
 }

@@ -29,6 +29,9 @@
 #define CE_MEMBER_RESPAWNTIME "_flRespawnTime"
 #define CE_MEMBER_MINS "_vecMins"
 #define CE_MEMBER_MAXS "_vecMaxs"
+#define CE_MEMBER_LASTINIT "_flLastInit"
+#define CE_MEMBER_LASTSPAWN "_flLastSpawn"
+#define CE_MEMBER_PLUGINID "_iPluginId"
 
 enum CE {
   CE_InvalidHandler = -1

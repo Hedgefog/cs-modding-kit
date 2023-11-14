@@ -15,7 +15,7 @@
  *
  * @noreturn
  */
-native Particles_RegisterEffect(const szName[], Float:flEmitRate, Float:flParticleLifeTime, iMaxParticles, const szInitFunction[], const szTransformFunction[]);
+native RegisterParticleEffect(const szName[], const szInitFunction[], const szTransformFunction[], Float:flEmitRate = 0.1, Float:flParticleLifeTime = 1.0, Float:flVisibilityDistance = 1024.0, iMaxParticles = 10);
 
 /**
  * Creates a particle system.
@@ -27,7 +27,7 @@ native Particles_RegisterEffect(const szName[], Float:flEmitRate, Float:flPartic
  *
  * @return The particle system structure pointer.
  */
-native ParticleSystem:Particles_ParticleSystem_Create(const szEffect[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, const Float:vecAngles[3] = {0.0, 0.0, 0.0}, pParent = 0);
+native ParticleSystem:ParticleSystem_Create(const szEffect[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, const Float:vecAngles[3] = {0.0, 0.0, 0.0}, pParent = 0);
 
 /**
  * Destroys the particle system.
@@ -36,7 +36,7 @@ native ParticleSystem:Particles_ParticleSystem_Create(const szEffect[], const Fl
  *
  * @noreturn
  */
-native ParticleSystem:Particles_ParticleSystem_Destroy(&ParticleSystem:sSystem);
+native ParticleSystem_Destroy(&ParticleSystem:sSystem);
 
 /**
  * Activates the particle system.
@@ -45,7 +45,7 @@ native ParticleSystem:Particles_ParticleSystem_Destroy(&ParticleSystem:sSystem);
  *
  * @noreturn
  */
-native Particles_ParticleSystem_Activate(const &ParticleSystem:sSystem);
+native ParticleSystem_Activate(const &ParticleSystem:sSystem);
 
 /**
  * Deactivates the particle system.
@@ -54,7 +54,7 @@ native Particles_ParticleSystem_Activate(const &ParticleSystem:sSystem);
  *
  * @noreturn
  */
-native Particles_ParticleSystem_Deactivate(const &ParticleSystem:sSystem);
+native ParticleSystem_Deactivate(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the time at which a particle system was created.
@@ -63,7 +63,7 @@ native Particles_ParticleSystem_Deactivate(const &ParticleSystem:sSystem);
  *
  * @return The creation time of the particle system.
  */
-native Float:Particles_ParticleSystem_GetCreatedTime(const &ParticleSystem:sSystem);
+native Float:ParticleSystem_GetCreatedTime(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the time at which a particle system will killed.
@@ -72,7 +72,7 @@ native Float:Particles_ParticleSystem_GetCreatedTime(const &ParticleSystem:sSyst
  *
  * @return The kill time of the particle system.
  */
-native Float:Particles_ParticleSystem_GetKillTime(const &ParticleSystem:sSystem);
+native Float:ParticleSystem_GetKillTime(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the last time a particle system was updated.
@@ -81,7 +81,7 @@ native Float:Particles_ParticleSystem_GetKillTime(const &ParticleSystem:sSystem)
  *
  * @return The last update time of the particle system.
  */
-native Float:Particles_ParticleSystem_GetLastUpdate(const &ParticleSystem:sSystem);
+native Float:ParticleSystem_GetLastUpdateTime(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the visibility bits of a particle.
@@ -90,16 +90,66 @@ native Float:Particles_ParticleSystem_GetLastUpdate(const &ParticleSystem:sSyste
  *
  * @return The visibility bits of the particle system.
  */
-native Float:Particles_ParticleSystem_GetVisibilityBits(const &ParticleSystem:sSystem);
+native Float:ParticleSystem_GetVisibilityBits(const &ParticleSystem:sSystem);
 
 /**
- * Gets particle pointer by entity.
+ * Retrieves the origin of the particle system.
  *
- * @param pEntity The particle entity.
+ * @param sSystem The particle system structure pointer.
+ * @param vecOut The vector to set.
  *
- * @return The particle pointer.
+ * @noreturn
  */
-native Particle:Particles_GetParticle(pEntity);
+native ParticleSystem_GetOrigin(const &ParticleSystem:sSystem, const vecOut[]);
+
+/**
+ * Sets the origin of the particle system. 
+ *
+ * @param sSystem The particle system structure pointer.
+ * @param vecOrigin The origin vector.
+ *
+ * @noreturn
+ */
+native ParticleSystem_SetOrigin(const &ParticleSystem:sSystem, const Float:vecOrigin[3]);
+
+/**
+ * Retrieves the parent entity of the particle system.
+ * @param sSystem The particle system structure pointer.
+ * @param pParent The parent entity.
+ *
+ * @noreturn
+ */
+native ParticleSystem_GetParentEntity(const &ParticleSystem:sSystem, pParent);
+
+/**
+ * Sets the parent entity of the particle system.
+ *
+ * @param sSystem The particle system structure pointer.
+ *
+ * @return The parent entity.
+ */
+native ParticleSystem_SetParentEntity(const &ParticleSystem:sSystem);
+
+/**
+ * Retrieves the effect name of the particle system.
+ *
+ * @param sSystem The particle system structure pointer.
+ * @param szOut The buffer to copy the value.
+ * @param iMaxLen Maximum size of buffer.
+ *
+ * @noreturn
+ */
+native ParticleSystem_GetEffect(const &ParticleSystem:sSystem, szOut[], iMaxLen);
+
+/**
+ * Sets the effect of the particle system.
+ *
+ * @param sSystem The particle system structure pointer.
+ * @param szName The name of the particle effect.
+ *
+ * @noreturn
+ */
+native ParticleSystem_SetEffect(const &ParticleSystem:sSystem, const szName[]);
 
 /**
  * Gets particle entity by particle pointer.
@@ -108,25 +158,7 @@ native Particle:Particles_GetParticle(pEntity);
  *
  * @return The entity of the particle.
  */
-native Particles_Particle_GetEntity(const &Particle:sParticle);
-
-/**
- * Retrieves the time at which a particle was created.
- *
- * @param sParticle The particle pointer.
- *
- * @return The creation time of the particle.
- */
-native Float:Particles_Particle_GetCreatedTime(const &Particle:sParticle);
-
-/**
- * Retrieves the time at which a particle will killed.
- *
- * @param sParticle The particle pointer.
- *
- * @return The kill time of the particle.
- */
-native Float:Particles_Particle_GetKillTime(const &Particle:sParticle);
+native Particle_GetEntity(const &Particle:sParticle);
 
 /**
  * Gets particle system pointer by particle pointer.
@@ -135,4 +167,31 @@ native Float:Particles_Particle_GetKillTime(const &Particle:sParticle);
  *
  * @return The particle system pointer.
  */
-native ParticleSystem:Particles_Particle_GetSystem(const &Particle:sParticle);
+native ParticleSystem:Particle_GetSystem(const &Particle:sParticle);
+
+/**
+ * Retrieves the time at which a particle was created.
+ *
+ * @param sParticle The particle pointer.
+ *
+ * @return The creation time of the particle.
+ */
+native Float:Particle_GetCreatedTime(const &Particle:sParticle);
+
+/**
+ * Retrieves the time at which a particle will killed.
+ *
+ * @param sParticle The particle pointer.
+ *
+ * @return The kill time of the particle.
+ */
+native Float:Particle_GetKillTime(const &Particle:sParticle);
+
+/**
+ * Retrieves the time at which a particle was transformed last.
+ *
+ * @param sParticle The particle pointer.
+ *
+ * @return The last transform time of the particle.
+ */
+native Float:Particle_GetLastTransformTime(const &Particle:sParticle);

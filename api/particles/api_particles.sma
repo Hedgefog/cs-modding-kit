@@ -33,18 +33,18 @@ enum ParticleEffect {
 
 enum ParticleSystem {
     Struct:ParticleSystem_Effect,
+    bool:ParticleSystem_Active,
     Float:ParticleSystem_Origin[3],
     Float:ParticleSystem_Angles[3],
     ParticleSystem_ParentEntity,
-    Array:ParticleSystem_Particles,
-    Float:ParticleSystem_KillTime,
-    Float:ParticleSystem_NextEmit,
-    bool:ParticleSystem_Active,
     Float:ParticleSystem_CreatedTime,
+    ParticleSystem_VisibilityBits,
+    Float:ParticleSystem_KillTime,
+    Array:ParticleSystem_Particles,
+    Float:ParticleSystem_NextEmit,
     Float:ParticleSystem_NextVisibilityUpdate,
     Float:ParticleSystem_LasOrigin[3],
-    Float:ParticleSystem_LastUpdate,
-    ParticleSystem_VisibilityBits
+    Float:ParticleSystem_LastUpdate
 };
 
 enum Particle {
@@ -81,20 +81,29 @@ public plugin_init() {
 
 public plugin_natives() {
     register_library("api_particles");
-    register_native("Particles_RegisterEffect", "Native_RegisterParticleEffect");
-    register_native("Particles_GetParticle", "Native_GetParticle");
-    register_native("Particles_ParticleSystem_Create", "Native_CreateParticleSystem");
-    register_native("Particles_ParticleSystem_Destroy", "Native_DestroyParticleSystem");
-    register_native("Particles_ParticleSystem_Activate", "Native_ActivateParticleSystem");
-    register_native("Particles_ParticleSystem_Deactivate", "Native_DeactivateParticleSystem");
-    register_native("Particles_ParticleSystem_GetCreatedTime", "Native_GetParticleSystemCreatedTime");
-    register_native("Particles_ParticleSystem_GetKillTime", "Native_GetParticleSystemKillTime");
-    register_native("Particles_ParticleSystem_GetLastUpdate", "Native_GetParticleSystemGetLastUpdate");
-    register_native("Particles_ParticleSystem_GetVisibilityBits", "Native_GetParticleSystemGetVisibilityBits");
-    register_native("Particles_Particle_GetEntity", "Native_GetParticleEntity");
-    register_native("Particles_Particle_GetSystem", "Native_GetParticleSystem");
-    register_native("Particles_Particle_GetKillTime", "Native_GetParticleKillTime");
-    register_native("Particles_Particle_GetCreatedTime", "Native_GetParticleCreatedTime");
+
+    register_native("RegisterParticleEffect", "Native_RegisterParticleEffect");
+
+    register_native("ParticleSystem_Create", "Native_CreateParticleSystem");
+    register_native("ParticleSystem_Destroy", "Native_DestroyParticleSystem");
+    register_native("ParticleSystem_Activate", "Native_ActivateParticleSystem");
+    register_native("ParticleSystem_Deactivate", "Native_DeactivateParticleSystem");
+    register_native("ParticleSystem_GetCreatedTime", "Native_GetParticleSystemCreatedTime");
+    register_native("ParticleSystem_GetKillTime", "Native_GetParticleSystemKillTime");
+    register_native("ParticleSystem_GetLastUpdateTime", "Native_GetParticleSystemLastUpdate");
+    register_native("ParticleSystem_GetVisibilityBits", "Native_GetParticleSystemVisibilityBits");
+    register_native("ParticleSystem_GetOrigin", "Native_GetParticleSystemOrigin");
+    register_native("ParticleSystem_SetOrigin", "Native_SetParticleSystemOrigin");
+    register_native("ParticleSystem_GetParentEntity", "Native_GetParticleSystemParentEntity");
+    register_native("ParticleSystem_SetParentEntity", "Native_SetParticleSystemParentEntity");
+    register_native("ParticleSystem_GetEffect", "Native_GetParticleSystemEffect");
+    register_native("ParticleSystem_SetEffect", "Native_SetParticleSystemEffect");
+
+    register_native("Particle_GetEntity", "Native_GetParticleEntity");
+    register_native("Particle_GetSystem", "Native_GetParticleSystem");
+    register_native("Particle_GetCreatedTime", "Native_GetParticleCreatedTime");
+    register_native("Particle_GetKillTime", "Native_GetParticleKillTime");
+    register_native("Particle_GetLastTransformTime", "Native_GetParticleLastTransformTime");
 }
 
 public plugin_end() {
@@ -115,11 +124,12 @@ public plugin_end() {
 
 public Native_RegisterParticleEffect(iPluginId, iArgc) {
     new szName[32]; get_string(1, szName, charsmax(szName));
-    new Float:flEmitRate = get_param_f(2);
-    new Float:flParticleLifeTime = get_param_f(3);
-    new iMaxParticles = get_param(4);
-    new szInitFunction[64]; get_string(5, szInitFunction, charsmax(szInitFunction));
-    new szTransformFunction[64]; get_string(6, szTransformFunction, charsmax(szTransformFunction));
+    new szInitFunction[64]; get_string(2, szInitFunction, charsmax(szInitFunction));
+    new szTransformFunction[64]; get_string(3, szTransformFunction, charsmax(szTransformFunction));
+    new Float:flEmitRate = get_param_f(4);
+    new Float:flParticleLifeTime = get_param_f(5);
+    new Float:flVisibilityDistance = get_param_f(6);
+    new iMaxParticles = get_param(7);
 
     if (TrieKeyExists(g_tParticleEffects, szName)) {
         log_error(AMX_ERR_NATIVE, "Particle effect ^"%s^" is already registered.", szName);
@@ -129,56 +139,26 @@ public Native_RegisterParticleEffect(iPluginId, iArgc) {
     new iInitFunctionId = get_func_id(szInitFunction, iPluginId);
     new iTransformFunctionId = get_func_id(szTransformFunction, iPluginId);
 
-    new Struct:sEffect = @ParticleEffect_Create(szName, flEmitRate, flParticleLifeTime, iMaxParticles, iPluginId, iInitFunctionId, iTransformFunctionId);
+    new Struct:sEffect = @ParticleEffect_Create(szName, flEmitRate, flParticleLifeTime, flVisibilityDistance, iMaxParticles, iPluginId, iInitFunctionId, iTransformFunctionId);
 
     TrieSetCell(g_tParticleEffects, szName, sEffect);
 }
 
 public Struct:Native_CreateParticleSystem(iPluginId, iArgc) {
-    static szName[32]; get_string(1, szName, charsmax(szName));
-    static Float:vecOrigin[3]; get_array_f(2, vecOrigin, sizeof(vecOrigin));
-    static Float:vecAngles[3]; get_array_f(3, vecAngles, sizeof(vecAngles));
-    static pParent; pParent = get_param(4);
+    new szName[32]; get_string(1, szName, charsmax(szName));
+    new Float:vecOrigin[3]; get_array_f(2, vecOrigin, sizeof(vecOrigin));
+    new Float:vecAngles[3]; get_array_f(3, vecAngles, sizeof(vecAngles));
+    new pParent; pParent = get_param(4);
 
-    static Struct:sEffect;
+    new Struct:sEffect;
     if (!TrieGetCell(g_tParticleEffects, szName, sEffect)) {
         log_error(AMX_ERR_NATIVE, "[Particles] Effect ^"%s^" is not registered!", szName);
         return Invalid_Struct;
     }
 
-    static Struct:sSystem; sSystem = @ParticleSystem_Create(sEffect, vecOrigin, vecAngles, pParent);
+    new Struct:sSystem; sSystem = @ParticleSystem_Create(sEffect, vecOrigin, vecAngles, pParent);
 
     return sSystem;
-}
-
-public Struct:Native_GetParticle(iPluginId, iArgc) {
-    static pParticle; pParticle = get_param(1);
-
-    return Struct:pev(pParticle, pev_iuser1);
-}
-
-public Struct:Native_GetParticleEntity(iPluginId, iArgc) {
-    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
-
-    return StructGetCell(sParticle, Particle_Entity);
-}
-
-public Struct:Native_GetParticleSystem(iPluginId, iArgc) {
-    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
-
-    return StructGetCell(sParticle, Particle_System);
-}
-
-public Float:Native_GetParticleCreatedTime(iPluginId, iArgc) {
-    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
-
-    return Float:StructGetCell(sParticle, Particle_CreatedTime);
-}
-
-public Float:Native_GetParticleKillTime(iPluginId, iArgc) {
-    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
-
-    return Float:StructGetCell(sParticle, Particle_KillTime);
 }
 
 public Native_DestroyParticleSystem(iPluginId, iArgc) {
@@ -213,16 +193,97 @@ public Float:Native_GetParticleSystemKillTime(iPluginId, iArgc) {
     return Float:StructGetCell(sSystem, ParticleSystem_KillTime);
 }
 
-public Native_GetParticleSystemGetLastUpdate(iPluginId, iArgc) {
+public Native_GetParticleSystemLastUpdate(iPluginId, iArgc) {
     static Struct:sSystem; sSystem = Struct:get_param_byref(1);
 
     return StructGetCell(sSystem, ParticleSystem_LastUpdate);
 }
 
-public Native_GetParticleSystemGetVisibilityBits(iPluginId, iArgc) {
+public Native_GetParticleSystemVisibilityBits(iPluginId, iArgc) {
     static Struct:sSystem; sSystem = Struct:get_param_byref(1);
 
     return StructGetCell(sSystem, ParticleSystem_VisibilityBits);
+}
+
+public Native_GetParticleSystemOrigin(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+
+    static Float:vecOrigin[3]; StructGetArray(sSystem, ParticleSystem_Origin, vecOrigin, 3);
+
+    set_array_f(2, vecOrigin, sizeof(vecOrigin));
+}
+
+public Native_SetParticleSystemOrigin(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+    static Float:vecOrigin[3]; get_array_f(2, vecOrigin, sizeof(vecOrigin));
+
+    StructSetArray(sSystem, ParticleSystem_Origin, vecOrigin, 3);
+}
+
+public Native_GetParticleSystemParentEntity(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+    
+    return StructGetCell(sSystem, ParticleSystem_ParentEntity);
+}
+
+public Native_SetParticleSystemParentEntity(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+    static pParent; pParent = get_param(2);
+
+    StructSetCell(sSystem, ParticleSystem_ParentEntity, pParent);
+}
+
+public Native_GetParticleSystemEffect(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+
+    static Struct:sEffect; sEffect = StructGetCell(sSystem, ParticleSystem_Effect);
+
+    static szName[32]; StructGetString(sEffect, ParticleEffect_Id, szName, charsmax(szName));
+
+    set_string(2, szName, get_param(3));
+}
+
+public Native_SetParticleSystemEffect(iPluginId, iArgc) {
+    static Struct:sSystem; sSystem = Struct:get_param_byref(1);
+    static szName[32]; get_string(2, szName, charsmax(szName));
+
+    static Struct:sEffect;
+    if (!TrieGetCell(g_tParticleEffects, szName, sEffect)) {
+        log_error(AMX_ERR_NATIVE, "[Particles] Effect ^"%s^" is not registered!", szName);
+        return;
+    }
+
+    StructSetCell(sSystem, ParticleSystem_Effect, sEffect);
+}
+
+public Struct:Native_GetParticleEntity(iPluginId, iArgc) {
+    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
+
+    return StructGetCell(sParticle, Particle_Entity);
+}
+
+public Struct:Native_GetParticleSystem(iPluginId, iArgc) {
+    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
+
+    return StructGetCell(sParticle, Particle_System);
+}
+
+public Float:Native_GetParticleCreatedTime(iPluginId, iArgc) {
+    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
+
+    return Float:StructGetCell(sParticle, Particle_CreatedTime);
+}
+
+public Float:Native_GetParticleKillTime(iPluginId, iArgc) {
+    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
+
+    return Float:StructGetCell(sParticle, Particle_KillTime);
+}
+
+public Float:Native_GetParticleLastTransformTime(iPluginId, iArgc) {
+    static Struct:sParticle; sParticle = Struct:get_param_byref(1);
+
+    return Float:StructGetCell(sParticle, Particle_LastTransform);
 }
 
 /*--------------------------------[ Forwards ]--------------------------------*/
@@ -279,12 +340,12 @@ public FMHook_AddToFullPack(es, e, pEntity, pHost, hostflags, player, pSet) {
 
 /*--------------------------------[ ParticleEffect Methods ]--------------------------------*/
 
-Struct:@ParticleEffect_Create(const szName[], Float:flEmitRate, Float:flParticleLifeTime, iMaxParticles, iPluginId, iInitFunctionId, iTransformFunctionId) {
+Struct:@ParticleEffect_Create(const szName[], Float:flEmitRate, Float:flParticleLifeTime, Float:flVisibilityDistance, iMaxParticles, iPluginId, iInitFunctionId, iTransformFunctionId) {
     static Struct:this; this = StructCreate(ParticleEffect);
 
     StructSetString(this, ParticleEffect_Id, szName);
     StructSetCell(this, ParticleEffect_EmitRate, flEmitRate);
-    StructSetCell(this, ParticleEffect_VisibilityDistance, 2048.0);
+    StructSetCell(this, ParticleEffect_VisibilityDistance, flVisibilityDistance);
     StructSetCell(this, ParticleEffect_ParticleLifeTime, flParticleLifeTime);
     StructSetCell(this, ParticleEffect_MaxParticles, iMaxParticles);
     StructSetCell(this, ParticleEffect_PluginId, iPluginId);
@@ -458,8 +519,22 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
             vecOrigin[i] += Float:StructGetCell(this, ParticleSystem_Origin, i);
         }
     } else {
-        StructGetArray(this, ParticleSystem_Origin, vecOrigin, sizeof(vecOrigin));
+        StructGetArray(this, ParticleSystem_Origin, vecOrigin, 3);
     }
+}
+
+@ParticleSystem_SetAbsOrigin(const &Struct:this, const Float:vecOrigin[3]) {
+    static Float:vecAbsOrigin[3];
+
+    static pParent; pParent = StructGetCell(this, ParticleSystem_ParentEntity);
+    if (pParent > 0) {
+        pev(pParent, pev_origin, vecAbsOrigin);
+        xs_vec_sub(vecOrigin, vecAbsOrigin, vecAbsOrigin);
+    } else {
+        xs_vec_copy(vecOrigin, vecAbsOrigin);
+    }
+
+    StructSetArray(this, ParticleSystem_Origin, vecAbsOrigin, 3);
 }
 
 @ParticleSystem_UpdateVisibilityBits(const &Struct:this) {

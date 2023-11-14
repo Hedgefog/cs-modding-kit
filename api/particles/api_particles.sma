@@ -347,12 +347,10 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
     static Float:vecLastOrigin[3]; StructGetArray(this, ParticleSystem_LasOrigin, vecLastOrigin, sizeof(vecLastOrigin));
     static Float:vecOffset[3]; xs_vec_sub(vecOrigin, vecLastOrigin, vecOffset);
     static Struct:sEffect; sEffect = StructGetCell(this, ParticleSystem_Effect);
-    static Float:flLastUpdate; flLastUpdate = StructGetCell(this, ParticleSystem_LastUpdate);
     static Array:irgParticles; irgParticles = StructGetCell(this, ParticleSystem_Particles);
     static iVisibilityBits; iVisibilityBits = StructGetCell(this, ParticleSystem_VisibilityBits);
     static bool:bActive; bActive = StructGetCell(this, ParticleSystem_Active);
     static iParticlesNum; iParticlesNum = ArraySize(irgParticles);
-    static Float:flDelta; flDelta = flGameTime - flLastUpdate;
 
     // Emit particles
     if (bActive) {
@@ -390,15 +388,7 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
         static iPluginId; iPluginId = StructGetCell(sEffect, ParticleEffect_PluginId);
         static iFunctionId; iFunctionId = StructGetCell(sEffect, ParticleEffect_TransformFunctionId);
         if (iPluginId != -1 && iFunctionId != -1) {
-            static Float:flCreatedTime; flCreatedTime = StructGetCell(sParticle, Particle_CreatedTime);
-            static Float:fllLifeDelta; fllLifeDelta = flGameTime - flCreatedTime;
-
-            static Float:flLifeRatio; flLifeRatio = 0.0;
-            if (flKillTime) {
-                flLifeRatio = (flGameTime - flCreatedTime) / (flKillTime - flCreatedTime);
-            }
-
-            @Particle_CallTransformFunction(sParticle, iPluginId, iFunctionId, flDelta, fllLifeDelta, flLifeRatio);
+            @Particle_CallTransformFunction(sParticle, iPluginId, iFunctionId);
         }
 
         StructSetCell(sParticle, Particle_LastTransform, flGameTime);
@@ -545,12 +535,9 @@ CreateParticleEnity(const Float:vecOrigin[3], const Float:vecAngles[3]) {
     callfunc_end();
 }
 
-@Particle_CallTransformFunction(const &Struct:this, iPluginId, iFunctionId, Float:flDelta, Float:flLifeDelta, Float:flLifeRatio) {
+@Particle_CallTransformFunction(const &Struct:this, iPluginId, iFunctionId) {
     callfunc_begin_i(iFunctionId, iPluginId);
     callfunc_push_int(_:this);
-    callfunc_push_float(flDelta);
-    callfunc_push_float(flLifeDelta);
-    callfunc_push_float(flLifeRatio);
     callfunc_end();
 }
 

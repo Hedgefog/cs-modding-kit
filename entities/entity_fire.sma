@@ -1,3 +1,8 @@
+/*
+  Credits:
+     georgik57 aka D7 - for the code the fire effect is based on.
+*/
+
 #pragma semicolon 1
 
 #include <amxmodx>

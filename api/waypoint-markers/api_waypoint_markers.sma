@@ -234,6 +234,11 @@ public FMHook_OnFreeEntPrivateData(pEntity) {
   }
 
   ArrayDestroy(irgsPlayersData);
+
+  new iGlobalId = ArrayFindValue(g_irgpMarkers, this);
+  if (iGlobalId != -1) {
+      ArrayDeleteItem(g_irgpMarkers, iGlobalId);
+  }
 }
 
 @Marker_SetVisible(this, pPlayer, bool:bValue) {

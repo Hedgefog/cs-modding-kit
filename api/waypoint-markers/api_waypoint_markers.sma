@@ -166,6 +166,8 @@ public FMHook_AddToFullPack_Post(es, e, pEntity, pHost, pHostFlags, iPlayer, pSe
     set_es(es, ES_Origin, vecOrigin);
     set_es(es, ES_Angles, vecAngles);
     set_es(es, ES_Scale, flScale);
+    set_es(es, ES_AimEnt, 0);
+    set_es(es, ES_MoveType, MOVETYPE_NONE);
   }
 
   return FMRES_HANDLED;

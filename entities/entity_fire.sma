@@ -334,7 +334,7 @@ public plugin_end() {
 
     static bool:bIsBspModel; bIsBspModel = szModel[0] == '*';
     static bool:bHasModel; bHasModel = !!pev(pAimEnt, pev_modelindex);
-    static bool:bIsSprite; bIsSprite = iModelStrLen > 5 && equal(szModel[iModelStrLen - 5], ".spr");
+    static bool:bIsSprite; bIsSprite = iModelStrLen > 4 && equal(szModel[iModelStrLen - 4], ".spr");
 
     if (!bHasModel || bIsBspModel || bIsSprite) {
         pev(pAimEnt, pev_mins, vecMins);

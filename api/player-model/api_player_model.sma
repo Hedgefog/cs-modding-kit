@@ -1,9 +1,10 @@
 #pragma semicolon 1
 
 #include <amxmodx>
+#include <amxmisc>
 #include <fakemeta>
 #include <hamsandwich>
-#include <reapi>
+#tryinclude <reapi>
 
 #define PLUGIN "[API] Player Model"
 #define VERSION "1.0.0"
@@ -14,6 +15,8 @@
 #define MAX_SEQUENCES 101
 
 new g_iszSubModelClassname;
+
+new bool:g_bIsCStrike;
 
 new g_rgszDefaultPlayerModel[MAX_PLAYERS + 1][32];
 new g_rgszCurrentPlayerModel[MAX_PLAYERS + 1][256];
@@ -26,6 +29,7 @@ new Trie:g_itPlayerSequenceModelIndexes = Invalid_Trie;
 new Trie:g_itPlayerSequences = Invalid_Trie;
 
 public plugin_precache() {
+  g_bIsCStrike = !!cstrike_running();
   g_iszSubModelClassname = engfunc(EngFunc_AllocString, "info_target");
   g_itPlayerSequenceModelIndexes = TrieCreate();
   g_itPlayerSequences = TrieCreate();
@@ -39,7 +43,9 @@ public plugin_init() {
   RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
   RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
 
-  RegisterHookChain(RG_CBasePlayer_SetAnimation, "HC_Player_SetAnimation");
+  #if defined _reapi_included
+    RegisterHookChain(RG_CBasePlayer_SetAnimation, "HC_Player_SetAnimation");
+  #endif
 
   register_message(get_user_msgid("ClCorpse"), "Message_ClCorpse");
 }
@@ -199,12 +205,24 @@ public HamHook_Player_PostThink_Post(pPlayer) {
     @PlayerSubModel_Think(g_rgpPlayerSubModel[pPlayer]);
   }
 
+  if (!g_bIsCStrike) {
+    static szModel[MAX_RESOURCE_PATH_LENGTH];
+    get_user_info(pPlayer, "model", szModel, charsmax(szModel));
+    if (!equal(szModel, NULL_STRING)) {
+      copy(g_rgszDefaultPlayerModel[pPlayer], charsmax(g_rgszDefaultPlayerModel[]), szModel);
+    }
+
+    @Player_UpdateModel(pPlayer, false);
+  }
+
   return HAM_HANDLED;
 }
 
-public HC_Player_SetAnimation(pPlayer) {
-  @Player_UpdateAnimationModel(pPlayer);
-}
+#if defined _reapi_included
+  public HC_Player_SetAnimation(pPlayer) {
+    @Player_UpdateAnimationModel(pPlayer);
+  }
+#endif
 
 public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
   new pTargetPlayer = get_msg_arg_int(12);
@@ -217,7 +235,7 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
 
 @Player_UpdateAnimationModel(this) {
   static szAnimExt[32];
-  get_member(this, m_szAnimExtention, szAnimExt, charsmax(szAnimExt));
+  get_ent_data_string(this, "CBasePlayer", "m_szAnimExtention", szAnimExt, charsmax(szAnimExt));
 
   new iAnimationIndex = is_user_alive(this) ? GetAnimationIndexByAnimExt(szAnimExt) : 0;
   if (iAnimationIndex != g_rgiPlayerAnimationIndex[this]) {
@@ -228,6 +246,7 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
 
 @Player_UpdateCurrentModel(this) {
   new bool:bUsedCustom = g_rgbPlayerUseCustomModel[this];
+  new bool:bSetDefaultModel = false;
 
   g_rgbPlayerUseCustomModel[this] = !equal(g_rgszCustomPlayerModel[this], NULL_STRING);
 
@@ -235,9 +254,14 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
     copy(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), g_rgszCustomPlayerModel[this]);
   } else if (!equal(g_rgszDefaultPlayerModel[this], NULL_STRING)) {
     format(g_rgszCurrentPlayerModel[this], charsmax(g_rgszCurrentPlayerModel[]), "models/player/%s/%s.mdl", g_rgszDefaultPlayerModel[this], g_rgszDefaultPlayerModel[this]);
+    bSetDefaultModel = true;
   }
 
-  @Player_UpdateModel(this, bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
+  if (!g_bIsCStrike && bSetDefaultModel) {
+    set_user_info(this, "model", g_rgszDefaultPlayerModel[this]);
+  } else {
+    @Player_UpdateModel(this, bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
+  }
 }
 
 @Player_UpdateModel(this, bool:bForceUpdate) {
@@ -278,7 +302,10 @@ bool:@Player_ShouldUseCurrentModel(this) {
 @Player_SetModelIndex(this, iModelIndex) {
   set_user_info(this, "model", "");
   set_pev(this, pev_modelindex, iModelIndex);
-  set_member(this, m_modelIndexPlayer, iModelIndex);
+
+  if (g_bIsCStrike) {
+    set_ent_data(this, "CBasePlayer", "m_modelIndexPlayer", iModelIndex);
+  }
 }
 
 @Player_SetSequence(this, const szSequence[]) {
@@ -312,23 +339,24 @@ bool:@Player_ShouldUseCurrentModel(this) {
 
 @PlayerSubModel_Think(this) {
   if (!@PlayerSubModel_IsActive(this)) {
-    set_entvar(this, var_effects, get_entvar(this, var_effects) | EF_NODRAW);
+    set_pev(this, pev_effects, pev(this, pev_effects) | EF_NODRAW);
     return;
   }
 
   new pOwner = pev(this, pev_owner);
 
-  set_entvar(this, var_skin, get_entvar(pOwner, var_skin));
-  set_entvar(this, var_body, get_entvar(pOwner, var_body));
-  set_entvar(this, var_colormap, get_entvar(pOwner, var_colormap));
-  set_entvar(this, var_rendermode, get_entvar(pOwner, var_rendermode));
-  set_entvar(this, var_renderfx, get_entvar(pOwner, var_renderfx));
-  set_entvar(this, var_renderamt, get_entvar(pOwner, var_renderamt));
-  set_entvar(this, var_effects, get_entvar(this, var_effects) & ~EF_NODRAW);
+  set_pev(this, pev_skin, pev(pOwner, pev_skin));
+  set_pev(this, pev_body, pev(pOwner, pev_body));
+  set_pev(this, pev_colormap, pev(pOwner, pev_colormap));
+  set_pev(this, pev_rendermode, pev(pOwner, pev_rendermode));
+  set_pev(this, pev_renderfx, pev(pOwner, pev_renderfx));
+  set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
 
-  static rgflColor[3];
-  get_entvar(pOwner, var_rendercolor, rgflColor);
-  set_entvar(this, var_rendercolor, rgflColor);
+  static Float:flRenderAmt; pev(pOwner, pev_renderamt, flRenderAmt);
+  set_pev(this, pev_renderamt, flRenderAmt);
+
+  static rgflColor[3]; pev(pOwner, pev_rendercolor, rgflColor);
+  set_pev(this, pev_rendercolor, rgflColor);
 }
 
 @PlayerSubModel_IsActive(this) {

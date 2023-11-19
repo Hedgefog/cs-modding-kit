@@ -63,6 +63,18 @@ native PlayerCamera_SetAngles(pPlayer, const Float:vecAngles[3]);
 native PlayerCamera_SetDistance(pPlayer, Float:flDistance);
 
 /**
+ * Sets the axis lock of the player's camera.
+ *
+ * @param pPlayer     The player entity.
+ * @param bLockPitch  Lock Pitch axis.
+ * @param bLockYaw    Lock Yaw axis.
+ * @param bLockRoll   Lock Roll axis.
+ *
+ * @noreturn
+ */
+native PlayerCamera_SetAxisLock(pPlayer, bool:bLockPitch, bool:bLockYaw, bool:bLockRoll);
+
+/**
  * Sets the target entity of the player's camera.
  *
  * @param pPlayer    The player entity.

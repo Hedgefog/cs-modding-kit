@@ -8,7 +8,8 @@
 new g_rgpPlayerCamera[MAX_PLAYERS + 1];
 new Float:g_rgflPlayerCameraDistance[MAX_PLAYERS + 1];
 new Float:g_rgflPlayerCameraAngles[MAX_PLAYERS + 1][3];
-new Float:g_rgflPlayerCamerOffset[MAX_PLAYERS + 1][3];
+new Float:g_rgflPlayerCameraOffset[MAX_PLAYERS + 1][3];
+new bool:g_rgbPlayerCameraAxisLock[MAX_PLAYERS + 1][3];
 new Float:g_rgflPlayerCameraThinkDelay[MAX_PLAYERS + 1];
 new Float:g_rgflPlayerCameraNextThink[MAX_PLAYERS + 1];
 new g_pPlayerTargetEntity[MAX_PLAYERS + 1];
@@ -48,6 +49,7 @@ public plugin_natives() {
   register_native("PlayerCamera_SetOffset", "Native_SetOffset");
   register_native("PlayerCamera_SetAngles", "Native_SetAngles");
   register_native("PlayerCamera_SetDistance", "Native_SetDistance");
+  register_native("PlayerCamera_SetAxisLock", "Native_SetAxisLock");
   register_native("PlayerCamera_SetThinkDelay", "Native_SetThinkDelay");
   register_native("PlayerCamera_SetTargetEntity", "Native_SetTargetEntity");
 }
@@ -95,6 +97,15 @@ public Native_SetDistance(iPluginId, iArgc) {
   SetCameraDistance(pPlayer, flDistance);
 }
 
+public Native_SetAxisLock(iPluginId, iArgc) {
+  new pPlayer = get_param(1);
+  new bool:bLockPitch = bool:get_param(2);
+  new bool:bLockYaw = bool:get_param(3);
+  new bool:bLockRoll = bool:get_param(4);
+
+  SetAxisLock(pPlayer, bLockPitch, bLockYaw, bLockRoll);
+}
+
 public Native_SetThinkDelay(iPluginId, iArgc) {
   new pPlayer = get_param(1);
   new Float:flThinkDelay = get_param_f(2);
@@ -121,6 +132,7 @@ public client_connect(pPlayer) {
   g_rgpPlayerCamera[pPlayer] = -1;
   SetCameraTarget(pPlayer, pPlayer);
   SetCameraDistance(pPlayer, 200.0);
+  SetAxisLock(pPlayer, false, false, false);
   SetCameraAngles(pPlayer, Float:{0.0, 0.0, 0.0});
   SetCameraOffset(pPlayer, Float:{0.0, 0.0, 0.0});
   SetCameraThinkDelay(pPlayer, 0.01);
@@ -166,7 +178,7 @@ DeactivatePlayerCamera(pPlayer) {
 }
 
 SetCameraOffset(pPlayer, const Float:vecOffset[3]) {
-  xs_vec_copy(vecOffset, g_rgflPlayerCamerOffset[pPlayer]);
+  xs_vec_copy(vecOffset, g_rgflPlayerCameraOffset[pPlayer]);
 }
 
 SetCameraAngles(pPlayer, const Float:vecAngles[3]) {
@@ -175,6 +187,12 @@ SetCameraAngles(pPlayer, const Float:vecAngles[3]) {
 
 SetCameraDistance(pPlayer, Float:flDistance) {
   g_rgflPlayerCameraDistance[pPlayer] = flDistance;
+}
+
+SetAxisLock(pPlayer, bool:bLockPitch, bool:bLockYaw, bool:bLockRoll) {
+  g_rgbPlayerCameraAxisLock[pPlayer][0] = bLockPitch;
+  g_rgbPlayerCameraAxisLock[pPlayer][1] = bLockYaw;
+  g_rgbPlayerCameraAxisLock[pPlayer][2] = bLockRoll;
 }
 
 SetCameraThinkDelay(pPlayer, Float:flThinkDelay) {
@@ -215,11 +233,16 @@ PlayerCameraThink(pPlayer) {
 
   static Float:vecOrigin[3];
   pev(g_pPlayerTargetEntity[pPlayer], pev_origin, vecOrigin);
-  xs_vec_add(vecOrigin, g_rgflPlayerCamerOffset[pPlayer], vecOrigin);
+  xs_vec_add(vecOrigin, g_rgflPlayerCameraOffset[pPlayer], vecOrigin);
 
   static Float:vecAngles[3];
-  pev(g_pPlayerTargetEntity[pPlayer], pev_angles, vecAngles);
-  vecAngles[0] = vecAngles[2] = 0.0;
+  pev(g_pPlayerTargetEntity[pPlayer], pev_v_angle, vecAngles);
+  for (new iAxis = 0; iAxis < 3; ++iAxis) {
+    if (g_rgbPlayerCameraAxisLock[pPlayer][iAxis]) {
+      vecAngles[iAxis] = 0.0;
+    }
+  }
+
   xs_vec_add(vecAngles, g_rgflPlayerCameraAngles[pPlayer], vecAngles);
 
   static Float:vecBack[3];

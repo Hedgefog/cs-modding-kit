@@ -259,7 +259,11 @@ public Native_TerminateRound(iPluginId, iArgc) {
   new Float:flDelay = get_param_f(1);
   new iTeam = get_param(2);
 
-  TerminateRound(flDelay, iTeam);
+  #if defined USE_CUSTOM_ROUNDS
+    TerminateRound(flDelay, iTeam);
+  #else
+    DispatchWin(iTeam, flDelay);
+  #endif
 }
 
 public Native_GetTime(iPluginId, iArgc) {

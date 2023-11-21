@@ -145,7 +145,7 @@ public plugin_natives() {
   public client_putinserver() {
     g_iPlayersNum++;
 
-    if (g_iPlayersNum == 1) {
+    if (g_iPlayersNum < 2) {
       g_bCompleteReset = true;
       RestartRound();
     }
@@ -160,6 +160,8 @@ public plugin_natives() {
   public HamHook_Player_Spawn_Post(pPlayer) {
     if (g_bFreezePeriod) {
       set_pev(pPlayer, pev_flags, pev(pPlayer, pev_flags) | FL_FROZEN);
+    } else {
+      set_pev(pPlayer, pev_flags, ~pev(pPlayer, pev_flags) & FL_FROZEN);
     }
   }
 
@@ -259,9 +261,9 @@ public Native_TerminateRound(iPluginId, iArgc) {
   new Float:flDelay = get_param_f(1);
   new iTeam = get_param(2);
 
-  #if defined USE_CUSTOM_ROUNDS
-    TerminateRound(flDelay, iTeam);
-  #else
+#if defined USE_CUSTOM_ROUNDS
+  TerminateRound(flDelay, iTeam);
+#else
     DispatchWin(iTeam, flDelay);
   #endif
 }
@@ -565,6 +567,7 @@ UpdateTimer() {
     // }
 
     for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
+      if (!is_user_connected(pPlayer)) continue;
       set_pev(pPlayer, pev_flags, ~pev(pPlayer, pev_flags) & FL_FROZEN);
     }
 

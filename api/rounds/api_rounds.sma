@@ -592,11 +592,11 @@ UpdateTimer() {
   // CheckLevelInitialized() {}
 
   RestartRoundCheck(Float:flDelay) {
-    log_message("World triggered ^"Restart_Round_(%i_%s)^"^n", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "second" : "seconds");
+    log_message("World triggered ^"Restart_Round_(%d_%s)^"^n", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "second" : "seconds");
 
     // let the players know
-    client_print(0, print_center, "#Game_will_restart_in", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "SECOND" : "SECONDS");
-    client_print(0, print_console, "#Game_will_restart_in_console", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "SECOND" : "SECONDS");
+    client_print(0, print_center, "The game will restart in %d %s", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "SECOND" : "SECONDS");
+    client_print(0, print_console, "The game will restart in %d %s", floatround(flDelay, floatround_floor), (flDelay == 1.0) ? "SECOND" : "SECONDS");
 
     g_flRestartRoundTime = get_gametime() + flDelay;
     g_bCompleteReset = true;
@@ -639,7 +639,6 @@ UpdateTimer() {
 
   NeededPlayersCheck() {
     if (!g_iPlayersNum) {
-      // UTIL_ClientPrintAll(HUD_PRINTCONSOLE, "#Game_scoring");
       g_bNeededPlayers = true;
       g_bGameStarted = false;
     }
@@ -647,7 +646,7 @@ UpdateTimer() {
     g_bFreezePeriod = false;
     g_bCompleteReset = true;
 
-    EndRoundMessage("#Game_Commencing");
+    EndRoundMessage("Game Commencing!");
     TerminateRound(3.0, 0);
 
     g_bGameStarted = true;

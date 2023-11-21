@@ -22,6 +22,8 @@ enum CEHookData {
   CEHookData_FuncID
 };
 
+enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
+
 new g_iszBaseClassName;
 
 new Trie:g_itPData = Invalid_Trie;
@@ -29,10 +31,13 @@ new Trie:g_itEntityIds = Invalid_Trie;
 new g_rgCEData[CEData] = { Invalid_Array, ... };
 new g_iEntitiesNum = 0;
 new bool:g_bPrecaching = true;
+new bool:g_bIsCStrike = false;
 
 public plugin_precache() {
-  InitStorages();
+  g_bIsCStrike = !!cstrike_running();
   g_iszBaseClassName = engfunc(EngFunc_AllocString, CE_BASE_CLASSNAME);
+
+  InitStorages();
 
   register_forward(FM_Spawn, "FMHook_Spawn");
   register_forward(FM_KeyValue, "FMHook_KeyValue");
@@ -40,7 +45,11 @@ public plugin_precache() {
 
   RegisterHam(Ham_Spawn, CE_BASE_CLASSNAME, "HamHook_Base_Spawn_Post", .Post = 1);
   RegisterHam(Ham_ObjectCaps, CE_BASE_CLASSNAME, "HamHook_Base_ObjectCaps", .Post = 0);
-  RegisterHam(Ham_CS_Restart, CE_BASE_CLASSNAME, "HamHook_Base_Restart", .Post = 1);
+
+  if (g_bIsCStrike) {
+    RegisterHam(Ham_CS_Restart, CE_BASE_CLASSNAME, "HamHook_Base_Restart", .Post = 1);
+  }
+
   RegisterHam(Ham_Touch, CE_BASE_CLASSNAME, "HamHook_Base_Touch", .Post = 0);
   RegisterHam(Ham_Touch, CE_BASE_CLASSNAME, "HamHook_Base_Touch_Post", .Post = 1);
   RegisterHam(Ham_Killed, CE_BASE_CLASSNAME, "HamHook_Base_Killed", .Post = 0);
@@ -63,6 +72,7 @@ public plugin_natives() {
   register_native("CE_Create", "Native_Create");
   register_native("CE_Kill", "Native_Kill");
   register_native("CE_Remove", "Native_Remove");
+  register_native("CE_Restart", "Native_Restart");
 
   register_native("CE_RegisterHook", "Native_RegisterHook");
 
@@ -122,6 +132,14 @@ public bool:Native_Remove(iPluginId, iArgc) {
 
   set_pev(pEntity, pev_flags, pev(pEntity, pev_flags) | FL_KILLME);
   dllfunc(DLLFunc_Think, pEntity);
+}
+
+public Native_Restart(iPluginId, iArgc) {
+  static pEntity; pEntity = get_param(1);
+
+  if (!@Entity_IsCustom(pEntity)) return;
+
+  @Entity_Restart(pEntity);
 }
 
 public Native_RegisterHook(iPluginId, iArgc) {
@@ -549,6 +567,17 @@ bool:@Entity_IsCustom(this) {
 
   new iObjectCaps = ExecuteHamB(Ham_ObjectCaps, this);
 
+  if (!g_bIsCStrike) {
+    if (iObjectCaps & FCAP_MUST_RELEASE) {
+      set_pev(this, pev_globalname, GLOBAL_DEAD);
+      set_pev(this, pev_solid, SOLID_NOT);
+      set_pev(this, pev_flags, pev(this, pev_flags) | FL_KILLME);
+      set_pev(this, pev_targetname, "");
+      
+      return;
+    }
+  }
+
   if (~iObjectCaps & FCAP_ACROSS_TRANSITION) {
     dllfunc(DLLFunc_Spawn, this);
   }
@@ -928,6 +957,7 @@ Trie:AllocPData(iId, pEntity) {
   SetPDataMember(itPData, CE_MEMBER_WORLD, false);
   SetPDataMember(itPData, CE_MEMBER_POINTER, pEntity);
   SetPDataMember(itPData, CE_MEMBER_INITIALIZED, false);
+
   return itPData;
 }
 

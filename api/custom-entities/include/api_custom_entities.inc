@@ -89,6 +89,13 @@ native CE:CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
 native CE_Create(const szName[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
 
 /**
+ * Restart entity
+ *
+ * @param pEntity Entity index
+ */
+native bool:CE_Restart(pEntity);
+
+/**
  * Kill entity
  *
  * @param pEntity Entity index

@@ -266,8 +266,7 @@ public FMHook_OnFreeEntPrivateData(pEntity) {
   static Float:flLastUpdate; flLastUpdate = StructGetCell(sPlayerData, MarkerPlayerData_LastUpdate);
   static Float:flDelta; flDelta = flGameTime - flLastUpdate;
 
-  static Float:vecViewOrigin[3];
-  ExecuteHam(Ham_Player_GetGunPosition, pPlayer, vecViewOrigin);
+  static Float:vecViewOrigin[3]; ExecuteHam(Ham_EyePosition, pPlayer, vecViewOrigin);
 
   if (g_bCompensation) {
     static Float:vecVelocity[3];
@@ -275,11 +274,12 @@ public FMHook_OnFreeEntPrivateData(pEntity) {
     xs_vec_add_scaled(vecViewOrigin, vecVelocity, flDelay * flDelta, vecViewOrigin);
   }
 
-  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
-  if (!ExecuteHamB(Ham_FVecInViewCone, pPlayer, vecOrigin)) {
+  if (!ExecuteHamB(Ham_FInViewCone, pPlayer, this)) {
     StructSetCell(sPlayerData, MarkerPlayerData_ShouldHide, true);
     return;
   }
+
+  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
   static Float:vecAngles[3];
   xs_vec_sub(vecOrigin, vecViewOrigin, vecAngles);

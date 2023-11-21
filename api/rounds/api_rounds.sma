@@ -89,6 +89,7 @@ public plugin_init() {
 
   #if defined USE_CUSTOM_ROUNDS
     RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
+    RegisterHamPlayer(Ham_Killed, "HamHook_Player_Killed", .Post = 0);
     RegisterHamPlayer(Ham_Killed, "HamHook_Player_Killed_Post", .Post = 1);
   #endif
 
@@ -158,16 +159,20 @@ public plugin_natives() {
   }
 
   public HamHook_Player_Spawn_Post(pPlayer) {
+    if (!is_user_alive(pPlayer)) return;
+
     if (g_bFreezePeriod) {
       set_pev(pPlayer, pev_flags, pev(pPlayer, pev_flags) | FL_FROZEN);
     } else {
-      set_pev(pPlayer, pev_flags, ~pev(pPlayer, pev_flags) & FL_FROZEN);
+      set_pev(pPlayer, pev_flags, pev(pPlayer, pev_flags) & ~FL_FROZEN);
     }
   }
 
-  public HamHook_Player_Killed_Post(pPlayer) {
-    set_pev(pPlayer, pev_flags, ~pev(pPlayer, pev_flags) & FL_FROZEN);
+  public HamHook_Player_Killed(pPlayer) {
+    set_pev(pPlayer, pev_flags, pev(pPlayer, pev_flags) & ~FL_FROZEN);
+  }
 
+  public HamHook_Player_Killed_Post(pPlayer) {
     CheckWinConditions();
   }
 #endif
@@ -568,7 +573,8 @@ UpdateTimer() {
 
     for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
       if (!is_user_connected(pPlayer)) continue;
-      set_pev(pPlayer, pev_flags, ~pev(pPlayer, pev_flags) & FL_FROZEN);
+      if (!is_user_alive(pPlayer)) continue;
+      set_pev(pPlayer, pev_flags, pev(pPlayer, pev_flags) & ~FL_FROZEN);
     }
 
     g_iGameState = GameState_RoundStarted;

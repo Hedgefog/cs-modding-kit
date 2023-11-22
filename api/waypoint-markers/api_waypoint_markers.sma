@@ -274,22 +274,24 @@ public FMHook_OnFreeEntPrivateData(pEntity) {
     xs_vec_add_scaled(vecViewOrigin, vecVelocity, flDelay * flDelta, vecViewOrigin);
   }
 
-  if (!ExecuteHamB(Ham_FInViewCone, pPlayer, this)) {
+  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+
+  static iFov; iFov = get_ent_data(pPlayer, "CBasePlayer", "m_iFOV");
+
+  // We have to fix default HL FOV, because it equal to 0 and we can't use it in calculations
+  if (!iFov) iFov = 90;
+
+  // Default view cone test functions not working for Half-Life, so we have to use this stock
+  if (!UTIL_IsInViewCone(pPlayer, vecOrigin, float(iFov) / 2)) {
     StructSetCell(sPlayerData, MarkerPlayerData_ShouldHide, true);
     return;
   }
-
-  static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
   static Float:vecAngles[3];
   xs_vec_sub(vecOrigin, vecViewOrigin, vecAngles);
   xs_vec_normalize(vecAngles, vecAngles);
   vector_to_angle(vecAngles, vecAngles);
   vecAngles[0] = -vecAngles[0];
-
-  static iFov; iFov = get_ent_data(pPlayer, "CBasePlayer", "m_iFOV");
-
-  if (!iFov) iFov = 90; // HL FIX
 
   static Float:flDistance; flDistance = xs_vec_distance(vecViewOrigin, vecOrigin);
   static Float:vecSize[3]; pev(this, pev_size, vecSize);
@@ -384,4 +386,20 @@ Float:CalculateDistanceScaleFactor(Float:flDistance, iFov = 90) {
   static Float:flScaleFactor; flScaleFactor = ((2 * flAngle) / SCREEN_SIZE_FACTOR) * flDistance;
 
   return flScaleFactor;
+}
+
+stock bool:UTIL_IsInViewCone(pEntity, const Float:vecTarget[3], Float:fMaxAngle) {
+    static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, pEntity, vecOrigin);
+
+    static Float:vecDir[3];
+    xs_vec_sub(vecTarget, vecOrigin, vecDir);
+    xs_vec_normalize(vecDir, vecDir);
+
+    static Float:vecForward[3];
+    pev(pEntity, pev_v_angle, vecForward);
+    angle_vector(vecForward, ANGLEVECTOR_FORWARD, vecForward);
+
+    new Float:flAngle = xs_rad2deg(xs_acos((vecDir[0] * vecForward[0]) + (vecDir[1] * vecForward[1]), radian));
+
+    return flAngle <= fMaxAngle;
 }

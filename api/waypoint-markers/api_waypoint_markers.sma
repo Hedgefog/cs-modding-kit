@@ -288,6 +288,9 @@ public FMHook_OnFreeEntPrivateData(pEntity) {
   vecAngles[0] = -vecAngles[0];
 
   static iFov; iFov = get_ent_data(pPlayer, "CBasePlayer", "m_iFOV");
+
+  if (!iFov) iFov = 90; // HL FIX
+
   static Float:flDistance; flDistance = xs_vec_distance(vecViewOrigin, vecOrigin);
   static Float:vecSize[3]; pev(this, pev_size, vecSize);
   static Float:vecForward[3]; angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecForward);

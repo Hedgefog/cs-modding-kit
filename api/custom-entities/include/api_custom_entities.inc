@@ -47,6 +47,7 @@ enum CEPreset {
 };
 
 enum CEFunction {
+  CEFunction_Invalid = -1,
   CEFunction_KVD, // Calls when new key value obtained
   CEFunction_Spawn, // Calls during entity spawn
   CEFunction_Init, // Calls when entity is initialized (on first spawn)

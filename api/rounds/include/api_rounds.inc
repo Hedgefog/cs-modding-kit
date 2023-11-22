@@ -10,6 +10,7 @@ native Round_TerminateRound(Float:fDelay = 0.0, iTeam = 0);
 native Round_SetTime(iTime);
 native Round_GetTime();
 native Round_GetIntroTime();
+native Float:Round_GetStartTime();
 native Float:Round_GetRestartRoundTime();
 native Float:Round_GetRemainingTime();
 native bool:Round_IsFreezePeriod();

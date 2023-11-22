@@ -131,6 +131,7 @@ public plugin_natives() {
   register_native("Round_GetTime", "Native_GetTime");
   register_native("Round_SetTime", "Native_SetTime");
   register_native("Round_GetIntroTime", "Native_GetIntroTime");
+  register_native("Round_GetStartTime", "Native_GetStartTime");
   register_native("Round_GetRestartRoundTime", "Native_GetRestartRoundTime");
   register_native("Round_GetRemainingTime", "Native_GetRemainingTime");
   register_native("Round_IsFreezePeriod", "Native_IsFreezePeriod");
@@ -292,6 +293,14 @@ public Native_GetIntroTime(iPluginId, iArgc) {
     return g_iIntroRoundTime;
   #else
     return get_member_game(m_iIntroRoundTime);
+  #endif
+}
+
+public Float:Native_GetStartTime(iPluginId, iArgc) {
+  #if defined USE_CUSTOM_ROUNDS
+    return g_flRoundStartTime;
+  #else
+    return get_member_game(m_fRoundStartTime);
   #endif
 }
 

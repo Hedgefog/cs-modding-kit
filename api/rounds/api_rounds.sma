@@ -144,16 +144,16 @@ public plugin_natives() {
 }
 
 #if defined USE_CUSTOM_ROUNDS
-  public client_putinserver() {
+  public client_putinserver(pPlayer) {
     g_iPlayersNum++;
 
-    if (g_iPlayersNum < 2) {
+    if (g_iPlayersNum <= 2) {
       g_bCompleteReset = true;
       RestartRound();
     }
   }
 
-  public client_disconnected() {
+  public client_disconnected(pPlayer) {
     g_iPlayersNum--;
 
     CheckWinConditions();

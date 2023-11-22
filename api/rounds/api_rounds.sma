@@ -51,11 +51,10 @@ new g_pCvarRoundEndDelay;
 #endif
 
 #if defined USE_CUSTOM_ROUNDS
-  new g_iIntroRoundTime;
-  new g_iPlayersNum = 0;
+  new g_iIntroRoundTime = 2;
   new g_iRoundWinTeam = 0;
   new g_iRoundTime = 0;
-  new g_iRoundTimeSecs = 0;
+  new g_iRoundTimeSecs = 2;
   new g_iTotalRoundsPlayed = 0;
   new g_iMaxRounds = 0;
   new g_iMaxRoundsWon = 0;
@@ -65,10 +64,11 @@ new g_pCvarRoundEndDelay;
   new Float:g_flNextPeriodicThink = 0.0;
   new Float:g_flNextThink = 0.0;
   new bool:g_bRoundTerminating = false;
-  new bool:g_bFreezePeriod = false;
+  new bool:g_bFreezePeriod = true;
   new bool:g_bGameStarted = false;
   new bool:g_bCompleteReset = false;
   new bool:g_bNeededPlayers = false;
+  new g_iSpawnablePlayersNum = 0;
   new g_rgiWinsNum[MAX_TEAMS];
 #endif
 
@@ -118,6 +118,9 @@ public plugin_init() {
     g_pCvarRestart = get_cvar_pointer("sv_restart");
     g_pCvarRestartRound = get_cvar_pointer("sv_restartround");
 
+    g_iMaxRounds = max(get_pcvar_num(g_pCvarMaxRounds), 0);
+    g_iMaxRoundsWon = max(get_pcvar_num(g_pCvarWinLimits), 0);
+
     ReadMultiplayCvars();
   #endif
 
@@ -145,17 +148,10 @@ public plugin_natives() {
 
 #if defined USE_CUSTOM_ROUNDS
   public client_putinserver(pPlayer) {
-    g_iPlayersNum++;
-
-    if (g_iPlayersNum <= 2) {
-      g_bCompleteReset = true;
-      RestartRound();
-    }
+    CheckWinConditions();
   }
 
   public client_disconnected(pPlayer) {
-    g_iPlayersNum--;
-
     CheckWinConditions();
   }
 
@@ -436,20 +432,19 @@ UpdateTimer() {
   CheckWinConditions() {
       static iReturn; ExecuteForward(g_iFwCheckWinConditions, iReturn);
 
+      if (g_iRoundWinTeam) {
+        InitializePlayerCounts();
+        return;
+      }
+
       if (iReturn != PLUGIN_CONTINUE) return;
-      if (g_bGameStarted && g_iRoundWinTeam != 0) return;
+      if (g_bGameStarted && g_iRoundWinTeam) return;
+
+      InitializePlayerCounts();
 
       g_bNeededPlayers = false;
-      NeededPlayersCheck();
 
-  // #if defined USE_CUSTOM_ROUNDS
-  //     if (g_bGameStarted && g_iRoundWinTeam != WINSTATUS_NONE) return; 
-
-      // if (g_iRoundWinTeam && g_fRoundEndTimeReal <= get_gametime()) {
-      //     g_iGameState = GameState_NewRound;
-      //     ExecuteForward(g_iFwNewRound);
-      // }
-  // #endif
+      if (NeededPlayersCheck()) return;
   }
 
   RestartRound() {
@@ -475,7 +470,6 @@ UpdateTimer() {
     ReadMultiplayCvars();
 
     g_iRoundTimeSecs = g_iIntroRoundTime;
-
     g_flRoundStartTime = g_flRoundStartTimeReal = get_gametime();
 
     CleanUpMap();
@@ -486,6 +480,8 @@ UpdateTimer() {
 
       PlayerRoundRespawn(pPlayer);
     }
+
+    CleanUpMap();
 
     g_flRestartRoundTime = 0.0;
     g_iRoundWinTeam = 0;
@@ -500,9 +496,6 @@ UpdateTimer() {
       g_flRoundStartTime = g_flRoundStartTimeReal = get_gametime();
     }
 
-    // if (CheckGameOver()) return;
-    // if (CheckTimeLimit()) return;
-    // if (CheckFragLimit()) return;
     if (CheckMaxRounds()) return;
     if (CheckWinLimit()) return;
 
@@ -516,26 +509,14 @@ UpdateTimer() {
       RestartRound();
     }
 
-    // CheckLevelInitialized();
-
-    static Float:flNextPeriodicThink;
-
-    #if !defined USE_CUSTOM_ROUNDS
-      flNextPeriodicThink = get_member_game(m_tmNextPeriodicThink);
-    #else
-      flNextPeriodicThink = g_flNextPeriodicThink;
-    #endif
-
-    if (flNextPeriodicThink < get_gametime()) {
+    if (g_flNextPeriodicThink <= get_gametime()) {
       CheckRestartRound();
-      // m_tmNextPeriodicThink = get_gametime() + 1.0f;
 
       g_iMaxRounds = get_pcvar_num(g_pCvarMaxRounds);
       g_iMaxRoundsWon = get_pcvar_num(g_pCvarWinLimits);
+      g_flNextPeriodicThink = get_gametime() + 1.0;
     }
   }
-
-  // CheckGameOver() {}
 
   bool:CheckMaxRounds() {
     if (g_iMaxRounds && g_iTotalRoundsPlayed >= g_iMaxRounds) {
@@ -591,15 +572,15 @@ UpdateTimer() {
   }
 
   CheckRoundTimeExpired() {
-    if (!g_iRoundTime) {
-      return false;
-    }
+    if (!g_iRoundTime) return;
+    if (!HasRoundTimeExpired()) return;
 
-    if (GetRoundRemainingTime() > 0 || g_iRoundWinTeam != 0) {
-      return false;
-    }
+    g_flRoundStartTime = get_gametime() + 60.0;
+  }
 
-    // m_fRoundStartTime = get_gametime() + 60.0;
+  HasRoundTimeExpired() {
+    if (!g_iRoundTime) return false;
+    if (GetRoundRemainingTime() > 0 || g_iRoundWinTeam != 0) return false;
 
     return true;
   }
@@ -653,18 +634,25 @@ UpdateTimer() {
   }
 
   NeededPlayersCheck() {
-    if (!g_iPlayersNum) {
+    if (!g_iSpawnablePlayersNum) {
+      // log_message("#Game_scoring");
       g_bNeededPlayers = true;
       g_bGameStarted = false;
     }
 
-    g_bFreezePeriod = false;
-    g_bCompleteReset = true;
+    if (!g_bGameStarted && g_iSpawnablePlayersNum) {
+      g_bFreezePeriod = false;
+      g_bCompleteReset = true;
 
-    EndRoundMessage("Game Commencing!");
-    TerminateRound(3.0, 0);
+      EndRoundMessage("Game Commencing!");
+      TerminateRound(3.0, 0);
 
-    g_bGameStarted = true;
+      g_bGameStarted = true;
+
+      return true;
+    }
+
+    return false;
   }
 
   TerminateRound(Float:flDelay, iTeam) {
@@ -696,6 +684,15 @@ UpdateTimer() {
   // GetRoundRemainingTimeReal() {
   //   return float(g_iRoundTimeSecs) - get_gametime() + g_flRoundStartTimeReal;
   // }
+
+  InitializePlayerCounts() {
+    g_iSpawnablePlayersNum = 0;
+
+    for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
+      if (!is_user_connected(pPlayer)) continue;
+      g_iSpawnablePlayersNum++;
+    }
+  }
 #endif
 
 

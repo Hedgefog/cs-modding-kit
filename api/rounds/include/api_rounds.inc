@@ -5,6 +5,7 @@
 
 #pragma reqlib api_rounds
 
+native Round_UseCustomRounds();
 native Round_DispatchWin(iTeam, Float:fDelay = -1.0);
 native Round_TerminateRound(Float:fDelay = 0.0, iTeam = 0);
 native Round_SetTime(iTime);

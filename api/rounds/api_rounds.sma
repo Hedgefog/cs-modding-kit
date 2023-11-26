@@ -225,7 +225,7 @@ public server_frame() {
   }
 
   public HC_CheckWinConditions() {
-    if (g_bUseCustomRounds) return;
+    if (g_bUseCustomRounds) return HC_CONTINUE;
 
     static iReturn;
 

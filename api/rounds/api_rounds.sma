@@ -153,7 +153,7 @@ public server_frame() {
   if (g_bUseCustomRounds) {
     flNextPeriodicThink = g_flNextPeriodicThink;
   } else if (g_bIsCStrike) {
-    flNextPeriodicThink = get_gamerules_int("CHalfLifeMultiplay", "m_tmNextPeriodicThink");
+    flNextPeriodicThink = get_gamerules_float("CHalfLifeMultiplay", "m_tmNextPeriodicThink");
   } else {
     return;
   }
@@ -178,8 +178,8 @@ public server_frame() {
       bFreezePeriod = g_bFreezePeriod;
     } else if (g_bIsCStrike) {
       iRoundTimeSecs = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
-      flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTimeReal");
-      bFreezePeriod = get_gamerules_int("CHalfLifeMultiplay", "m_bFreezePeriod");
+      flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
+      bFreezePeriod = get_gamerules_int("CGameRules", "m_bFreezePeriod");
     }
 
     if (!bFreezePeriod && flGameTime >= flStartTime + float(iRoundTimeSecs)) {
@@ -438,7 +438,7 @@ SetTime(iTime) {
     g_iRoundTimeSecs = iTime;
     g_flRoundStartTime = g_flRoundStartTimeReal;
   } else if (g_bIsCStrike) {
-    new Float:flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTimeReal");
+    new Float:flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
     set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTime", iTime);
     set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs", iTime);
     set_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTime", flStartTime);
@@ -740,7 +740,7 @@ Float:GetRoundRemainingTime() {
     flStartTime = g_flRoundStartTimeReal;
     iTime = g_iRoundTimeSecs;
   } else if (g_bIsCStrike) {
-    flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTimeReal");
+    flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
     iTime = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
   } else {
     return 0.0;

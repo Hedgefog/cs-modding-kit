@@ -1014,7 +1014,7 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
       callfunc_push_int(pEntity);
 
       switch (iFunction) {
-        case CEFunction_Touch: {
+        case CEFunction_Touch, CEFunction_Touched: {
           new pToucher = getarg(3);
           callfunc_push_int(pToucher);
         }

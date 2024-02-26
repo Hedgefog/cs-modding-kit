@@ -202,6 +202,7 @@ public plugin_natives() {
   register_native("Nav_IsAreaVisible", "Native_IsAreaVisible");
 
   register_native("Nav_Area_GetAttributes", "Native_Area_GetAttributes");
+  register_native("Nav_Area_GetParentHow", "Native_Area_GetParentHow");
   register_native("Nav_Area_GetCenter", "Native_Area_GetCenter");
   register_native("Nav_Area_GetId", "Native_Area_GetId");
   register_native("Nav_Area_Contains", "Native_Area_Contains");
@@ -221,6 +222,7 @@ public plugin_natives() {
   register_native("Nav_Path_IsValid", "Native_Path_IsValid");
   register_native("Nav_Path_GetSegments", "Native_Path_GetSegments");
   register_native("Nav_Path_Segment_GetPos", "Native_Path_Segment_GetPos");
+  register_native("Nav_Path_Segment_GetHow", "Native_Path_Segment_GetHow");
 
   register_native("Nav_Path_Find", "Native_Path_Find");
   register_native("Nav_Path_FindTask_GetUserToken", "Native_Path_FindTask_GetUserToken");
@@ -340,6 +342,12 @@ public NavAttributeType:Native_Area_GetAttributes(iPluginId, iArgc) {
   return @NavArea_GetAttributes(sArea);
 }
 
+public NavTraverseType:Native_Area_GetParentHow(iPluginId, iArgc) {
+  new Struct:sArea = Struct:get_param(1);
+
+  return @NavArea_GetParentHow(sArea);
+}
+
 public Native_Area_GetCenter(iPluginId, iArgc) {
   new Struct:sArea = Struct:get_param(1);
 
@@ -397,6 +405,12 @@ public Native_Path_Segment_GetPos(iPluginId, iArgc) {
   StructGetArray(sSegment, PathSegment_Pos, vecPos, sizeof(vecPos));
 
   set_array_f(2, vecPos, sizeof(vecPos));
+}
+
+public NavTraverseType:Native_Path_Segment_GetHow(iPluginId, iArgc) {
+  new Struct:sSegment = Struct:get_param(1);
+
+  return StructGetCell(sSegment, PathSegment_How);
 }
 
 public Native_Area_GetId(iPluginId, iArgc) {
@@ -809,6 +823,10 @@ NavErrorType:@NavArea_PostLoadArea(const &Struct:this) {
 
 NavAttributeType:@NavArea_GetAttributes(const &Struct:this) {
   return StructGetCell(this, NavArea_AttributeFlags);
+}
+
+NavTraverseType:@NavArea_GetParentHow(const &Struct:this) {
+  return StructGetCell(this, NavArea_ParentHow);
 }
 
 bool:@NavArea_IsClosed(const &Struct:this) {

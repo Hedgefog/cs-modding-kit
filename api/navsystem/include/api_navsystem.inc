@@ -32,6 +32,7 @@ native bool:Nav_IsAreaVisible(const Float:vecPos[3], NavArea:pArea);
 
 native Nav_Area_GetId(NavArea:pArea);
 native NavAttributeType:Nav_Area_GetAttributes(NavArea:pArea);
+native NavTraverseType:Nav_Area_GetParentHow(NavArea:pArea);
 native Nav_Area_GetCenter(NavArea:pArea, Float:vecOut[3]);
 native bool:Nav_Area_Contains(NavArea:pArea, const Float:vecPoint[3]);
 native bool:Nav_Area_IsCoplanar(NavArea:pArea, NavArea:pOther);
@@ -85,3 +86,4 @@ native bool:Nav_Path_FindTask_IsTerminated(NavBuildPathTask:pTask);
 native any:Nav_Path_FindTask_GetUserToken(NavBuildPathTask:pTask);
 
 native Nav_Path_Segment_GetPos(NavPathSegment:pSegment, Float:vecOut[3]);
+native NavTraverseType:Nav_Path_Segment_GetHow(NavPathSegment:pSegment);

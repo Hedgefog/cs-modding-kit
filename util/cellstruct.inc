@@ -31,6 +31,14 @@ stock StructSize(const &Struct:which) {
     return ArraySize(Array:which);
 }
 
+stock StructCopy(const &Struct:which, &Struct:other) {
+    new size = min(StructSize(which), StructSize(other));
+
+    for (new i = 0; i < size; ++i) {
+        StructSetCell(other, i, StructGetCell(which, i));
+    }
+}
+
 stock StructDestroy(&Struct:which) {
     ArrayDestroy(Array:which);
     which = Invalid_Struct;

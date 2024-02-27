@@ -153,7 +153,11 @@ public server_frame() {
   if (g_bUseCustomRounds) {
     flNextPeriodicThink = g_flNextPeriodicThink;
   } else if (g_bIsCStrike) {
-    flNextPeriodicThink = get_gamerules_float("CHalfLifeMultiplay", "m_tmNextPeriodicThink");
+    #if defined _reapi_included
+      flNextPeriodicThink = get_member_game(m_tmNextPeriodicThink);
+    #else
+      flNextPeriodicThink = get_gamerules_float("CHalfLifeMultiplay", "m_tmNextPeriodicThink");
+    #endif
   } else {
     return;
   }
@@ -177,9 +181,15 @@ public server_frame() {
       flStartTime = g_flRoundStartTimeReal;
       bFreezePeriod = g_bFreezePeriod;
     } else if (g_bIsCStrike) {
-      iRoundTimeSecs = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
-      flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
-      bFreezePeriod = get_gamerules_int("CGameRules", "m_bFreezePeriod");
+      #if defined _reapi_included
+        iRoundTimeSecs = get_member_game(m_iRoundTimeSecs);
+        flStartTime = get_member_game(m_fRoundStartTimeReal);
+        bFreezePeriod = get_member_game(m_bFreezePeriod);
+      #else
+        iRoundTimeSecs = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
+        flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
+        bFreezePeriod = get_gamerules_int("CGameRules", "m_bFreezePeriod");
+      #endif
     }
 
     if (!bFreezePeriod && flGameTime >= flStartTime + float(iRoundTimeSecs)) {
@@ -293,7 +303,11 @@ public Native_GetTime(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_iRoundTimeSecs;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
+    #if defined _reapi_included
+      return get_member_game(m_iRoundTimeSecs);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
+    #endif
   }
 
   return 0;
@@ -309,7 +323,11 @@ public Native_GetIntroTime(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_iIntroRoundTime;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_iIntroRoundTime");
+    #if defined _reapi_included
+      return get_member_game(m_iIntroRoundTime);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_iIntroRoundTime");
+    #endif
   }
 
   return 0;
@@ -319,7 +337,11 @@ public Float:Native_GetStartTime(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_flRoundStartTime;
   } else if (g_bIsCStrike) {
-    return get_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount");
+    #if defined _reapi_included
+      return get_member_game(m_fRoundStartTime);
+    #else
+      return get_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount");
+    #endif
   }
 
   return 0.0;
@@ -329,7 +351,11 @@ public Float:Native_GetRestartRoundTime(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_flRestartRoundTime;
   } else if (g_bIsCStrike) {
-    return get_gamerules_float("CHalfLifeMultiplay", "m_flRestartRoundTime");
+    #if defined _reapi_included
+      return get_member_game(m_flRestartRoundTime);
+    #else
+      return get_gamerules_float("CHalfLifeMultiplay", "m_flRestartRoundTime");
+    #endif
   }
 
   return 0.0;
@@ -343,7 +369,11 @@ public bool:Native_IsFreezePeriod(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_bFreezePeriod;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_bFreezePeriod");
+    #if defined _reapi_included
+      return get_member_game(m_bFreezePeriod);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_bFreezePeriod");
+    #endif
   }
 
   return false;
@@ -361,7 +391,11 @@ public bool:Native_IsRoundTerminating(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_bRoundTerminating;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_bRoundTerminating");
+    #if defined _reapi_included
+      return get_member_game(m_bRoundTerminating);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_bRoundTerminating");
+    #endif
   }
 
   return false;
@@ -371,7 +405,11 @@ public bool:Native_IsPlayersNeeded(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_bNeededPlayers;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_bNeededPlayers");
+    #if defined _reapi_included
+      return get_member_game(m_bNeededPlayers);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_bNeededPlayers");
+    #endif
   }
 
   return false;
@@ -381,7 +419,11 @@ public bool:Native_IsCompleteReset(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_bCompleteReset;
   } else if (g_bIsCStrike) {
-    return get_gamerules_int("CHalfLifeMultiplay", "m_bCompleteReset");
+    #if defined _reapi_included
+      return get_member_game(m_bCompleteReset);
+    #else
+      return get_gamerules_int("CHalfLifeMultiplay", "m_bCompleteReset");
+    #endif
   }
 
   return false;
@@ -438,10 +480,17 @@ SetTime(iTime) {
     g_iRoundTimeSecs = iTime;
     g_flRoundStartTime = g_flRoundStartTimeReal;
   } else if (g_bIsCStrike) {
-    new Float:flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
-    set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTime", iTime);
-    set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs", iTime);
-    set_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount", flStartTime);
+    #if defined _reapi_included
+      new Float:flStartTime = get_member_game(m_fRoundStartTimeReal);
+      set_member_game(m_iRoundTime, iTime);
+      set_member_game(m_iRoundTimeSecs, iTime);
+      set_member_game(m_fRoundStartTime, flStartTime);
+    #else
+      new Float:flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
+      set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTime", iTime);
+      set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs", iTime);
+      set_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount", flStartTime);
+    #endif
   }
 
   UpdateTimer();
@@ -740,8 +789,13 @@ Float:GetRoundRemainingTime() {
     flStartTime = g_flRoundStartTimeReal;
     iTime = g_iRoundTimeSecs;
   } else if (g_bIsCStrike) {
-    flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
-    iTime = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
+    #if defined _reapi_included
+      flStartTime = get_member_game(m_fRoundStartTimeReal);
+      iTime = get_member_game(m_iRoundTimeSecs);
+    #else
+      flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
+      iTime = get_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs");
+    #endif
   } else {
     return 0.0;
   }

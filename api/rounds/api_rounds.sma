@@ -319,7 +319,7 @@ public Float:Native_GetStartTime(iPluginId, iArgc) {
   if (g_bUseCustomRounds) {
     return g_flRoundStartTime;
   } else if (g_bIsCStrike) {
-    return get_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTime");
+    return get_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount");
   }
 
   return 0.0;
@@ -441,7 +441,7 @@ SetTime(iTime) {
     new Float:flStartTime = get_gamerules_float("CHalfLifeMultiplay", "m_fIntroRoundCount");
     set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTime", iTime);
     set_gamerules_int("CHalfLifeMultiplay", "m_iRoundTimeSecs", iTime);
-    set_gamerules_float("CHalfLifeMultiplay", "m_fRoundStartTime", flStartTime);
+    set_gamerules_float("CHalfLifeMultiplay", "m_fRoundCount", flStartTime);
   }
 
   UpdateTimer();

@@ -5,7 +5,7 @@
 
 #include <datapack_stocks>
 
-#include <api_custom_events>
+#include <api_custom_events_const>
 
 #define PLUGIN "[API] Custom Events"
 #define VERSION "1.0.0"
@@ -138,10 +138,10 @@ public Native_EmitEvent(iPluginId, iArgc) {
 
     static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
     for (new iEventParam = 0; iEventParam < iParamsNum; ++iEventParam) {
-      static iParam; iParam = 3 + iEventParam;
+      static iParam; iParam = 2 + iEventParam;
       static iType; iType = ArrayGetCell(irgParamTypes, iEventParam, _:EventParam_Type);
       static iSize; iSize = ArrayGetCell(irgParamTypes, iEventParam, _:EventParam_Size);
-      static bool:bUseDefault; bUseDefault = iParam >= iArgc;
+      static bool:bUseDefault; bUseDefault = iParam > iArgc;
 
       switch (iType) {
         case EP_Cell: {

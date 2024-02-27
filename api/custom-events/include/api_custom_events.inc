@@ -5,16 +5,7 @@
 
 #pragma reqlib api_custom_events
 
-#define MAX_CUSTOM_EVENT_KEY_LENGTH 64
-
-enum {
-  EP_Invalid = -1,
-  EP_Cell,
-  EP_Float,
-  EP_String,
-  EP_Array,
-  EP_FloatArray
-};
+#include <api_custom_events_const>
 
 /**
  * Registers a custom event with the specified ID and parameter types.

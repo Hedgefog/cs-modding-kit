@@ -4,7 +4,11 @@
 #define _datapack_stocks_included
 
 #if !defined _datapack_included
-  #include <datapack>
+  #tryinclude <datapack>
+#endif
+
+#if !defined _datapack_included
+  #endinput
 #endif
 
 stock ReadPackArray(DataPack:pack, buffer[], maxlen = -1) {

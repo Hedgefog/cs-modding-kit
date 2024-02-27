@@ -5,12 +5,16 @@
 #include <engine>
 #include <fakemeta>
 #include <hamsandwich>
-#include <datapack>
+#tryinclude <datapack>
 #include <xs>
 
 #include <datapack_stocks>
 
 #include <api_custom_entities_const>
+
+#if !defined _datapack_included
+  enum DataPack { Invalid_DataPack = 0 }
+#endif
 
 #define DEFAULT_CELL_VALUE 0
 #define DEFAULT_FLOAT_VALUE 0.0
@@ -43,9 +47,11 @@ enum CEMethodData {
 
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
 
+#if defined _datapack_included
 new g_szBuffer[MAX_STRING_LENGTH];
 new g_rgiBuffer[MAX_STRING_LENGTH];
 new Float:g_rgflBuffer[MAX_STRING_LENGTH];
+#endif
 
 new g_iszBaseClassName;
 
@@ -86,6 +92,10 @@ public plugin_init() {
   register_plugin("[API] Custom Entities", "2.0.0", "Hedgehog Fog");
 
   register_concmd("ce_spawn", "Command_Spawn", ADMIN_CVAR);
+
+  #if !defined _datapack_included
+    log_amx("%s Warning! This version is compiled without ^"datapack^" support. Method arguments are not supported!", LOG_PREFIX);
+  #endif
 }
 
 public plugin_natives() {
@@ -330,9 +340,13 @@ public any:Native_CallMethod(iPluginId, iArgc) {
     log_error(AMX_ERR_NATIVE, "%s The method ^"%s^" is not registered for the entity %d!", LOG_PREFIX, szMethod, pEntity);
     return 0;
   }
+
+  static DataPack:dpParams; dpParams = Invalid_DataPack;
+
+  #if defined _datapack_included
+    dpParams = CreateDataPack();
   
   static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
-  static DataPack:dpParams; dpParams = CreateDataPack();
 
   static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
   for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
@@ -377,10 +391,17 @@ public any:Native_CallMethod(iPluginId, iArgc) {
       }
     }
   }
+  #endif
 
+  #if defined _datapack_included
   ResetPack(dpParams);
+  #endif
+
   new any:result = @Entity_CallMethod(pEntity, szMethod, dpParams);
+
+  #if defined _datapack_included
   DestroyDataPack(dpParams);
+  #endif
 
   return result;
 }
@@ -995,6 +1016,7 @@ any:@Entity_CallMethod(this, const szMethod[], DataPack:dpParams) {
   if (callfunc_begin_i(rgMethod[CEMethodData_FunctionID], rgMethod[CEMethodData_PluginID]) == 1) {
     callfunc_push_int(this);
 
+    #if defined _datapack_included
     static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
 
     if (irgParamTypes != Invalid_Array) {
@@ -1027,6 +1049,7 @@ any:@Entity_CallMethod(this, const szMethod[], DataPack:dpParams) {
         }
       }
     }
+    #endif
 
     return callfunc_end();
   }

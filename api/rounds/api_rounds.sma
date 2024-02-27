@@ -87,7 +87,7 @@ public plugin_init() {
   g_iFwRoundExpired = CreateMultiForward("Round_Fw_RoundExpired", ET_IGNORE);
   g_iFwRoundRestart = CreateMultiForward("Round_Fw_RoundRestart", ET_IGNORE);
   g_iFwRoundTimerTick = CreateMultiForward("Round_Fw_RoundTimerTick", ET_IGNORE);
-  g_iFwUpdateTimer = CreateMultiForward("Round_Fw_UpdateTimer", ET_IGNORE);
+  g_iFwUpdateTimer = CreateMultiForward("Round_Fw_UpdateTimer", ET_IGNORE, FP_CELL);
   g_iFwCheckWinConditions = CreateMultiForward("Round_Fw_CheckWinConditions", ET_STOP);
 }
 

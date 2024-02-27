@@ -5,16 +5,29 @@
 #include <engine>
 #include <fakemeta>
 #include <hamsandwich>
+#include <datapack>
 #include <xs>
 
-#include <api_custom_entities>
+#include <datapack_stocks>
+
+#include <api_custom_entities_const>
+
+#define DEFAULT_CELL_VALUE 0
+#define DEFAULT_FLOAT_VALUE 0.0
+#define DEFAULT_STRING_VALUE NULL_STRING
 
 #define LOG_PREFIX "[CE]"
+
+enum MethodParam {
+  MethodParam_Type = 0,
+  MethodParam_Size
+};
 
 enum CEData {
   Array:CEData_Name,
   Array:CEData_Preset,
-  Array:CEData_Hooks[CEFunction]
+  Array:CEData_Hooks[CEFunction],
+  Array:CEData_Methods
 };
 
 enum CEHookData {
@@ -22,7 +35,17 @@ enum CEHookData {
   CEHookData_FuncID
 };
 
+enum CEMethodData {
+  CEMethodData_PluginID,
+  CEMethodData_FunctionID,
+  Array:CEMethodData_ParamTypes
+};
+
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
+
+new g_szBuffer[MAX_STRING_LENGTH];
+new g_rgiBuffer[MAX_STRING_LENGTH];
+new Float:g_rgflBuffer[MAX_STRING_LENGTH];
 
 new g_iszBaseClassName;
 
@@ -75,6 +98,7 @@ public plugin_natives() {
   register_native("CE_Restart", "Native_Restart");
 
   register_native("CE_RegisterHook", "Native_RegisterHook");
+  register_native("CE_RegisterMethod", "Native_RegisterMethod");
 
   register_native("CE_GetHandler", "Native_GetHandler");
   register_native("CE_GetHandlerByEntity", "Native_GetHandlerByEntity");
@@ -87,6 +111,7 @@ public plugin_natives() {
   register_native("CE_SetMemberVec", "Native_SetMemberVec");
   register_native("CE_GetMemberString", "Native_GetMemberString");
   register_native("CE_SetMemberString", "Native_SetMemberString");
+  register_native("CE_CallMethod", "Native_CallMethod");
 }
 
 public plugin_end() {
@@ -148,6 +173,31 @@ public Native_RegisterHook(iPluginId, iArgc) {
   new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
   RegisterEntityHook(iFunction, szClassname, szCallback, iPluginId);
+}
+
+public Native_RegisterMethod(iPluginId, iArgc) {
+  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
+  new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
+
+  new Array:irgParamTypes; irgParamTypes = ArrayCreate(_:MethodParam, iArgc - 1);
+
+  for (new iParam = 4; iParam <= iArgc; ++iParam) {
+    new rgParam[MethodParam];
+    rgParam[MethodParam_Type] = get_param_byref(iParam);
+    rgParam[MethodParam_Size] = 1;
+
+    switch (rgParam[MethodParam_Type]) {
+      case CE_MP_Array, CE_MP_FloatArray: {
+        rgParam[MethodParam_Size] = get_param_byref(iParam + 1);
+        iParam++;
+      }
+    }
+
+    ArrayPushArray(irgParamTypes, rgParam[any:0], _:MethodParam);
+  }
+
+  RegisterEntityMethod(szClassName, szMethod, szCallback, iPluginId, irgParamTypes);
 }
 
 public Native_GetHandler(iPluginId, iArgc) {
@@ -263,6 +313,76 @@ public Native_SetMemberString(iPluginId, iArgc) {
 
   static Trie:itPData; itPData = @Entity_GetPData(pEntity);
   SetPDataMemberString(itPData, szMember, szValue);
+}
+
+public any:Native_CallMethod(iPluginId, iArgc) {
+  static pEntity; pEntity = get_param(1);
+  static szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
+
+  if (!@Entity_IsCustom(pEntity)) return 0;
+
+  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  static Trie:itMethods; itMethods = ArrayGetCell(g_rgCEData[CEData_Methods], iId);
+
+  static rgMethod[CEMethodData];
+  if (!TrieGetArray(itMethods, szMethod, rgMethod[CEMethodData:0], _:CEMethodData)) {
+    log_error(AMX_ERR_NATIVE, "%s The method ^"%s^" is not registered for the entity %d!", LOG_PREFIX, szMethod, pEntity);
+    return 0;
+  }
+  
+  static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
+  static DataPack:dpParams; dpParams = CreateDataPack();
+
+  static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
+  for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
+    static iParam; iParam = 3 + iMethodParam;
+    static iType; iType = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Type);
+    static iSize; iSize = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Size);
+    static bool:bUseDefault; bUseDefault = iParam > iArgc;
+
+    switch (iType) {
+      case CE_MP_Cell: {
+        WritePackCell(dpParams, bUseDefault ? DEFAULT_CELL_VALUE : get_param_byref(iParam));
+      }
+      case CE_MP_Float: {
+        WritePackFloat(dpParams, bUseDefault ? DEFAULT_FLOAT_VALUE : Float:get_param_byref(iParam));
+      }
+      case CE_MP_String: {
+        if (bUseDefault) {
+          copy(g_szBuffer, sizeof(g_szBuffer), DEFAULT_STRING_VALUE);
+        } else {
+          get_string(iParam, g_szBuffer, charsmax(g_szBuffer));
+        }
+
+        WritePackString(dpParams, g_szBuffer);
+      }
+      case CE_MP_Array: {
+        if (bUseDefault) {
+          arrayset(g_rgiBuffer, DEFAULT_FLOAT_VALUE, iSize);
+        } else {
+          get_array(iParam, g_rgiBuffer, iSize);
+        }
+
+        WritePackArray(dpParams, g_rgiBuffer, iSize);
+      }
+      case CE_MP_FloatArray: {
+        if (bUseDefault) {
+          arrayset(g_rgflBuffer, DEFAULT_FLOAT_VALUE, iSize);
+        } else {
+          get_array_f(iParam, g_rgflBuffer, iSize);
+        }
+
+        WritePackFloatArray(dpParams, g_rgflBuffer, iSize);
+      }
+    }
+  }
+
+  ResetPack(dpParams);
+  new any:result = @Entity_CallMethod(pEntity, szMethod, dpParams);
+  DestroyDataPack(dpParams);
+
+  return result;
 }
 
 /*--------------------------------[ Commands ]--------------------------------*/
@@ -474,7 +594,7 @@ bool:@Entity_IsCustom(this) {
 
   static szModel[MAX_RESOURCE_PATH_LENGTH]; pev(this, pev_model, szModel, charsmax(szModel));
 
-  CE_SetMember(this, CE_MEMBER_IGNOREROUNDS, false);
+  SetPDataMember(itPData, CE_MEMBER_IGNOREROUNDS, false);
 
   ExecuteHookFunction(CEFunction_Init, iId, this);
 
@@ -866,6 +986,54 @@ Trie:@Entity_AllocPData(this, iId) {
   set_pev(this, pev_iStepLeft, 0);
 }
 
+any:@Entity_CallMethod(this, const szMethod[], DataPack:dpParams) {
+  static Trie:itPData; itPData = @Entity_GetPData(this);
+  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  static Trie:itMethods; itMethods = ArrayGetCell(g_rgCEData[CEData_Methods], iId);
+  static rgMethod[CEMethodData]; TrieGetArray(itMethods, szMethod, rgMethod[CEMethodData:0], _:CEMethodData);
+
+  if (callfunc_begin_i(rgMethod[CEMethodData_FunctionID], rgMethod[CEMethodData_PluginID]) == 1) {
+    callfunc_push_int(this);
+
+    static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
+
+    if (irgParamTypes != Invalid_Array) {
+      static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
+
+      for (new iParam = 0; iParam < iParamsNum; ++iParam) {
+        static iType; iType = ArrayGetCell(irgParamTypes, iParam, _:MethodParam_Type);
+
+        switch (iType) {
+          case CE_MP_Cell: {
+            static iValue; iValue = ReadPackCell(dpParams);
+            callfunc_push_int(iValue);
+          }
+          case CE_MP_Float: {
+            static Float:flValue; flValue = ReadPackFloat(dpParams);
+            callfunc_push_float(flValue);
+          }
+          case CE_MP_String: {
+            ReadPackString(dpParams, g_szBuffer, charsmax(g_szBuffer));
+            callfunc_push_str(g_szBuffer);
+          }
+          case CE_MP_Array: {
+            static iLen; iLen = ReadPackArray(dpParams, g_rgiBuffer);
+            callfunc_push_array(g_rgiBuffer, iLen, false);
+          }
+          case CE_MP_FloatArray: {
+            static iLen; iLen = ReadPackFloatArray(dpParams, g_rgflBuffer);
+            callfunc_push_array(_:g_rgflBuffer, iLen, false);
+          }
+        }
+      }
+    }
+
+    return callfunc_end();
+  }
+
+  return 0;
+}
+
 /*--------------------------------[ Functions ]--------------------------------*/
 
 InitStorages() {
@@ -876,6 +1044,8 @@ InitStorages() {
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
     g_rgCEData[CEData_Hooks][iFunction] = ArrayCreate();
   }
+
+  g_rgCEData[CEData_Methods] = ArrayCreate();
 }
 
 DestroyStorages() {
@@ -891,6 +1061,10 @@ DestroyStorages() {
     ArrayDestroy(Array:g_rgCEData[iData]);
   }
 
+  ArrayDestroy(g_rgCEData[CEData_Methods]);
+  ArrayDestroy(g_rgCEData[CEData_Preset]);
+  ArrayDestroy(g_rgCEData[CEData_Name]);
+
   TrieDestroy(g_itEntityIds);
 }
 
@@ -900,6 +1074,7 @@ RegisterEntity(const szClassName[], CEPreset:iPreset) {
   TrieSetCell(g_itEntityIds, szClassName, iId);
   ArrayPushString(g_rgCEData[CEData_Name], szClassName);
   ArrayPushCell(g_rgCEData[CEData_Preset], iPreset);
+  ArrayPushCell(g_rgCEData[CEData_Methods], TrieCreate());
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
     ArrayPushCell(g_rgCEData[CEData_Hooks][iFunction], ArrayCreate(_:CEHookData));
@@ -907,7 +1082,7 @@ RegisterEntity(const szClassName[], CEPreset:iPreset) {
 
   g_iEntitiesNum++;
 
-  log_amx("%s Entity %s successfully registred.", LOG_PREFIX, szClassName);
+  log_amx("%s Entity ^"%s^" successfully registred.", LOG_PREFIX, szClassName);
 
   return iId;
 }
@@ -918,6 +1093,10 @@ FreeRegisteredEntityData(iId) {
     ArrayDestroy(irgHooks);
     ArraySetCell(g_rgCEData[CEData_Hooks][iFunction], iId, Invalid_Array);
   }
+
+  new Trie:itMethods = ArrayGetCell(g_rgCEData[CEData_Methods], iId);
+  TrieDestroy(itMethods);
+  ArraySetCell(g_rgCEData[CEData_Methods], iId, Invalid_Trie);
 }
 
 GetIdByClassName(const szClassName[]) {
@@ -929,7 +1108,7 @@ GetIdByClassName(const szClassName[]) {
 RegisterEntityHook(CEFunction:iFunction, const szClassName[], const szCallback[], iPluginId = -1) {
   new iId = GetIdByClassName(szClassName);
   if (iId == -1) {
-    log_error(AMX_ERR_NATIVE, "%s Entity %s is not registered.", LOG_PREFIX, szClassName);
+    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassName);
     return -1;
   }
 
@@ -937,7 +1116,7 @@ RegisterEntityHook(CEFunction:iFunction, const szClassName[], const szCallback[]
   if (iFunctionId < 0) {
     new szFilename[32];
     get_plugin(iPluginId, szFilename, charsmax(szFilename));
-    log_error(AMX_ERR_NATIVE, "%s Function %s not found in plugin %s.", LOG_PREFIX, szCallback, szFilename);
+    log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
     return -1;
   }
 
@@ -949,6 +1128,36 @@ RegisterEntityHook(CEFunction:iFunction, const szClassName[], const szCallback[]
   new iHookId = ArrayPushArray(irgHooks, rgHook[CEHookData:0], _:CEHookData);
 
   return iHookId;
+}
+
+RegisterEntityMethod(const szClassName[], const szMethod[], const szCallback[], iPluginId = -1, Array:irgParamTypes) {
+  new iId = GetIdByClassName(szClassName);
+  if (iId == -1) {
+    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassName);
+    return;
+  }
+
+  new iFunctionId = get_func_id(szCallback, iPluginId);
+  if (iFunctionId < 0) {
+    new szFilename[32];
+    get_plugin(iPluginId, szFilename, charsmax(szFilename));
+    log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
+    return;
+  }
+
+  new Trie:itMethods; itMethods = ArrayGetCell(g_rgCEData[CEData_Methods], iId);
+
+  if (TrieKeyExists(itMethods, szMethod)) {
+    log_error(AMX_ERR_NATIVE, "%s Method ^"%s^" is already registered for ^"%s^" entity.", LOG_PREFIX, szMethod, szClassName);
+    return;
+  }
+
+  new rgMethod[CEMethodData];
+  rgMethod[CEMethodData_PluginID] = iPluginId;
+  rgMethod[CEMethodData_FunctionID] = iFunctionId;
+  rgMethod[CEMethodData_ParamTypes] = irgParamTypes;
+
+  TrieSetArray(itMethods, szMethod, rgMethod[CEMethodData:0], _:CEMethodData);
 }
 
 Trie:AllocPData(iId, pEntity) {

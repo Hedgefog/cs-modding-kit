@@ -94,13 +94,13 @@ public plugin_precache() {
     }
 
     g_iCeHandler = CE_Register(ENTITY_NAME);
-    CE_RegisterHook(CEFunction_Init, ENTITY_NAME, "@Entity_Init");
-    CE_RegisterHook(CEFunction_KVD, ENTITY_NAME, "@Entity_KeyValue");
-    CE_RegisterHook(CEFunction_Spawned, ENTITY_NAME, "@Entity_Spawned");
-    CE_RegisterHook(CEFunction_Touch, ENTITY_NAME, "@Entity_Touch");
-    CE_RegisterHook(CEFunction_Think, ENTITY_NAME, "@Entity_Think");
-    CE_RegisterHook(CEFunction_Killed, ENTITY_NAME, "@Entity_Killed");
-    CE_RegisterHook(CEFunction_Remove, ENTITY_NAME, "@Entity_Remove");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Init, "@Entity_Init");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_KeyValue, "@Entity_KeyValue");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Spawned, "@Entity_Spawned");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Touch, "@Entity_Touch");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Think, "@Entity_Think");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Killed, "@Entity_Killed");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Remove, "@Entity_Remove");
 
     register_forward(FM_OnFreeEntPrivateData, "FMHook_OnFreeEntPrivateData");
 }

@@ -48,9 +48,9 @@ enum CEMethodData {
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
 
 #if defined _datapack_included
-new g_szBuffer[MAX_STRING_LENGTH];
-new g_rgiBuffer[MAX_STRING_LENGTH];
-new Float:g_rgflBuffer[MAX_STRING_LENGTH];
+  new g_szBuffer[MAX_STRING_LENGTH];
+  new g_rgiBuffer[MAX_STRING_LENGTH];
+  new Float:g_rgflBuffer[MAX_STRING_LENGTH];
 #endif
 
 new g_iszBaseClassName;
@@ -178,8 +178,8 @@ public Native_Restart(iPluginId, iArgc) {
 }
 
 public Native_RegisterHook(iPluginId, iArgc) {
-  new CEFunction:iFunction = CEFunction:get_param(1);
-  new szClassname[CE_MAX_NAME_LENGTH]; get_string(2, szClassname, charsmax(szClassname));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
+  new CEFunction:iFunction = CEFunction:get_param(2);
   new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
   RegisterEntityHook(iFunction, szClassname, szCallback, iPluginId);
@@ -345,62 +345,62 @@ public any:Native_CallMethod(iPluginId, iArgc) {
 
   #if defined _datapack_included
     dpParams = CreateDataPack();
-  
-  static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
 
-  static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
-  for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
-    static iParam; iParam = 3 + iMethodParam;
-    static iType; iType = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Type);
-    static iSize; iSize = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Size);
-    static bool:bUseDefault; bUseDefault = iParam > iArgc;
+    static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
 
-    switch (iType) {
-      case CE_MP_Cell: {
-        WritePackCell(dpParams, bUseDefault ? DEFAULT_CELL_VALUE : get_param_byref(iParam));
-      }
-      case CE_MP_Float: {
-        WritePackFloat(dpParams, bUseDefault ? DEFAULT_FLOAT_VALUE : Float:get_param_byref(iParam));
-      }
-      case CE_MP_String: {
-        if (bUseDefault) {
-          copy(g_szBuffer, sizeof(g_szBuffer), DEFAULT_STRING_VALUE);
-        } else {
-          get_string(iParam, g_szBuffer, charsmax(g_szBuffer));
+    static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
+    for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
+      static iParam; iParam = 3 + iMethodParam;
+      static iType; iType = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Type);
+      static iSize; iSize = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Size);
+      static bool:bUseDefault; bUseDefault = iParam > iArgc;
+
+      switch (iType) {
+        case CE_MP_Cell: {
+          WritePackCell(dpParams, bUseDefault ? DEFAULT_CELL_VALUE : get_param_byref(iParam));
         }
-
-        WritePackString(dpParams, g_szBuffer);
-      }
-      case CE_MP_Array: {
-        if (bUseDefault) {
-          arrayset(g_rgiBuffer, DEFAULT_FLOAT_VALUE, iSize);
-        } else {
-          get_array(iParam, g_rgiBuffer, iSize);
+        case CE_MP_Float: {
+          WritePackFloat(dpParams, bUseDefault ? DEFAULT_FLOAT_VALUE : Float:get_param_byref(iParam));
         }
+        case CE_MP_String: {
+          if (bUseDefault) {
+            copy(g_szBuffer, sizeof(g_szBuffer), DEFAULT_STRING_VALUE);
+          } else {
+            get_string(iParam, g_szBuffer, charsmax(g_szBuffer));
+          }
 
-        WritePackArray(dpParams, g_rgiBuffer, iSize);
-      }
-      case CE_MP_FloatArray: {
-        if (bUseDefault) {
-          arrayset(g_rgflBuffer, DEFAULT_FLOAT_VALUE, iSize);
-        } else {
-          get_array_f(iParam, g_rgflBuffer, iSize);
+          WritePackString(dpParams, g_szBuffer);
         }
+        case CE_MP_Array: {
+          if (bUseDefault) {
+            arrayset(g_rgiBuffer, DEFAULT_FLOAT_VALUE, iSize);
+          } else {
+            get_array(iParam, g_rgiBuffer, iSize);
+          }
 
-        WritePackFloatArray(dpParams, g_rgflBuffer, iSize);
+          WritePackArray(dpParams, g_rgiBuffer, iSize);
+        }
+        case CE_MP_FloatArray: {
+          if (bUseDefault) {
+            arrayset(g_rgflBuffer, DEFAULT_FLOAT_VALUE, iSize);
+          } else {
+            get_array_f(iParam, g_rgflBuffer, iSize);
+          }
+
+          WritePackFloatArray(dpParams, g_rgflBuffer, iSize);
+        }
       }
     }
-  }
   #endif
 
   #if defined _datapack_included
-  ResetPack(dpParams);
+    ResetPack(dpParams);
   #endif
 
   new any:result = @Entity_CallMethod(pEntity, szMethod, dpParams);
 
   #if defined _datapack_included
-  DestroyDataPack(dpParams);
+    DestroyDataPack(dpParams);
   #endif
 
   return result;
@@ -486,7 +486,7 @@ public FMHook_KeyValue(pEntity, hKVD) {
     }
 
     new iId = GetPDataMember(g_itPData, CE_MEMBER_ID);
-    ExecuteHookFunction(CEFunction_KVD, iId, pEntity, szKey, szValue);
+    ExecuteHookFunction(CEFunction_KeyValue, iId, pEntity, szKey, szValue);
   }
 
   return FMRES_HANDLED;
@@ -1017,38 +1017,38 @@ any:@Entity_CallMethod(this, const szMethod[], DataPack:dpParams) {
     callfunc_push_int(this);
 
     #if defined _datapack_included
-    static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
+      static Array:irgParamTypes; irgParamTypes = rgMethod[CEMethodData_ParamTypes];
 
-    if (irgParamTypes != Invalid_Array) {
-      static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
+      if (irgParamTypes != Invalid_Array) {
+        static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
 
-      for (new iParam = 0; iParam < iParamsNum; ++iParam) {
-        static iType; iType = ArrayGetCell(irgParamTypes, iParam, _:MethodParam_Type);
+        for (new iParam = 0; iParam < iParamsNum; ++iParam) {
+          static iType; iType = ArrayGetCell(irgParamTypes, iParam, _:MethodParam_Type);
 
-        switch (iType) {
-          case CE_MP_Cell: {
-            static iValue; iValue = ReadPackCell(dpParams);
-            callfunc_push_int(iValue);
-          }
-          case CE_MP_Float: {
-            static Float:flValue; flValue = ReadPackFloat(dpParams);
-            callfunc_push_float(flValue);
-          }
-          case CE_MP_String: {
-            ReadPackString(dpParams, g_szBuffer, charsmax(g_szBuffer));
-            callfunc_push_str(g_szBuffer);
-          }
-          case CE_MP_Array: {
-            static iLen; iLen = ReadPackArray(dpParams, g_rgiBuffer);
-            callfunc_push_array(g_rgiBuffer, iLen, false);
-          }
-          case CE_MP_FloatArray: {
-            static iLen; iLen = ReadPackFloatArray(dpParams, g_rgflBuffer);
-            callfunc_push_array(_:g_rgflBuffer, iLen, false);
+          switch (iType) {
+            case CE_MP_Cell: {
+              static iValue; iValue = ReadPackCell(dpParams);
+              callfunc_push_int(iValue);
+            }
+            case CE_MP_Float: {
+              static Float:flValue; flValue = ReadPackFloat(dpParams);
+              callfunc_push_float(flValue);
+            }
+            case CE_MP_String: {
+              ReadPackString(dpParams, g_szBuffer, charsmax(g_szBuffer));
+              callfunc_push_str(g_szBuffer);
+            }
+            case CE_MP_Array: {
+              static iLen; iLen = ReadPackArray(dpParams, g_rgiBuffer);
+              callfunc_push_array(g_rgiBuffer, iLen, false);
+            }
+            case CE_MP_FloatArray: {
+              static iLen; iLen = ReadPackFloatArray(dpParams, g_rgflBuffer);
+              callfunc_push_array(_:g_rgflBuffer, iLen, false);
+            }
           }
         }
       }
-    }
     #endif
 
     return callfunc_end();
@@ -1264,7 +1264,7 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
           new pPlayer = getarg(3);
           callfunc_push_int(pPlayer);
         }
-        case CEFunction_KVD: {
+        case CEFunction_KeyValue: {
           static szKey[32];
           for (new i = 0; i < charsmax(szKey); ++i) {
             szKey[i] = getarg(3, i);

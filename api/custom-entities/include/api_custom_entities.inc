@@ -59,7 +59,7 @@ native bool:CE_Remove(pEntity);
  * @param szName Name of entity
  * @param szCallback Callback
  */
-native CE_RegisterHook(CEFunction:function, const szName[], const szCallback[]);
+native CE_RegisterHook(const szName[], CEFunction:function, const szCallback[]);
 
 /**
  * Registers a new method for entity.

@@ -18,6 +18,16 @@
 native CE:CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
 
 /**
+ * Extend entity
+ *
+ * @param szName Name of an entity
+ * @param iPreset Preset for an entity
+ *
+ * @return Handler of the registered entity
+ */
+native CE:CE_RegisterDerived(const szName[], const szBase[]);
+
+/**
  * Spawn entity
  *
  * @param szName Name of entity
@@ -73,6 +83,17 @@ native CE_RegisterHook(const szName[], CEFunction:function, const szCallback[]);
 native CE_RegisterMethod(const szName[], const szMethod[], const szCallback[], any:...);
 
 /**
+ * Registers a new virtual method for entity.
+ *
+ * @param szName Name of entity
+ * @param szMethod Name of method
+ * @param szCallback Callback
+ *
+ * @noreturn
+*/
+native CE_RegisterVirtualMethod(const szName[], const szMethod[], const szCallback[], any:...);
+
+/**
  * Gets handler of entity by name
  *
  * @param szName Name of entity
@@ -89,6 +110,16 @@ native CE:CE_GetHandler(const szName[]);
  * @return Handler of the entity or -1 otherwise
  */
 native CE:CE_GetHandlerByEntity(pEntity);
+
+/**
+ * Checks if entity is an instance of specific custom entity 
+ *
+ * @param pEntity Entity index
+ * @param szTargetName Name of target entity to check
+ *
+ * @return Result true/false
+ */
+native bool:CE_IsInstanceOf(pEntity, const szTargetName[]);
 
 /**
  * Checks if entity has member
@@ -171,3 +202,13 @@ native CE_SetMemberString(pEntity, const szMember[], const szValue[]);
  * @return Method return value
 */
 native any:CE_CallMethod(pEntity, const szMethod[], any:...);
+
+/**
+ * Call a base method for entity.
+ *
+ * @param pEntity Entity index
+ * @param szMethod Name of method
+ *
+ * @return Method return value
+*/
+native any:CE_CallBaseMethod(any:...);

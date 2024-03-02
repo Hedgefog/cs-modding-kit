@@ -451,8 +451,6 @@ public Native_Area_GetClosestPointOnArea(iPluginId, iArgc) {
   get_array_f(2, vecPos, sizeof(vecPos));
 
   static Float:vecClose[3];
-  get_array_f(3, vecClose, sizeof(vecClose));
-
   @NavArea_GetClosestPointOnArea(sArea, vecPos, vecClose);
 
   set_array_f(3, vecClose, sizeof(vecClose));

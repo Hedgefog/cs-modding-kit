@@ -37,7 +37,7 @@ native Nav_Area_GetCenter(NavArea:pArea, Float:vecOut[3]);
 native bool:Nav_Area_Contains(NavArea:pArea, const Float:vecPoint[3]);
 native bool:Nav_Area_IsCoplanar(NavArea:pArea, NavArea:pOther);
 native Float:Nav_Area_GetZ(NavArea:pArea);
-native Nav_Area_GetClosestPointOnArea(NavArea:pArea, const Float:vecPoint[3], const Float:vecOut[3]);
+native Nav_Area_GetClosestPointOnArea(NavArea:pArea, const Float:vecPoint[3], Float:vecOut[3]);
 native Float:Nav_Area_GetDistanceSquaredToPoint(NavArea:pArea, const Float:vecPoint[3]);
 native NavArea:Nav_Area_GetRandomAdjacentArea(NavArea:pArea, NavDirType:iDir);
 native bool:Nav_Area_IsEdge(NavArea:pArea, NavDirType:iDir);

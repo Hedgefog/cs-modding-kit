@@ -1,45 +1,56 @@
 # Particles API
-This is a Particle System API for a game modification plugin, likely written in Pawn language for the AMX Mod X platform. The API provides functions to register particle effects, create and manipulate particle systems, and work with individual particles.
+This Particle System API is designed to implement particle effects. The API provides functions to register particle effects, create and manipulate particle systems, and work with individual particles.
 
-## Registering new particle effect
+## Registering a New Particle Effect
 
-To register new particle effect use `ParticleEffect_Register` function.
+To register a new particle effect, use the `ParticleEffect_Register` function.
+
 ```cpp
 ParticleEffect_Register("my-effect", EMIT_RATE, PARTICLE_LIFETIME, MAX_PARTICLES);
 ```
 
-## Controling particle effect
-To control your effect use hooks. Use `ParticleEffect_RegisterHook` function together with `ParticleEffectHook_` constants to hook events.
+- `EMIT_RATE`: Emit rate of particles per second.
+- `PARTICLE_LIFETIME`: Lifetime of each particle in seconds.
+- `MAX_PARTICLES`: Maximum number of particles in the effect.
+
+## Controlling Particle Effects
+
+To control your effect you need hooks. Use the `ParticleEffect_RegisterHook` function with `ParticleEffectHook_` constants to hook events.
+
 ```cpp
 ParticleEffect_RegisterHook("my-effect", ParticleEffectHook_Particle_Think, "@Effect_Particle_Think");
 ```
 
-## Spawning the particle effect system
-Use `ParticleSystem_Create` function to spawn the system on specific origin.
+## Spawning the Particle Effect System
+
+To spawn the system at a specific origin use the `ParticleSystem_Create` function.
+
 ```cpp
 new ParticleSystem:sParticleSystem = ParticleSystem_Create("my-effect", vecOrigin);
 ```
 
-## Removing the particle effect system
-To remove destroy system and free memory use `ParticleSystem_Destroy` function.
+## Removing the Particle Effect System
+
+To remove and free memory, destroy the system using `ParticleSystem_Destroy`.
+
 ```cpp
 ParticleSystem_Destroy(sParticleSystem);
 ```
 
-## Enabling/Disabling the particle effect system
-You can use `ParticleSystem_Activate` and `ParticleSystem_Deactivate` methods to enable or disable particle system.
+## Enabling/Disabling the Particle Effect System
+
+Enable or disable the particle system with `ParticleSystem_Activate` and `ParticleSystem_Deactivate` methods.
+
 ```cpp
 ParticleSystem_Activate(sParticleSystem);
 ParticleSystem_Deactivate(sParticleSystem);
 ```
 
+## Simple Particle Effect Example
 
-## Simple particle effect
-Here is an example of a simple particle effect to demonstrate API functionality.
+Here is a simple example demonstrating API functionality:
 
 ![Simple Particle Effect](../../images/example-particle-effect.gif)
-
-
 
 ```cpp
 #include <amxmodx>
@@ -122,3 +133,17 @@ public plugin_init() {
     set_pev(pEntity, pev_rendercolor, rgflColor);
 }
 ```
+
+
+Certainly! Here's an improved version:
+
+## Testing Your Effect In-Game
+
+To evaluate and visualize your particle effect within the game environment, you can use the `particle_create` console command, specifying the name of your effect as the first argument.
+
+**Example:**
+```bash
+particle_create "colored-circle"
+```
+
+This command triggers the creation and rendering of the "colored-circle" particle effect, allowing you to assess its appearance and behavior in real-time.

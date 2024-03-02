@@ -5,7 +5,7 @@ This Particle System API is designed to implement particle effects. The API prov
 
 To register a new particle effect, use the `ParticleEffect_Register` function.
 
-```cpp
+```pawn
 ParticleEffect_Register("my-effect", EMIT_RATE, PARTICLE_LIFETIME, MAX_PARTICLES);
 ```
 
@@ -17,7 +17,7 @@ ParticleEffect_Register("my-effect", EMIT_RATE, PARTICLE_LIFETIME, MAX_PARTICLES
 
 To control your effect you need hooks. Use the `ParticleEffect_RegisterHook` function with `ParticleEffectHook_` constants to hook events.
 
-```cpp
+```pawn
 ParticleEffect_RegisterHook("my-effect", ParticleEffectHook_Particle_Think, "@Effect_Particle_Think");
 ```
 
@@ -25,7 +25,7 @@ ParticleEffect_RegisterHook("my-effect", ParticleEffectHook_Particle_Think, "@Ef
 
 To spawn the system at a specific origin use the `ParticleSystem_Create` function.
 
-```cpp
+```pawn
 new ParticleSystem:sParticleSystem = ParticleSystem_Create("my-effect", vecOrigin);
 ```
 
@@ -33,7 +33,7 @@ new ParticleSystem:sParticleSystem = ParticleSystem_Create("my-effect", vecOrigi
 
 To remove and free memory, destroy the system using `ParticleSystem_Destroy`.
 
-```cpp
+```pawn
 ParticleSystem_Destroy(sParticleSystem);
 ```
 
@@ -41,7 +41,7 @@ ParticleSystem_Destroy(sParticleSystem);
 
 Enable or disable the particle system with `ParticleSystem_Activate` and `ParticleSystem_Deactivate` methods.
 
-```cpp
+```pawn
 ParticleSystem_Activate(sParticleSystem);
 ParticleSystem_Deactivate(sParticleSystem);
 ```
@@ -52,7 +52,7 @@ Here is a simple example demonstrating API functionality:
 
 ![Simple Particle Effect](../../images/example-particle-effect.gif)
 
-```cpp
+```pawn
 #include <amxmodx>
 #include <fakemeta>
 #include <xs>

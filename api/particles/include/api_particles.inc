@@ -3,6 +3,8 @@
 #endif
 #define _api_particles_included
 
+#include <api_particles_const>
+
 /**
  * Registers a particle effect.
  *
@@ -10,12 +12,24 @@
  * @param flEmitRate The rate at which particles are emitted.
  * @param flParticleLifeTime The lifetime of each particle.
  * @param iMaxParticles The maximum number of particles.
- * @param szInitFunction The name of the initialization function.
- * @param szTransformFunction The name of the transformation function.
+ * @param iEmitAmount  The amount of emitted particles.
+ * @param flVisibilityDistance Max visible distance.
+ * @param iFlags Effect flags.
  *
  * @noreturn
  */
-native RegisterParticleEffect(const szName[], const szInitFunction[], const szTransformFunction[], Float:flEmitRate = 0.1, Float:flParticleLifeTime = 1.0, Float:flVisibilityDistance = 1024.0, iMaxParticles = 10);
+native ParticleEffect_Register(const szName[], Float:flEmitRate = 0.1, Float:flParticleLifeTime = 1.0, iMaxParticles = 10, iEmitAmount = 1, Float:flVisibilityDistance = 1024.0, ParticleEffectFlag:iFlags = ParticleEffectFlag_None);
+
+/**
+ * Registers a particle effect hook.
+ *
+ * @param iHook Hook to handle.
+ * @param szName Name of the particle effect.
+ * @param szCallback Callback function to be called during particle effects.
+ *
+ * @noreturn
+ */
+native ParticleEffect_RegisterHook(const szName[], ParticleEffectHook:iHook, const szCallback[]);
 
 /**
  * Creates a particle system.
@@ -23,7 +37,7 @@ native RegisterParticleEffect(const szName[], const szInitFunction[], const szTr
  * @param szEffect The name of the effect.
  * @param vecOrigin The origin of the system.
  * @param vecAngles The angles of the system.
- * @param pParent The parent entity.
+ * @param pParent The parent System.
  *
  * @return The particle system structure pointer.
  */
@@ -57,6 +71,25 @@ native ParticleSystem_Activate(const &ParticleSystem:sSystem);
 native ParticleSystem_Deactivate(const &ParticleSystem:sSystem);
 
 /**
+ * Gets particle effect speed.
+ *
+ * @param sSystem The particle system structure pointer.
+ *
+ * @return The particle system effect speed.
+ */
+native Float:ParticleSystem_GetEffectSpeed(const &ParticleSystem:sSystem);
+
+/**
+ * Sets particle effect speed.
+ *
+ * @param sSystem The particle system structure pointer.
+ * @param flSpeed The particle system effect speed.
+ *
+ * @noreturn
+ */
+native ParticleSystem_SetEffectSpeed(const &ParticleSystem:sSystem, Float:flSpeed);
+
+/**
  * Retrieves the time at which a particle system was created.
  *
  * @param sSystem The particle system structure pointer.
@@ -75,13 +108,13 @@ native Float:ParticleSystem_GetCreatedTime(const &ParticleSystem:sSystem);
 native Float:ParticleSystem_GetKillTime(const &ParticleSystem:sSystem);
 
 /**
- * Retrieves the last time a particle system was updated.
+ * Retrieves the last time a particle system was thinked.
  *
  * @param sSystem The particle system structure pointer.
  *
- * @return The last update time of the particle system.
+ * @return The last think time of the particle system.
  */
-native Float:ParticleSystem_GetLastUpdateTime(const &ParticleSystem:sSystem);
+native Float:ParticleSystem_GetLastThink(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the visibility bits of a particle.
@@ -103,7 +136,7 @@ native Float:ParticleSystem_GetVisibilityBits(const &ParticleSystem:sSystem);
 native ParticleSystem_GetOrigin(const &ParticleSystem:sSystem, const vecOut[]);
 
 /**
- * Sets the origin of the particle system. 
+ * Sets the origin of the particle system.
  *
  * @param sSystem The particle system structure pointer.
  * @param vecOrigin The origin vector.
@@ -113,22 +146,22 @@ native ParticleSystem_GetOrigin(const &ParticleSystem:sSystem, const vecOut[]);
 native ParticleSystem_SetOrigin(const &ParticleSystem:sSystem, const Float:vecOrigin[3]);
 
 /**
- * Retrieves the parent entity of the particle system.
+ * Retrieves the parent System of the particle system.
  * @param sSystem The particle system structure pointer.
- * @param pParent The parent entity.
+ * @param pParent The parent System.
  *
  * @noreturn
  */
-native ParticleSystem_GetParentEntity(const &ParticleSystem:sSystem, pParent);
+native ParticleSystem_GetParentSystem(const &ParticleSystem:sSystem, pParent);
 
 /**
- * Sets the parent entity of the particle system.
+ * Sets the parent System of the particle system.
  *
  * @param sSystem The particle system structure pointer.
  *
- * @return The parent entity.
+ * @return The parent System.
  */
-native ParticleSystem_SetParentEntity(const &ParticleSystem:sSystem);
+native ParticleSystem_SetParentSystem(const &ParticleSystem:sSystem);
 
 /**
  * Retrieves the effect name of the particle system.
@@ -150,6 +183,96 @@ native ParticleSystem_GetEffect(const &ParticleSystem:sSystem, szOut[], iMaxLen)
  * @noreturn
  */
 native ParticleSystem_SetEffect(const &ParticleSystem:sSystem, const szName[]);
+
+/**
+ * Checks if System has member
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ */
+native ParticleSystem_HasMember(const &ParticleSystem:sSystem, const szMember[]);
+
+/**
+ * Deletes member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ */
+native ParticleSystem_DeleteMember(const &ParticleSystem:sSystem, const szMember[]);
+
+/**
+ * Gets member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ *
+ * @return Member value
+ */
+native any:ParticleSystem_GetMember(const &ParticleSystem:sSystem, const szMember[]);
+
+/**
+ * Sets member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ * @param value Value to set
+ */
+native ParticleSystem_SetMember(const &ParticleSystem:sSystem, const szMember[], any:value);
+
+/**
+ * Gets vector member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ * @param vecOut Output vector
+ */
+native bool:ParticleSystem_GetMemberVec(const &ParticleSystem:sSystem, const szMember[], Float:vecOut[3]);
+
+/**
+ * Sets vector member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ * @param vecValue Vector to set
+ */
+native ParticleSystem_SetMemberVec(const &ParticleSystem:sSystem, const szMember[], const Float:vecValue[3]);
+
+/**
+ * Gets string member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ * @param szOut Buffer to copy the value
+ * @param iLen Maximum size of buffer
+ */
+native bool:ParticleSystem_GetMemberString(const &ParticleSystem:sSystem, const szMember[], szOut[], iLen);
+
+/**
+ * Sets string member of an System
+ *
+ * @param sSystem System index
+ * @param szMember Member name
+ * @param szValue String value to set
+ */
+native ParticleSystem_SetMemberString(const &ParticleSystem:sSystem, const szMember[], const szValue[]);
+
+/**
+ * Gets particle index by particle pointer.
+ *
+ * @param sParticle The particle pointer.
+ *
+ * @return The index of the particle.
+ */
+native Particle_GetIndex(const &Particle:sParticle);
+
+/**
+ * Gets particle batch index by particle pointer.
+ *
+ * @param sParticle The particle pointer.
+ *
+ * @return The batch index of the particle.
+ */
+native Particle_GetBatchIndex(const &Particle:sParticle);
 
 /**
  * Gets particle entity by particle pointer.
@@ -188,10 +311,70 @@ native Float:Particle_GetCreatedTime(const &Particle:sParticle);
 native Float:Particle_GetKillTime(const &Particle:sParticle);
 
 /**
- * Retrieves the time at which a particle was transformed last.
+ * Retrieves the time at which a particle was thinked last.
  *
  * @param sParticle The particle pointer.
  *
- * @return The last transform time of the particle.
+ * @return The last think time of the particle.
  */
-native Float:Particle_GetLastTransformTime(const &Particle:sParticle);
+native Float:Particle_GetLastThink(const &Particle:sParticle);
+
+/**
+ * Retrieves the origin of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecOut The vector to set.
+ *
+ * @noreturn
+ */
+native Particle_GetOrigin(const &Particle:sParticle, Float:vecOut[3]);
+
+/**
+ * Sets the origin of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecOrigin The origin vector.
+ *
+ * @noreturn
+ */
+native Particle_SetOrigin(const &Particle:sParticle, const Float:vecOrigin[3]);
+
+/**
+ * Retrieves the angles of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecOut The vector to set.
+ *
+ * @noreturn
+ */
+native Particle_GetAngles(const &Particle:sParticle, Float:vecOut[3]);
+
+/**
+ * Sets the angles of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecAngles The angles vector.
+ *
+ * @noreturn
+ */
+native Particle_SetAngles(const &Particle:sParticle, const Float:vecAngles[3]);
+
+/**
+ * Retrieves the velocity of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecOut The vector to set.
+ *
+ * @noreturn
+ */
+native Particle_GetVelocity(const &Particle:sParticle, Float:vecOut[3]);
+
+/**
+ * Sets the velocity of the particle.
+ *
+ * @param sSystem The particle structure pointer.
+ * @param vecVelocity The origin velocity.
+ *
+ * @noreturn
+ */
+native Particle_SetVelocity(const &Particle:sParticle, const Float:vecVelocity[3]);

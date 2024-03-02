@@ -14,3 +14,20 @@ __CS Modding Kit__ is a powerful solutions for Amx Mod X modding that can be use
 ### 🔄 Requirements
 - Amx Mod X 1.9+
 - RegameDLL + ReAPI (for some APIs)
+
+### ⚙️ Available APIs
+- [🫸 Advanced Pushing](./api/advanced-pushing)
+- [🧸 Custom Entities](./api/custom-entities)
+- [🔄 Custom Events](./api/custom-events)
+- [🔫 Custom Weapons](./api/custom-weapons)
+- [🎯 NavSystem](./api/navsystem)
+- [💫 Particles](./api/particles)
+- [🎥 Player Camera](./api/player-camera)
+- [🎩 Player Cosmetics](./api/player-cosmetics)
+- [🥴 Player Dizziness](./api/player-dizziness)
+- [🏃‍♂️ Player Effects](./api/player-effects)
+- [🎒 Player Inventory](./api/player-inventory)
+- [🦸 Player Model](./api/player-model)
+- [👁️ Player Viewrange](./api/player-viewrange)
+- [⏱️ Rounds](./api/rounds)
+- [❓ Waypoint Markers](./api/waypoint-markers)

@@ -223,6 +223,7 @@ public plugin_natives() {
   register_native("Nav_Path_GetSegments", "Native_Path_GetSegments");
   register_native("Nav_Path_Segment_GetPos", "Native_Path_Segment_GetPos");
   register_native("Nav_Path_Segment_GetHow", "Native_Path_Segment_GetHow");
+  register_native("Nav_Path_Segment_GetArea", "Native_Path_Segment_GetArea");
 
   register_native("Nav_Path_Find", "Native_Path_Find");
   register_native("Nav_Path_FindTask_GetUserToken", "Native_Path_FindTask_GetUserToken");
@@ -411,6 +412,12 @@ public NavTraverseType:Native_Path_Segment_GetHow(iPluginId, iArgc) {
   new Struct:sSegment = Struct:get_param(1);
 
   return StructGetCell(sSegment, PathSegment_How);
+}
+
+public NavTraverseType:Native_Path_Segment_GetArea(iPluginId, iArgc) {
+  new Struct:sSegment = Struct:get_param(1);
+
+  return StructGetCell(sSegment, PathSegment_Area);
 }
 
 public Native_Area_GetId(iPluginId, iArgc) {

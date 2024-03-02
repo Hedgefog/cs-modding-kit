@@ -87,3 +87,4 @@ native any:Nav_Path_FindTask_GetUserToken(NavBuildPathTask:pTask);
 
 native Nav_Path_Segment_GetPos(NavPathSegment:pSegment, Float:vecOut[3]);
 native NavTraverseType:Nav_Path_Segment_GetHow(NavPathSegment:pSegment);
+native NavArea:Nav_Path_Segment_GetArea(NavPathSegment:pSegment);

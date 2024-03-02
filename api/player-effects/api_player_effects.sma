@@ -34,12 +34,7 @@ new Trie:g_itEffectsIds = Invalid_Trie;
 new g_rgPEffectData[PEffectData] = { Invalid_Array, ... };
 new g_iEffectssNum = 0;
 
-public plugin_init() {
-  register_plugin(PLUGIN, VERSION, AUTHOR);
-
-  RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
-  RegisterHamPlayer(Ham_Killed, "HamHook_Player_Killed", .Post = 0);
-
+public plugin_precache() {
   g_itEffectsIds = TrieCreate();
 
   g_rgPEffectData[PEffectData_Id] = ArrayCreate(32);
@@ -51,6 +46,13 @@ public plugin_init() {
   g_rgPEffectData[PEffectData_Players] = ArrayCreate();
   g_rgPEffectData[PEffectData_PlayerEffectEnd] = ArrayCreate(MAX_PLAYERS + 1);
   g_rgPEffectData[PEffectData_PlayerEffectDuration] = ArrayCreate(MAX_PLAYERS + 1);
+}
+
+public plugin_init() {
+  register_plugin(PLUGIN, VERSION, AUTHOR);
+
+  RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
+  RegisterHamPlayer(Ham_Killed, "HamHook_Player_Killed", .Post = 0);
 
   register_concmd("player_effect_set", "Command_Set", ADMIN_CVAR);
 

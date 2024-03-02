@@ -18,6 +18,6 @@ enum ParticleHook {
 };
 
 enum ParticleEffectFlag (<<=1) {
-    ParticleEffectFlag_None = 0,
-    ParticleEffectFlag_AttachParticles = 1
+  ParticleEffectFlag_None = 0,
+  ParticleEffectFlag_AttachParticles = 1
 };

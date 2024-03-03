@@ -409,9 +409,7 @@ public any:Native_CallMethod(iPluginId, iArgc) {
   new iId; iId = -1;
 
   // If we are already in the execution context use entity logic from current context
-  if (IsMethodCallStackEmtpy()) {
-    iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  } else {
+  if (!IsMethodCallStackEmtpy()) {
     static rgCallStackItem[MethodCallStackItem];
     GetCurrentMethodFromCallStack(rgCallStackItem);
 
@@ -420,6 +418,8 @@ public any:Native_CallMethod(iPluginId, iArgc) {
     } else {
       iId = GetPDataMember(itPData, CE_MEMBER_ID);
     }
+  } else {
+    iId = GetPDataMember(itPData, CE_MEMBER_ID);
   }
 
   new rgMethod[Method];
@@ -432,7 +432,7 @@ public any:Native_CallMethod(iPluginId, iArgc) {
   }
 
   // If we are already in the execution context and the method is virual jump to top level context
-  if (IsMethodCallStackEmtpy()) {
+  if (!IsMethodCallStackEmtpy()) {
     if (rgMethod[Method_IsVirtual]) {
       iId = FindEntityMethodInHierarchy(GetPDataMember(itPData, CE_MEMBER_ID), szMethod, rgMethod);
     }

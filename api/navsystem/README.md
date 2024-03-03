@@ -29,12 +29,17 @@ public NavPathCallback(NavBuildPathTask:pTask) {
 
 
 public Float:NavPathCost(NavBuildPathTask:pTask, NavArea:newArea, NavArea:prevArea) {
-    if (Nav_Area_GetAttributes(newArea) & NAV_JUMP) {
-        return -1.0;
-    }
+    // No jump
+    if (Nav_Area_GetAttributes(newArea) & NAV_JUMP) return -1.0;
 
-    if (Nav_Area_GetAttributes(newArea) & NAV_CROUCH) {
-        return -1.0;
+    // No crouch
+    if (Nav_Area_GetAttributes(newArea) & NAV_CROUCH) return -1.0;
+
+    // Don't go ladders
+    if (prevArea != Invalid_NavArea) {
+        new NavTraverseType:iTraverseType = Nav_Area_GetParentHow(prevArea);
+        if (iTraverseType == GO_LADDER_UP) return -1.0;
+        if (iTraverseType == GO_LADDER_DOWN) return -1.0;
     }
 
     return 1.0;

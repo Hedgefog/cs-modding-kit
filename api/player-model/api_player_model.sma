@@ -234,19 +234,23 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
 // ANCHOR: Methods
 
 @Player_UpdateAnimationModel(this) {
-  static szAnimExt[32];
-  get_ent_data_string(this, "CBasePlayer", "m_szAnimExtention", szAnimExt, charsmax(szAnimExt));
+  new iAnimationIndex = 0;
 
-  new iAnimationIndex = is_user_alive(this) ? GetAnimationIndexByAnimExt(szAnimExt) : 0;
+  if (is_user_alive(this)) {
+    static szAnimExt[32]; get_ent_data_string(this, "CBasePlayer", "m_szAnimExtention", szAnimExt, charsmax(szAnimExt));
+    iAnimationIndex = GetAnimationIndexByAnimExt(szAnimExt);
+  }
+  
   if (iAnimationIndex != g_rgiPlayerAnimationIndex[this]) {
     g_rgiPlayerAnimationIndex[this] = iAnimationIndex;
-    @Player_UpdateModel(this, false);
+    @Player_UpdateModel(this, !iAnimationIndex);
   }
 }
 
 @Player_UpdateCurrentModel(this) {
   new bool:bUsedCustom = g_rgbPlayerUseCustomModel[this];
   new bool:bSetDefaultModel = false;
+  new bool:bReset = !!equal(g_rgszCurrentPlayerModel[this], NULL_STRING);
 
   g_rgbPlayerUseCustomModel[this] = !equal(g_rgszCustomPlayerModel[this], NULL_STRING);
 
@@ -260,7 +264,7 @@ public Message_ClCorpse(iMsgId, iMsgDest, pPlayer) {
   if (!g_bIsCStrike && bSetDefaultModel) {
     set_user_info(this, "model", g_rgszDefaultPlayerModel[this]);
   } else {
-    @Player_UpdateModel(this, bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
+    @Player_UpdateModel(this, bReset || bUsedCustom && !g_rgbPlayerUseCustomModel[this]);
   }
 }
 
@@ -366,8 +370,10 @@ bool:@Player_ShouldUseCurrentModel(this) {
 // ANCHOR: Functions
 
 GetAnimationIndexByAnimExt(const szAnimExt[]) {
-  static szSequence[32];
-  format(szSequence, charsmax(szSequence), "ref_aim_%s", szAnimExt);
+  if (equal(szAnimExt, NULL_STRING)) return 0;
+
+  static szSequence[32]; format(szSequence, charsmax(szSequence), "ref_aim_%s", szAnimExt);
+
   return GetAnimationIndexBySequence(szSequence);
 }
 

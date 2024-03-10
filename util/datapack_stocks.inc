@@ -12,7 +12,7 @@
 #endif
 
 stock ReadPackArray(DataPack:pack, buffer[], maxlen = -1) {
-  new len = ReadPackCell(pack);
+  static len; len = ReadPackCell(pack);
 
   if (maxlen == -1) maxlen = len;
 
@@ -26,7 +26,7 @@ stock ReadPackArray(DataPack:pack, buffer[], maxlen = -1) {
 }
 
 stock ReadPackFloatArray(DataPack:pack, Float:buffer[], maxlen = -1) {
-  new len = ReadPackCell(pack);
+  static len; len = ReadPackCell(pack);
   
   if (maxlen == -1) maxlen = len;
 

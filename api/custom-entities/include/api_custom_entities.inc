@@ -10,33 +10,33 @@
 /**
  * Register entity
  *
- * @param szName Name of an entity
+ * @param szClassname Name of an entity
  * @param iPreset Preset for an entity
  *
  * @return Handler of the registered entity
  */
-native CE:CE_Register(const szName[], CEPreset:iPreset = CEPreset_None);
+native CE:CE_Register(const szClassname[], CEPreset:iPreset = CEPreset_None);
 
 /**
  * Extend entity
  *
- * @param szName Name of an entity
+ * @param szClassname Name of an entity
  * @param iPreset Preset for an entity
  *
  * @return Handler of the registered entity
  */
-native CE:CE_RegisterDerived(const szName[], const szBase[]);
+native CE:CE_RegisterDerived(const szClassname[], const szBase[]);
 
 /**
  * Spawn entity
  *
- * @param szName Name of entity
+ * @param szClassname Name of entity
  * @param vecOrigin Spawn origin
  * @param bTemp Mark entity as an temporary entity
  *
  * @return Entity index
  */
-native CE_Create(const szName[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
+native CE_Create(const szClassname[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
 
 /**
  * Restart entity
@@ -66,41 +66,45 @@ native bool:CE_Remove(pEntity);
  * Register new hook for entity
  *
  * @param function Function handler
- * @param szName Name of entity
+ * @param szClassname Name of entity
  * @param szCallback Callback
  */
-native CE_RegisterHook(const szName[], CEFunction:function, const szCallback[]);
+native CE_RegisterHook(const szClassname[], CEFunction:function, const szCallback[]);
+
+native CE_RegisterKeyMemberBinding(const szClassname[], const szKey[], const szMember[], CEMemberType:iType);
+
+native CE_RemoveKeyMemberBinding(const szClassname[], const szKey[], const szMember[]);
 
 /**
  * Registers a new method for entity.
  *
- * @param szName Name of entity
+ * @param szClassname Name of entity
  * @param szMethod Name of method
  * @param szCallback Callback
  *
  * @noreturn
 */
-native CE_RegisterMethod(const szName[], const szMethod[], const szCallback[], any:...);
+native CE_RegisterMethod(const szClassname[], const szMethod[], const szCallback[], any:...);
 
 /**
  * Registers a new virtual method for entity.
  *
- * @param szName Name of entity
+ * @param szClassname Name of entity
  * @param szMethod Name of method
  * @param szCallback Callback
  *
  * @noreturn
 */
-native CE_RegisterVirtualMethod(const szName[], const szMethod[], const szCallback[], any:...);
+native CE_RegisterVirtualMethod(const szClassname[], const szMethod[], const szCallback[], any:...);
 
 /**
  * Gets handler of entity by name
  *
- * @param szName Name of entity
+ * @param szClassname Name of entity
  *
  * @return Handler of the registered entity or -1 otherwise
  */
-native CE:CE_GetHandler(const szName[]);
+native CE:CE_GetHandler(const szClassname[]);
 
 /**
  * Gets handler of entity by index
@@ -154,7 +158,7 @@ native any:CE_GetMember(pEntity, const szMember[]);
  * @param szMember Member name
  * @param value Value to set
  */
-native CE_SetMember(pEntity, const szMember[], any:value);
+native CE_SetMember(pEntity, const szMember[], any:value, bool:bReplace = true);
 
 /**
  * Gets vector member of an entity
@@ -172,7 +176,7 @@ native bool:CE_GetMemberVec(pEntity, const szMember[], Float:vecOut[3]);
  * @param szMember Member name
  * @param vecValue Vector to set
  */
-native CE_SetMemberVec(pEntity, const szMember[], const Float:vecValue[3]);
+native CE_SetMemberVec(pEntity, const szMember[], const Float:vecValue[3], bool:bReplace = true);
 
 /**
  * Gets string member of an entity
@@ -191,7 +195,7 @@ native bool:CE_GetMemberString(pEntity, const szMember[], szOut[], iLen);
  * @param szMember Member name
  * @param szValue String value to set
  */
-native CE_SetMemberString(pEntity, const szMember[], const szValue[]);
+native CE_SetMemberString(pEntity, const szMember[], const szValue[], bool:bReplace = true);
 
 /**
  * Call a method for entity.

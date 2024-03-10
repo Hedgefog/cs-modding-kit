@@ -7,8 +7,8 @@
 #define CE_ENTITY_SECRET ('c'+'e'+'2')
 
 #define CE_MAX_NAME_LENGTH 64
-#define CE_MAX_MEMBER_LENGTH 64
-#define CE_MAX_CALLBACK_LENGTH 64
+#define CE_MAX_MEMBER_NAME_LENGTH 64
+#define CE_MAX_CALLBACK_NAME_LENGTH 64
 #define CE_MAX_METHOD_NAME_LENGTH 64
 
 #define CE_MEMBER_ID "_id"
@@ -31,6 +31,8 @@
 #define CE_MEMBER_LASTINIT "_flLastInit"
 #define CE_MEMBER_LASTSPAWN "_flLastSpawn"
 #define CE_MEMBER_PLUGINID "_iPluginId"
+#define CE_MEMBER_TARGETNAME "_Targetname"
+#define CE_MEMBER_TARGET "_Target"
 
 enum CE {
   CE_InvalidHandler = -1
@@ -65,6 +67,14 @@ enum CEFunction {
   CEFunction_Kill, // Calls when something killing entity. return PLUGIN_HANDLED to block the kill.
   CEFunction_Killed, // Calls when entity killed
   CEFunction_Remove, // Calls before entity remove
+};
+
+enum CEMemberType {
+  CEMemberType_Invalid = -1,
+  CEMemberType_Cell,
+  CEMemberType_Float,
+  CEMemberType_String,
+  CEMemberType_Vector
 };
 
 enum {

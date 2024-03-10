@@ -8,40 +8,29 @@
 #tryinclude <datapack>
 #include <xs>
 
+#include <cellclass>
 #include <datapack_stocks>
 
 #include <api_custom_entities_const>
+
+#define MAX_HOOK_CALL_HIERARCHY_DEPTH 128
 
 #define DEFAULT_CELL_VALUE 0
 #define DEFAULT_FLOAT_VALUE 0.0
 #define DEFAULT_STRING_VALUE NULL_STRING
 
+#define CLASS_METADATA_ID "iId"
+
 #define LOG_PREFIX "[CE]"
 
-#if !defined _datapack_included
-  enum DataPack { Invalid_DataPack = 0 }
-#endif
-
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
-
-enum MethodParam {
-  MethodParam_Type = 0,
-  MethodParam_Size
-};
-
-enum MethodCallStackItem {
-  MethodCallStackItem_Entity,
-  MethodCallStackItem_EntityID,
-  MethodCallStackItem_Method
-};
 
 enum Entity {
   Array:Entity_Name,
   Array:Entity_Preset,
-  Array:Entity_Parent,
   Array:Entity_Hooks[CEFunction],
-  Array:Entity_Methods,
-  Array:Entity_Hierarchy
+  Array:Entity_Class,
+  Array:Entity_KeyMemberBindings
 };
 
 enum EntityHook {
@@ -49,33 +38,15 @@ enum EntityHook {
   EntityHook_FuncID
 };
 
-enum Method {
-  Method_PluginID,
-  Method_FunctionID,
-  bool:Method_IsVirtual,
-  Array:Method_ParamTypes
-};
-
-#if defined _datapack_included
-  new g_szBuffer[MAX_STRING_LENGTH];
-  new g_rgiBuffer[MAX_STRING_LENGTH];
-  new Float:g_rgflBuffer[MAX_STRING_LENGTH];
-#endif
-
 new g_iszBaseClassName;
 
-new Trie:g_itPData = Invalid_Trie;
 new Trie:g_itEntityIds = Invalid_Trie;
-new g_rgEntity[Entity] = { Invalid_Array, ... };
+new Array:g_rgEntities[Entity] = { Invalid_Array, ... };
 new g_iEntitiesNum = 0;
-new bool:g_bPrecaching = true;
+
+new ClassInstance:g_pInstance = Invalid_ClassInstance;
+
 new bool:g_bIsCStrike = false;
-
-new DataPack:g_dpParams = Invalid_DataPack;
-
-new Array:g_irgMethodCallStack = Invalid_Array;
-new Array:g_irgMethods = Invalid_Array;
-new Trie:g_itMethods = Invalid_Trie;
 
 public plugin_precache() {
   g_bIsCStrike = !!cstrike_running();
@@ -102,8 +73,6 @@ public plugin_precache() {
 }
 
 public plugin_init() {
-  g_bPrecaching = false;
-
   register_plugin("[API] Custom Entities", "2.0.0", "Hedgehog Fog");
 
   register_concmd("ce_spawn", "Command_Spawn", ADMIN_CVAR);
@@ -124,6 +93,8 @@ public plugin_natives() {
   register_native("CE_Restart", "Native_Restart");
 
   register_native("CE_RegisterHook", "Native_RegisterHook");
+  register_native("CE_RegisterKeyMemberBinding", "Native_RegisterKeyMemberBinding");
+  register_native("CE_RemoveKeyMemberBinding", "Native_RemoveKeyMemberBinding");
   register_native("CE_RegisterMethod", "Native_RegisterMethod");
   register_native("CE_RegisterVirtualMethod", "Native_RegisterVirtualMethod");
 
@@ -150,36 +121,36 @@ public plugin_end() {
 /*--------------------------------[ Natives ]--------------------------------*/
 
 public Native_Register(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new CEPreset:iPreset = CEPreset:get_param(2);
   
-  return RegisterEntity(szClassName, iPreset);
+  return RegisterEntity(szClassname, iPreset);
 }
 
 public Native_RegisterDerived(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new szBaseClassName[CE_MAX_NAME_LENGTH]; get_string(2, szBaseClassName, charsmax(szBaseClassName));
   
-  return RegisterEntity(szClassName, _, szBaseClassName);
+  return RegisterEntity(szClassname, _, szBaseClassName);
 }
 
 public Native_Create(iPluginId, iArgc) {
-  static szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  static szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   static Float:vecOrigin[3]; get_array_f(2, vecOrigin, 3);
   static bool:bTemp; bTemp = !!get_param(3);
 
-  static pEntity; pEntity = @Entity_Create(szClassName, vecOrigin, bTemp);
+  new pEntity = @Entity_Create(szClassname, vecOrigin, bTemp);
   if (pEntity) {
-    static Trie:itPData; itPData = @Entity_GetPData(pEntity);
-    SetPDataMember(itPData, CE_MEMBER_PLUGINID, iPluginId);
+    new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
+    ClassInstanceSetMember(pInstance, CE_MEMBER_PLUGINID, iPluginId);
   }
 
   return pEntity;
 }
 
 public Native_Kill(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static pKiller; pKiller = get_param(2);
+  new pEntity = get_param(1);
+  new pKiller = get_param(2);
 
   if (!@Entity_IsCustom(pEntity)) return;
 
@@ -187,7 +158,7 @@ public Native_Kill(iPluginId, iArgc) {
 }
 
 public bool:Native_Remove(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
+  new pEntity = get_param(1);
 
   if (!@Entity_IsCustom(pEntity)) return;
 
@@ -196,7 +167,7 @@ public bool:Native_Remove(iPluginId, iArgc) {
 }
 
 public Native_Restart(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
+  new pEntity = get_param(1);
 
   if (!@Entity_IsCustom(pEntity)) return;
 
@@ -206,154 +177,156 @@ public Native_Restart(iPluginId, iArgc) {
 public Native_RegisterHook(iPluginId, iArgc) {
   new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new CEFunction:iFunction = CEFunction:get_param(2);
-  new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
+  new szCallback[CE_MAX_CALLBACK_NAME_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
   RegisterEntityHook(iFunction, szClassname, szCallback, iPluginId);
 }
 
 public Native_RegisterMethod(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
-  new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
+  new szCallback[CE_MAX_CALLBACK_NAME_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
-  new Array:irgParamTypes; irgParamTypes = ArrayCreate(_:MethodParam, iArgc - 1);
+  new iId = GetIdByClassName(szClassname);
+  new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
+  new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  for (new iParam = 4; iParam <= iArgc; ++iParam) {
-    new rgParam[MethodParam];
-    rgParam[MethodParam_Type] = get_param_byref(iParam);
-    rgParam[MethodParam_Size] = 1;
+  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, false, CMP_Cell, CMP_ReadFromCellArray, irgParams);
 
-    switch (rgParam[MethodParam_Type]) {
-      case CE_MP_Array, CE_MP_FloatArray: {
-        rgParam[MethodParam_Size] = get_param_byref(iParam + 1);
-        iParam++;
-      }
-    }
-
-    ArrayPushArray(irgParamTypes, rgParam[any:0], _:MethodParam);
-  }
-
-  RegisterEntityMethod(szClassName, szMethod, szCallback, iPluginId, irgParamTypes, false);
+  ArrayDestroy(irgParams);
 }
 
 public Native_RegisterVirtualMethod(iPluginId, iArgc) {
-  new szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
-  new szCallback[CE_MAX_CALLBACK_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
+  new szCallback[CE_MAX_CALLBACK_NAME_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
-  new Array:irgParamTypes; irgParamTypes = ArrayCreate(_:MethodParam, iArgc - 1);
+  new iId = GetIdByClassName(szClassname);
+  new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
+  new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  for (new iParam = 4; iParam <= iArgc; ++iParam) {
-    new rgParam[MethodParam];
-    rgParam[MethodParam_Type] = get_param_byref(iParam);
-    rgParam[MethodParam_Size] = 1;
+  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, true, CMP_Cell, CMP_ReadFromCellArray, irgParams);
 
-    switch (rgParam[MethodParam_Type]) {
-      case CE_MP_Array, CE_MP_FloatArray: {
-        rgParam[MethodParam_Size] = get_param_byref(iParam + 1);
-        iParam++;
-      }
-    }
+  ArrayDestroy(irgParams);
+}
 
-    ArrayPushArray(irgParamTypes, rgParam[any:0], _:MethodParam);
+public Native_RegisterKeyMemberBinding(iPluginId, iArgc) {
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
+  new szKey[CE_MAX_NAME_LENGTH]; get_string(2, szKey, charsmax(szKey));
+  new szMember[CE_MAX_NAME_LENGTH]; get_string(3, szMember, charsmax(szMember));
+  new CEMemberType:iType = CEMemberType:get_param(4);
+
+  new iId = GetIdByClassName(szClassname);
+  if (iId == -1) {
+    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassname);
+    return;
   }
 
-  RegisterEntityMethod(szClassName, szMethod, szCallback, iPluginId, irgParamTypes, true);
+  RegisterKeyMemberBinding(iId, szKey, szMember, iType);
+}
+
+public Native_RemoveKeyMemberBinding(iPluginId, iArgc) {
+  new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
+  new szKey[CE_MAX_NAME_LENGTH]; get_string(2, szKey, charsmax(szKey));
+  new szMember[CE_MAX_NAME_LENGTH]; get_string(3, szMember, charsmax(szMember));
+
+  new iId = GetIdByClassName(szClassname);
+  if (iId == -1) {
+    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassname);
+    return;
+  }
+
+  RemoveKeyMemberBinding(iId, szKey, szMember);
 }
 
 public Native_GetHandler(iPluginId, iArgc) {
-  static szClassName[CE_MAX_NAME_LENGTH]; get_string(1, szClassName, charsmax(szClassName));
+  static szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
 
-  return GetIdByClassName(szClassName);
+  return GetIdByClassName(szClassname);
 }
 
 public Native_GetHandlerByEntity(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
+  new pEntity = get_param(1);
 
   if (!@Entity_IsCustom(pEntity)) return -1;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  return GetPDataMember(itPData, CE_MEMBER_ID);
+  return ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
 }
 
 public bool:Native_IsInstanceOf(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szClassName[CE_MAX_NAME_LENGTH]; get_string(2, szClassName, charsmax(szClassName));
+  new pEntity = get_param(1);
+  static szClassname[CE_MAX_NAME_LENGTH]; get_string(2, szClassname, charsmax(szClassname));
 
   if (!@Entity_IsCustom(pEntity)) return false;
 
-  static iTargetId; iTargetId = GetIdByClassName(szClassName);
-
+  static iTargetId; iTargetId = GetIdByClassName(szClassname);
   if (iTargetId == -1) return false;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
-  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  static Class:cTarget; cTarget = ArrayGetCell(g_rgEntities[Entity_Class], iTargetId);
 
-  do {
-    if (iId == iTargetId) return true;
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-    iId = ArrayGetCell(g_rgEntity[Entity_Parent], iId);
-  } while(iId != -1);
-
-  return false;
+  return ClassInstanceIsInstanceOf(pInstance, cTarget);
 }
 
 public bool:Native_HasMember(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  return HasPDataMember(itPData, szMember);
+  return ClassInstanceHasMember(pInstance, szMember);
 }
 
 public any:Native_GetMember(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return 0;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  return GetPDataMember(itPData, szMember);
+  return ClassInstanceGetMember(pInstance, szMember);
 }
 
 public Native_DeleteMember(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  DeletePDataMember(itPData, szMember);
+  ClassInstanceDeleteMember(pInstance, szMember);
 }
 
 public Native_SetMember(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static iValue; iValue = get_param(3);
+  static bool:bReplace; bReplace = bool:get_param(4);
 
   if (!@Entity_IsCustom(pEntity)) return;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  SetPDataMember(itPData, szMember, iValue);
+  ClassInstanceSetMember(pInstance, szMember, iValue, bReplace);
 }
 
 public bool:Native_GetMemberVec(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
   static Float:vecValue[3];
-  if (!GetPDataMemberVec(itPData, szMember, vecValue)) return false;
+  if (!ClassInstanceGetMemberArray(pInstance, szMember, vecValue, 3)) return false;
 
   set_array_f(3, vecValue, sizeof(vecValue));
 
@@ -361,26 +334,27 @@ public bool:Native_GetMemberVec(iPluginId, iArgc) {
 }
 
 public Native_SetMemberVec(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static Float:vecValue[3]; get_array_f(3, vecValue, sizeof(vecValue));
+  static bool:bReplace; bReplace = bool:get_param(4);
 
   if (!@Entity_IsCustom(pEntity)) return;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
-  SetPDataMemberVec(itPData, szMember, vecValue);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
+  ClassInstanceSetMemberArray(pInstance, szMember, vecValue, 3, bReplace);
 }
 
 public bool:Native_GetMemberString(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
   static szValue[128];
-  if (!GetPDataMemberString(itPData, szMember, szValue, charsmax(szValue))) return false;
+  if (!ClassInstanceGetMemberString(pInstance, szMember, szValue, charsmax(szValue))) return false;
 
   set_string(3, szValue, get_param(4));
 
@@ -388,223 +362,66 @@ public bool:Native_GetMemberString(iPluginId, iArgc) {
 }
 
 public Native_SetMemberString(iPluginId, iArgc) {
-  static pEntity; pEntity = get_param(1);
-  static szMember[CE_MAX_MEMBER_LENGTH]; get_string(2, szMember, charsmax(szMember));
+  new pEntity = get_param(1);
+  static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static szValue[128]; get_string(3, szValue, charsmax(szValue));
+  static bool:bReplace; bReplace = bool:get_param(4);
   
   if (!@Entity_IsCustom(pEntity)) return;
 
-  static Trie:itPData; itPData = @Entity_GetPData(pEntity);
-  SetPDataMemberString(itPData, szMember, szValue);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
+  ClassInstanceSetMemberString(pInstance, szMember, szValue, bReplace);
 }
 
 public any:Native_CallMethod(iPluginId, iArgc) {
-  new pEntity; pEntity = get_param(1);
-  new szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
+  new pEntity = get_param(1);
+  static szMethod[CE_MAX_METHOD_NAME_LENGTH]; get_string(2, szMethod, charsmax(szMethod));
 
-  if (!@Entity_IsCustom(pEntity)) return 0;
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  new Trie:itPData; itPData = @Entity_GetPData(pEntity);
+  ClassInstanceCallMethodBegin(pInstance, szMethod);
 
-  new iId; iId = -1;
+  ClassInstanceCallMethodPushParamCell(pEntity);
 
-  // If we are already in the execution context use entity logic from current context
-  if (!IsMethodCallStackEmtpy()) {
-    static rgCallStackItem[MethodCallStackItem];
-    GetCurrentMethodFromCallStack(rgCallStackItem);
-
-    if (rgCallStackItem[MethodCallStackItem_Entity] == pEntity) {
-      iId = rgCallStackItem[MethodCallStackItem_EntityID];
-    } else {
-      iId = GetPDataMember(itPData, CE_MEMBER_ID);
-    }
-  } else {
-    iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  for (new iParam = 3; iParam <= iArgc; ++iParam) {
+    ClassInstanceCallMethodPushNativeParam(iParam);
   }
 
-  new rgMethod[Method];
-  iId = FindEntityMethodInHierarchy(iId, szMethod, rgMethod);
-
-  if (iId == -1) {
-    new szName[CE_MAX_NAME_LENGTH]; ArrayGetString(g_rgEntity[Entity_Name], iId, szName, charsmax(szName));
-    log_error(AMX_ERR_NATIVE, "%s Method ^"%s^" is not registered for the ^"%s^" entity (%d)!", LOG_PREFIX, szMethod, szName, pEntity);
-    return 0;
-  }
-
-  // If we are already in the execution context and the method is virual jump to top level context
-  if (!IsMethodCallStackEmtpy()) {
-    if (rgMethod[Method_IsVirtual]) {
-      iId = FindEntityMethodInHierarchy(GetPDataMember(itPData, CE_MEMBER_ID), szMethod, rgMethod);
-    }
-  }
-
-  #if defined _datapack_included
-    ResetPack(g_dpParams, true);
-
-    new Array:irgParamTypes; irgParamTypes = rgMethod[Method_ParamTypes];
-
-    new iParamsNum; iParamsNum = ArraySize(irgParamTypes);
-    for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
-      new iParam; iParam = 3 + iMethodParam;
-      new iType; iType = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Type);
-      new iSize; iSize = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Size);
-      new bool:bUseDefault; bUseDefault = iParam > iArgc;
-
-      switch (iType) {
-        case CE_MP_Cell: {
-          WritePackCell(g_dpParams, bUseDefault ? DEFAULT_CELL_VALUE : get_param_byref(iParam));
-        }
-        case CE_MP_Float: {
-          WritePackFloat(g_dpParams, bUseDefault ? DEFAULT_FLOAT_VALUE : Float:get_param_byref(iParam));
-        }
-        case CE_MP_String: {
-          if (bUseDefault) {
-            copy(g_szBuffer, sizeof(g_szBuffer), DEFAULT_STRING_VALUE);
-          } else {
-            get_string(iParam, g_szBuffer, charsmax(g_szBuffer));
-          }
-
-          WritePackString(g_dpParams, g_szBuffer);
-        }
-        case CE_MP_Array: {
-          if (bUseDefault) {
-            arrayset(g_rgiBuffer, DEFAULT_FLOAT_VALUE, iSize);
-          } else {
-            get_array(iParam, g_rgiBuffer, iSize);
-          }
-
-          WritePackArray(g_dpParams, g_rgiBuffer, iSize);
-        }
-        case CE_MP_FloatArray: {
-          if (bUseDefault) {
-            arrayset(g_rgflBuffer, DEFAULT_FLOAT_VALUE, iSize);
-          } else {
-            get_array_f(iParam, g_rgflBuffer, iSize);
-          }
-
-          WritePackFloatArray(g_dpParams, g_rgflBuffer, iSize);
-        }
-      }
-    }
-  #endif
-
-  #if defined _datapack_included
-    ResetPack(g_dpParams);
-  #endif
-
-  new any:result; result = ExecuteMethod(szMethod, iId, pEntity, g_dpParams);
-
-
-  return result;
+  return ClassInstanceCallMethodEnd();
 }
 
 public any:Native_CallBaseMethod(iPluginId, iArgc) {
-  if (IsMethodCallStackEmtpy()) {
-    log_error(AMX_ERR_NATIVE, "%s Calling a base method is not allowed outside of the execution context!", LOG_PREFIX);
-    return 0;
+  new ClassInstance:pInstance = ClassInstanceGetCurrent();
+  new pEntity = ClassInstanceGetMember(pInstance, CE_MEMBER_POINTER);
+
+  ClassInstanceCallMethodBeginBase();
+
+  ClassInstanceCallMethodPushParamCell(pEntity);
+
+  for (new iParam = 1; iParam <= iArgc; ++iParam) {
+    ClassInstanceCallMethodPushNativeParam(iParam);
   }
 
-  static rgCallStackItem[MethodCallStackItem]; GetCurrentMethodFromCallStack(rgCallStackItem);
-  static iId; iId = ArrayGetCell(g_rgEntity[Entity_Parent], rgCallStackItem[MethodCallStackItem_EntityID]);
-
-  if (iId == -1) {
-    new szName[CE_MAX_NAME_LENGTH]; ArrayGetString(g_rgEntity[Entity_Name], rgCallStackItem[MethodCallStackItem_EntityID], szName, charsmax(szName));
-    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" (%d) has no base entity!", LOG_PREFIX, szName, rgCallStackItem[MethodCallStackItem_Entity]);
-    return 0;
-  }
-
-  new szMethod[CE_MAX_METHOD_NAME_LENGTH]; GetNameFromMethodGlobalTable(rgCallStackItem[MethodCallStackItem_Method], szMethod, charsmax(szMethod));
-
-  static rgMethod[Method];
-  iId = FindEntityMethodInHierarchy(iId, szMethod, rgMethod);
-
-  if (iId == -1) {
-    new szName[CE_MAX_NAME_LENGTH]; ArrayGetString(g_rgEntity[Entity_Name], iId, szName, charsmax(szName));
-    log_error(AMX_ERR_NATIVE, "%s Method ^"%s^" is not registered for the ^"%s^" entity (%d)!", LOG_PREFIX, szMethod, szName, rgCallStackItem[MethodCallStackItem_Entity]);
-    return 0;
-  }
-
-  #if defined _datapack_included
-    ResetPack(g_dpParams, true);
-  
-    static Array:irgParamTypes; irgParamTypes = rgMethod[Method_ParamTypes];
-
-    static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
-    for (new iMethodParam = 0; iMethodParam < iParamsNum; ++iMethodParam) {
-      static iParam; iParam = 1 + iMethodParam;
-      static iType; iType = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Type);
-      static iSize; iSize = ArrayGetCell(irgParamTypes, iMethodParam, _:MethodParam_Size);
-      static bool:bUseDefault; bUseDefault = iParam > iArgc;
-
-      switch (iType) {
-        case CE_MP_Cell: {
-          WritePackCell(g_dpParams, bUseDefault ? DEFAULT_CELL_VALUE : get_param_byref(iParam));
-        }
-        case CE_MP_Float: {
-          WritePackFloat(g_dpParams, bUseDefault ? DEFAULT_FLOAT_VALUE : Float:get_param_byref(iParam));
-        }
-        case CE_MP_String: {
-          if (bUseDefault) {
-            copy(g_szBuffer, sizeof(g_szBuffer), DEFAULT_STRING_VALUE);
-          } else {
-            get_string(iParam, g_szBuffer, charsmax(g_szBuffer));
-          }
-
-          WritePackString(g_dpParams, g_szBuffer);
-        }
-        case CE_MP_Array: {
-          if (bUseDefault) {
-            arrayset(g_rgiBuffer, DEFAULT_FLOAT_VALUE, iSize);
-          } else {
-            get_array(iParam, g_rgiBuffer, iSize);
-          }
-
-          WritePackArray(g_dpParams, g_rgiBuffer, iSize);
-        }
-        case CE_MP_FloatArray: {
-          if (bUseDefault) {
-            arrayset(g_rgflBuffer, DEFAULT_FLOAT_VALUE, iSize);
-          } else {
-            get_array_f(iParam, g_rgflBuffer, iSize);
-          }
-
-          WritePackFloatArray(g_dpParams, g_rgflBuffer, iSize);
-        }
-      }
-    }
-  #endif
-
-  #if defined _datapack_included
-    ResetPack(g_dpParams);
-  #endif
-
-  static any:result; result = ExecuteMethod(szMethod, iId, rgCallStackItem[MethodCallStackItem_Entity], g_dpParams);
-
-  return result;
+  return ClassInstanceCallMethodEnd();
 }
 
 /*--------------------------------[ Commands ]--------------------------------*/
 
 public Command_Spawn(pPlayer, iLevel, iCId) {
-  if (!cmd_access(pPlayer, iLevel, iCId, 2)) {
-    return PLUGIN_HANDLED;
-  }
+  if (!cmd_access(pPlayer, iLevel, iCId, 2)) return PLUGIN_HANDLED;
 
-  static szClassName[128];
-  read_args(szClassName, charsmax(szClassName));
-  remove_quotes(szClassName);
+  new szClassname[128];
+  read_args(szClassname, charsmax(szClassname));
+  remove_quotes(szClassname);
 
-  if (equal(szClassName, NULL_STRING)) {
-    return PLUGIN_HANDLED;
-  }
+  if (equal(szClassname, NULL_STRING)) return PLUGIN_HANDLED;
 
-  static Float:vecOrigin[3]; pev(pPlayer, pev_origin, vecOrigin);
+  new Float:vecOrigin[3]; pev(pPlayer, pev_origin, vecOrigin);
   
-  new pEntity = @Entity_Create(szClassName, vecOrigin, true);
-  if (pEntity) {
-    dllfunc(DLLFunc_Spawn, pEntity);
-    engfunc(EngFunc_SetOrigin, pEntity, vecOrigin);
-  }
+  new pEntity = @Entity_Create(szClassname, vecOrigin, true);
+  if (!pEntity) return PLUGIN_HANDLED;
+
+  dllfunc(DLLFunc_Spawn, pEntity);
 
   return PLUGIN_HANDLED;
 }
@@ -612,12 +429,10 @@ public Command_Spawn(pPlayer, iLevel, iCId) {
 /*--------------------------------[ Hooks ]--------------------------------*/
 
 public FMHook_OnFreeEntPrivateData(pEntity) {
-  if (!pev_valid(pEntity)) {
-    return;
-  }
+  if (!pev_valid(pEntity)) return;
 
   if (@Entity_IsCustom(pEntity)) {
-    @Entity_FreePData(pEntity);
+    @Entity_DestroyClassInstance(pEntity);
   }
 }
 
@@ -630,51 +445,42 @@ public FMHook_KeyValue(pEntity, hKVD) {
 
     if (iId != -1) {
       // using set_kvd leads to duplicate kvd emit, this check will fix the issue
-      if (g_itPData == Invalid_Trie) {
+      if (g_pInstance == Invalid_ClassInstance) {
         set_kvd(hKVD, KV_Value, CE_BASE_CLASSNAME);
-        g_itPData = AllocPData(iId, pEntity);
+        g_pInstance = AllocPData(iId, pEntity);
       }
     } else {
         // if for some reason data was not assigned
-        if (g_itPData != Invalid_Trie) {
-          FreePData(g_itPData);
-          g_itPData = Invalid_Trie;
+        if (g_pInstance != Invalid_ClassInstance) {
+          ClassInstanceDestroy(g_pInstance);
+          g_pInstance = Invalid_ClassInstance;
         }
     }
   }
 
-  if (g_itPData != Invalid_Trie) {
+  if (g_pInstance != Invalid_ClassInstance) {
     if (equal(szKey, "classname")) {
-      SetPDataMember(g_itPData, CE_MEMBER_WORLD, true);
-    } else if (equal(szKey, "origin")) {
-      new Float:vecOrigin[3];
-      UTIL_ParseVector(szValue, vecOrigin);
-      SetPDataMemberVec(g_itPData, CE_MEMBER_ORIGIN, vecOrigin);
-    } else if (equal(szKey, "angles")) {
-      new Float:vecAngles[3];
-      UTIL_ParseVector(szValue, vecAngles);
-      SetPDataMemberVec(g_itPData, CE_MEMBER_ANGLES, vecAngles);
-    } else if (equal(szKey, "master")) {
-      SetPDataMemberString(g_itPData, CE_MEMBER_MASTER, szValue);
+      ClassInstanceSetMember(g_pInstance, CE_MEMBER_WORLD, true);
     }
-
-    new iId = GetPDataMember(g_itPData, CE_MEMBER_ID);
-    ExecuteHookFunction(CEFunction_KeyValue, iId, pEntity, szKey, szValue);
+    
+    if (ExecuteHookFunction(CEFunction_KeyValue, pEntity, szKey, szValue) == PLUGIN_CONTINUE) {
+      @Entity_ApplyKeyMemberBindings(pEntity, szKey, szValue);
+    }
   }
 
   return FMRES_HANDLED;
 }
 
 public FMHook_Spawn(pEntity) {
-  if (g_itPData != Invalid_Trie) {
-    new iId = GetPDataMember(g_itPData, CE_MEMBER_ID);
+  if (g_pInstance != Invalid_ClassInstance) {
+    static iId; iId = ClassInstanceGetMember(g_pInstance, CE_MEMBER_ID);
 
-    static szClassName[CE_MAX_NAME_LENGTH];
-    ArrayGetString(g_rgEntity[Entity_Name], iId, szClassName, charsmax(szClassName));
-    set_pev(pEntity, pev_classname, szClassName);
+    static szClassname[CE_MAX_NAME_LENGTH];
+    ArrayGetString(g_rgEntities[Entity_Name], iId, szClassname, charsmax(szClassname));
+    set_pev(pEntity, pev_classname, szClassname);
 
-    @Entity_SetPData(pEntity, g_itPData);
-    g_itPData = Invalid_Trie;
+    @Entity_SetClassInstance(pEntity, g_pInstance);
+    g_pInstance = Invalid_ClassInstance;
   }
 }
 
@@ -755,73 +561,56 @@ public HamHook_Base_BloodColor(pEntity) {
 
 /*--------------------------------[ Methods ]--------------------------------*/
 
-@Entity_Create(const szClassName[], const Float:vecOrigin[3], bool:bTemp) {
-  new iId = GetIdByClassName(szClassName);
-  if (iId == -1) {
-    return 0;
-  }
+@Entity_Create(const szClassname[], const Float:vecOrigin[3], bool:bTemp) {
+  new iId = GetIdByClassName(szClassname);
+  if (iId == -1) return 0;
 
   new this = engfunc(EngFunc_CreateNamedEntity, g_iszBaseClassName);
-  set_pev(this, pev_classname, szClassName);
+  set_pev(this, pev_classname, szClassname);
   engfunc(EngFunc_SetOrigin, this, vecOrigin);
   // set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
 
-  new Trie:itPData = @Entity_AllocPData(this, iId);
-  SetPDataMemberVec(itPData, CE_MEMBER_ORIGIN, vecOrigin);
+  new ClassInstance:pInstance = @Entity_AllocClassInstance(this, iId);
+  ClassInstanceSetMemberArray(pInstance, CE_MEMBER_ORIGIN, vecOrigin, 3);
 
-  SetPDataMember(itPData, CE_MEMBER_WORLD, !bTemp);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_WORLD, !bTemp);
 
   return this;
 }
 
 bool:@Entity_IsCustom(const &this) {
-  if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER) == this) {
+  if (g_pInstance != Invalid_ClassInstance && ClassInstanceGetMember(g_pInstance, CE_MEMBER_POINTER) == this) {
     return true;
   }
 
   return pev(this, pev_gaitsequence) == CE_ENTITY_SECRET;
 }
 
-@Entity_Init(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+@Entity_Init(&this) {
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  static szModel[MAX_RESOURCE_PATH_LENGTH]; pev(this, pev_model, szModel, charsmax(szModel));
+  ClassInstanceSetMember(pInstance, CE_MEMBER_IGNOREROUNDS, false);
 
-  SetPDataMember(itPData, CE_MEMBER_IGNOREROUNDS, false);
+  if (ExecuteHookFunction(CEFunction_Init, this) != PLUGIN_CONTINUE) return;
 
-  ExecuteHookFunction(CEFunction_Init, iId, this);
-
-  if (!HasPDataMember(itPData, CE_MEMBER_MODEL) && !equal(szModel, NULL_STRING)) {
-    SetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel);
-
-    if (g_bPrecaching && szModel[0] != '*') {
-      precache_model(szModel);
-    }
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_MODEL)) {
+    static szModel[MAX_RESOURCE_PATH_LENGTH];
+    ClassInstanceGetMemberString(pInstance, CE_MEMBER_MODEL, szModel, charsmax(szModel));
   }
 
-  SetPDataMember(itPData, CE_MEMBER_INITIALIZED, true);
-  SetPDataMember(itPData, CE_MEMBER_LASTINIT, get_gametime());
+  ClassInstanceSetMember(pInstance, CE_MEMBER_INITIALIZED, true);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_LASTINIT, get_gametime());
 }
 
-@Entity_Spawn(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
+@Entity_Spawn(&this) {
+  if (ExecuteHookFunction(CEFunction_Spawn, this) != PLUGIN_CONTINUE) return;
 
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-
-  if (ExecuteHookFunction(CEFunction_Spawn, iId, this) != PLUGIN_CONTINUE) {
-    return;
-  }
-
-  if (!GetPDataMember(itPData, CE_MEMBER_INITIALIZED)) {
+  new ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
+  if (!ClassInstanceGetMember(pInstance, CE_MEMBER_INITIALIZED)) {
     @Entity_Init(this);
   }
 
-  if (!pev_valid(this) || pev(this, pev_flags) & FL_KILLME) {
-    return;
-  }
-
-  static Float:flGameTime; flGameTime = get_gametime();
+  if (!pev_valid(this) || pev(this, pev_flags) & FL_KILLME) return;
 
   set_pev(this, pev_deadflag, DEAD_NO);
   set_pev(this, pev_effects, pev(this, pev_effects) & ~EF_NODRAW);
@@ -831,53 +620,65 @@ bool:@Entity_IsCustom(const &this) {
   @Entity_InitModel(this);
   @Entity_InitSize(this);
 
-  new CEPreset:iPreset = ArrayGetCell(g_rgEntity[Entity_Preset], iId);
+  static iId; iId = ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
+  static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iId);
 
   switch (iPreset) {
     case CEPreset_Trigger: {
-      SetPDataMember(itPData, CE_MEMBER_DELAY, 0.1);
+      ClassInstanceSetMember(pInstance, CE_MEMBER_DELAY, 0.1);
     }
     case CEPreset_NPC: {
       set_pev(this, pev_flags, pev(this, pev_flags) | FL_MONSTER);
     }
   }
 
-  if (HasPDataMember(itPData, CE_MEMBER_ORIGIN)) {
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_ORIGIN)) {
     static Float:vecOrigin[3];
-    GetPDataMemberVec(itPData, CE_MEMBER_ORIGIN, vecOrigin);
+    ClassInstanceGetMemberArray(pInstance, CE_MEMBER_ORIGIN, vecOrigin, 3);
     engfunc(EngFunc_SetOrigin, this, vecOrigin);
   }
 
-  if (HasPDataMember(itPData, CE_MEMBER_ANGLES)) {
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_ANGLES)) {
     static Float:vecAngles[3];
-    GetPDataMemberVec(itPData, CE_MEMBER_ANGLES, vecAngles);
+    ClassInstanceGetMemberArray(pInstance, CE_MEMBER_ANGLES, vecAngles, 3);
     set_pev(this, pev_angles, vecAngles);
   }
 
-  new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
-
-  new Float:flLifeTime = 0.0;
-  if (!bIsWorld && HasPDataMember(itPData, CE_MEMBER_LIFETIME)) {
-    flLifeTime = GetPDataMember(itPData, CE_MEMBER_LIFETIME);
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_TARGETNAME)) {
+    static szTargetname[32];
+    ClassInstanceGetMemberString(pInstance, CE_MEMBER_TARGETNAME, szTargetname, charsmax(szTargetname));
+    set_pev(this, pev_targetname, szTargetname);
   }
+
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_TARGET)) {
+    static szTarget[32];
+    ClassInstanceGetMemberString(pInstance, CE_MEMBER_TARGET, szTarget, charsmax(szTarget));
+    set_pev(this, pev_target, szTarget);
+  }
+
+  static bool:bIsWorld; bIsWorld = ClassInstanceGetMember(pInstance, CE_MEMBER_WORLD);
+
+  static Float:flLifeTime; flLifeTime = 0.0;
+  if (!bIsWorld && ClassInstanceHasMember(pInstance, CE_MEMBER_LIFETIME)) {
+    flLifeTime = ClassInstanceGetMember(pInstance, CE_MEMBER_LIFETIME);
+  }
+
+  static Float:flGameTime; flGameTime = get_gametime();
 
   if (flLifeTime > 0.0) {
-    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, flGameTime + flLifeTime);
+    ClassInstanceSetMember(pInstance, CE_MEMBER_NEXTKILL, flGameTime + flLifeTime);
     set_pev(this, pev_nextthink, flGameTime + flLifeTime);
   } else {
-    SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
+    ClassInstanceSetMember(pInstance, CE_MEMBER_NEXTKILL, 0.0);
   }
 
-  SetPDataMember(itPData, CE_MEMBER_LASTSPAWN, flGameTime);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_LASTSPAWN, flGameTime);
 
-  ExecuteHookFunction(CEFunction_Spawned, iId, this);
+  ExecuteHookFunction(CEFunction_Spawned, this);
 }
 
-@Entity_Restart(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  
-  ExecuteHookFunction(CEFunction_Restart, iId, this);
+@Entity_Restart(&this) {  
+  ExecuteHookFunction(CEFunction_Restart, this);
 
   new iObjectCaps = ExecuteHamB(Ham_ObjectCaps, this);
 
@@ -897,14 +698,13 @@ bool:@Entity_IsCustom(const &this) {
   }
 }
 
-@Entity_InitPhysics(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  new CEPreset:iPreset = ArrayGetCell(g_rgEntity[Entity_Preset], iId);
+@Entity_InitPhysics(&this) {
+  if (ExecuteHookFunction(CEFunction_InitPhysics, this) != PLUGIN_CONTINUE) return;
 
-  if (ExecuteHookFunction(CEFunction_InitPhysics, iId, this) != PLUGIN_CONTINUE) {
-    return;
-  }
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+
+  static iId; iId = ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
+  static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iId);
 
   switch (iPreset) {
     case CEPreset_Item: {
@@ -945,46 +745,36 @@ bool:@Entity_IsCustom(const &this) {
   }
 }
 
-@Entity_InitModel(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+@Entity_InitModel(&this) {
+  if (ExecuteHookFunction(CEFunction_InitModel, this) != PLUGIN_CONTINUE) return;
 
-  if (ExecuteHookFunction(CEFunction_InitModel, iId, this) != PLUGIN_CONTINUE) {
-    return;
-  }
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  if (HasPDataMember(itPData, CE_MEMBER_MODEL)) {
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_MODEL)) {
     static szModel[MAX_RESOURCE_PATH_LENGTH];
-    GetPDataMemberString(itPData, CE_MEMBER_MODEL, szModel, charsmax(szModel));
+    ClassInstanceGetMemberString(pInstance, CE_MEMBER_MODEL, szModel, charsmax(szModel));
     engfunc(EngFunc_SetModel, this, szModel);
   }
-
 }
 
-@Entity_InitSize(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+@Entity_InitSize(&this) {
+  if (ExecuteHookFunction(CEFunction_InitSize, this) != PLUGIN_CONTINUE) return;
 
-  if (ExecuteHookFunction(CEFunction_InitSize, iId, this) != PLUGIN_CONTINUE) {
-    return;
-  }
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  if (HasPDataMember(itPData, CE_MEMBER_MINS) && HasPDataMember(itPData, CE_MEMBER_MAXS)) {
-    static Float:vecMins[3]; GetPDataMemberVec(itPData, CE_MEMBER_MINS, vecMins);
-    static Float:vecMaxs[3]; GetPDataMemberVec(itPData, CE_MEMBER_MAXS, vecMaxs);
+  if (ClassInstanceHasMember(pInstance, CE_MEMBER_MINS) && ClassInstanceHasMember(pInstance, CE_MEMBER_MAXS)) {
+    static Float:vecMins[3]; ClassInstanceGetMemberArray(pInstance, CE_MEMBER_MINS, vecMins, 3);
+    static Float:vecMaxs[3]; ClassInstanceGetMemberArray(pInstance, CE_MEMBER_MAXS, vecMaxs, 3);
     engfunc(EngFunc_SetSize, this, vecMins, vecMaxs);
   }
 }
 
-@Entity_Kill(const &this, const &pKiller, bool:bPicked) {
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+@Entity_Kill(&this, const &pKiller, bool:bPicked) {
+  if (ExecuteHookFunction(CEFunction_Kill, this, pKiller, bPicked) != PLUGIN_CONTINUE) return;
 
-  if (ExecuteHookFunction(CEFunction_Kill, iId, this, pKiller, bPicked) != PLUGIN_CONTINUE) {
-    return;
-  }
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  SetPDataMember(itPData, CE_MEMBER_NEXTKILL, 0.0);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_NEXTKILL, 0.0);
 
   set_pev(this, pev_takedamage, DAMAGE_NO);
   set_pev(this, pev_effects, pev(this, pev_effects) | EF_NODRAW);
@@ -992,14 +782,14 @@ bool:@Entity_IsCustom(const &this) {
   set_pev(this, pev_movetype, MOVETYPE_NONE);
   set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
 
-  new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
+  new bool:bIsWorld = ClassInstanceGetMember(pInstance, CE_MEMBER_WORLD);
 
   if (bIsWorld) {
-    if (HasPDataMember(itPData, CE_MEMBER_RESPAWNTIME)) {
-      new Float:flRespawnTime = GetPDataMember(itPData, CE_MEMBER_RESPAWNTIME);
+    if (ClassInstanceHasMember(pInstance, CE_MEMBER_RESPAWNTIME)) {
+      new Float:flRespawnTime = ClassInstanceGetMember(pInstance, CE_MEMBER_RESPAWNTIME);
       new Float:flGameTime = get_gametime();
 
-      SetPDataMember(itPData, CE_MEMBER_NEXTRESPAWN, flGameTime + flRespawnTime);
+      ClassInstanceSetMember(pInstance, CE_MEMBER_NEXTRESPAWN, flGameTime + flRespawnTime);
       set_pev(this, pev_deadflag, DEAD_RESPAWNABLE);
       set_pev(this, pev_nextthink, flGameTime + flRespawnTime);
     } else {
@@ -1010,29 +800,28 @@ bool:@Entity_IsCustom(const &this) {
     set_pev(this, pev_flags, pev(this, pev_flags) | FL_KILLME);
   }
 
-  ExecuteHookFunction(CEFunction_Killed, iId, this, pKiller, bPicked);
+  ExecuteHookFunction(CEFunction_Killed, this, pKiller, bPicked);
 }
 
-@Entity_Think(const &this) {
+@Entity_Think(&this) {
   if (pev(this, pev_flags) & FL_KILLME) return;
 
+  ExecuteHookFunction(CEFunction_Think, this);
+
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+
   static Float:flGameTime; flGameTime = get_gametime();
-
-  static Trie:itPData; itPData = @Entity_GetPData(this);
-  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
-
-  ExecuteHookFunction(CEFunction_Think, iId, this);
-
   static iDeadFlag; iDeadFlag = pev(this, pev_deadflag);
+
   switch (iDeadFlag) {
     case DEAD_NO: {
-      static Float:flNextKill; flNextKill = GetPDataMember(itPData, CE_MEMBER_NEXTKILL);
+      static Float:flNextKill; flNextKill = ClassInstanceGetMember(pInstance, CE_MEMBER_NEXTKILL);
       if (flNextKill > 0.0 && flNextKill <= flGameTime) {
         ExecuteHamB(Ham_Killed, this, 0, 0);
       }
     }
     case DEAD_RESPAWNABLE: {
-      static Float:flNextRespawn; flNextRespawn = GetPDataMember(itPData, CE_MEMBER_NEXTRESPAWN);
+      static Float:flNextRespawn; flNextRespawn = ClassInstanceGetMember(pInstance, CE_MEMBER_NEXTRESPAWN);
       if (flNextRespawn <= flGameTime) {
         dllfunc(DLLFunc_Spawn, this);
       }
@@ -1040,13 +829,13 @@ bool:@Entity_IsCustom(const &this) {
   }
 }
 
-@Entity_Touch(const &this, const &pToucher) {
-  static Trie:itPData; itPData = @Entity_GetPData(this);
-  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
+@Entity_Touch(&this, const &pToucher) {
+  if (ExecuteHookFunction(CEFunction_Touch, this, pToucher)) return;
 
-  if (ExecuteHookFunction(CEFunction_Touch, iId, this, pToucher)) return;
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntity[Entity_Preset], iId);
+  static iId; iId = ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
+  static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iId);
 
   switch (iPreset) {
     case CEPreset_Item: {
@@ -1060,117 +849,138 @@ bool:@Entity_IsCustom(const &this) {
   }
 }
 
-@Entity_Touched(const &this, const &pToucher) {
-  static Trie:itPData; itPData = @Entity_GetPData(this);
-  static iId; iId = GetPDataMember(itPData, CE_MEMBER_ID);
-
-  ExecuteHookFunction(CEFunction_Touched, iId, this, pToucher);
+@Entity_Touched(&this, const &pToucher) {
+  ExecuteHookFunction(CEFunction_Touched, this, pToucher);
 }
 
 @Entity_GetObjectCaps(const &this) {
-    new Trie:itPData = @Entity_GetPData(this);
-    new bool:bIgnoreRound = GetPDataMember(itPData, CE_MEMBER_IGNOREROUNDS);
-    new bool:bIsWorld = GetPDataMember(itPData, CE_MEMBER_WORLD);
+    new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+    new bool:bIgnoreRound = ClassInstanceGetMember(pInstance, CE_MEMBER_IGNOREROUNDS);
+    new bool:bIsWorld = ClassInstanceGetMember(pInstance, CE_MEMBER_WORLD);
 
     new iObjectCaps = 0;
 
     if (bIgnoreRound) {
-        iObjectCaps |= FCAP_ACROSS_TRANSITION;
+      iObjectCaps |= FCAP_ACROSS_TRANSITION;
     } else {
-      if (bIsWorld) {
-          iObjectCaps |= FCAP_MUST_RESET;
-      } else {
-          iObjectCaps |= FCAP_MUST_RELEASE;
-      }
+      iObjectCaps |= bIsWorld ? FCAP_MUST_RESET : FCAP_MUST_RELEASE;
     }
 
     return iObjectCaps;
 }
 
-@Entity_Pickup(const &this, const &pToucher) {
-  if (~pev(this, pev_flags) & FL_ONGROUND) {
-    return;
-  }
+@Entity_Pickup(&this, const &pToucher) {
+  if (~pev(this, pev_flags) & FL_ONGROUND) return;
 
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-
-  if (ExecuteHookFunction(CEFunction_Pickup, iId, this, pToucher)) {
-    ExecuteHookFunction(CEFunction_Picked, iId, this, pToucher);
+  if (ExecuteHookFunction(CEFunction_Pickup, this, pToucher)) {
+    ExecuteHookFunction(CEFunction_Picked, this, pToucher);
     @Entity_Kill(this, pToucher, true);
   }
 }
 
 bool:@Entity_CanActivate(const &this, const &pTarget) {
-  static Float:flNextThink;
-  pev(this, pev_nextthink, flNextThink);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  if (flNextThink > get_gametime()) {
-    return false;
-  }
+  static Float:flNextThink; pev(this, pev_nextthink, flNextThink);
+  if (flNextThink > get_gametime()) return false;
 
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
+  if (!ExecuteHookFunction(CEFunction_Activate, this, pTarget)) return false;
 
-  if (!ExecuteHookFunction(CEFunction_Activate, iId, this, pTarget)) {
-    return false;
-  }
+  static szMaster[32]; copy(szMaster, charsmax(szMaster), NULL_STRING);
 
-  static szMaster[32];
-  copy(szMaster, charsmax(szMaster), NULL_STRING);
-  GetPDataMemberString(@Entity_GetPData(this), CE_MEMBER_MASTER, szMaster, charsmax(szMaster));
+  ClassInstanceGetMemberString(pInstance, CE_MEMBER_MASTER, szMaster, charsmax(szMaster));
 
   return UTIL_IsMasterTriggered(szMaster, pTarget);
 }
 
-@Entity_Trigger(const &this, const &pActivator) {
-  if (!@Entity_CanActivate(this, pActivator)) {
-    return;
-  }
+@Entity_Trigger(&this, const &pActivator) {
+  if (!@Entity_CanActivate(this, pActivator)) return;
 
-  new Trie:itPData = @Entity_GetPData(this);
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  new Float:flDelay = GetPDataMember(itPData, CE_MEMBER_DELAY);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+
+  static Float:flDelay; flDelay = ClassInstanceGetMember(pInstance, CE_MEMBER_DELAY);
 
   set_pev(this, pev_nextthink, get_gametime() + flDelay);
-  ExecuteHookFunction(CEFunction_Activated, iId, this, pActivator);
+  ExecuteHookFunction(CEFunction_Activated, this, pActivator);
 }
 
 @Entity_BloodColor(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
 
-  if (!HasPDataMember(itPData, CE_MEMBER_BLOODCOLOR)) return -1;
+  if (!ClassInstanceHasMember(pInstance, CE_MEMBER_BLOODCOLOR)) return -1;
 
-  return GetPDataMember(itPData, CE_MEMBER_BLOODCOLOR);
+  return ClassInstanceGetMember(pInstance, CE_MEMBER_BLOODCOLOR);
 }
 
-Trie:@Entity_GetPData(const &this) {
+@Entity_ApplyKeyMemberBindings(&this, const szKey[], const szValue[]) {
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+
+  new Class:rgHierarchy[MAX_HOOK_CALL_HIERARCHY_DEPTH], iHierarchySize;
+  GetInstanceHierarchy(pInstance, rgHierarchy, iHierarchySize);
+
+  for (new i = iHierarchySize - 1; i >= 0; --i) {
+    new iCurrentId; iCurrentId = ClassGetMetadata(rgHierarchy[i], CLASS_METADATA_ID);
+
+    new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iCurrentId);
+    new Trie:itMemberTypes = Invalid_Trie;
+    
+    if (!TrieGetCell(itKeyMemberBindings, szKey, itMemberTypes)) return;
+
+    new TrieIter:itMemberTypesIter = TrieIterCreate(itMemberTypes);
+
+    while (!TrieIterEnded(itMemberTypesIter)) {
+      new szMember[32]; TrieIterGetKey(itMemberTypesIter, szMember, charsmax(szMember));
+      new CEMemberType:iType; TrieIterGetCell(itMemberTypesIter, iType);
+
+      switch (iType) {
+        case CEMemberType_Cell: {
+          ClassInstanceSetMember(g_pInstance, szMember, str_to_num(szValue));
+        }
+        case CEMemberType_Float: {
+          ClassInstanceSetMember(g_pInstance, szMember, str_to_float(szValue));
+        }
+        case CEMemberType_String: {
+          ClassInstanceSetMemberString(g_pInstance, szMember, szValue);
+        }
+        case CEMemberType_Vector: {
+          new Float:vecValue[3];
+          UTIL_ParseVector(szValue, vecValue);
+          ClassInstanceSetMemberArray(g_pInstance, szMember, vecValue, 3);
+        }
+      }
+
+      TrieIterNext(itMemberTypesIter);
+    }
+  }
+}
+
+ClassInstance:@Entity_GetClassInstance(const &this) {
   // Return the current allocated data if the entity is at the initialization stage
-  if (g_itPData != Invalid_Trie && GetPDataMember(g_itPData, CE_MEMBER_POINTER) == this) {
-    return g_itPData;
+  if (g_pInstance != Invalid_ClassInstance && ClassInstanceGetMember(g_pInstance, CE_MEMBER_POINTER) == this) {
+    return g_pInstance;
   }
 
-  return Trie:pev(this, pev_iStepLeft);
+  return ClassInstance:pev(this, pev_iStepLeft);
 }
 
-@Entity_SetPData(const &this, Trie:itPData) {
+@Entity_SetClassInstance(&this, ClassInstance:pInstance) {
   set_pev(this, pev_gaitsequence, CE_ENTITY_SECRET);
-  set_pev(this, pev_iStepLeft, itPData);
+  set_pev(this, pev_iStepLeft, pInstance);
 }
 
-Trie:@Entity_AllocPData(const &this, iId) {
-  new Trie:itPData = AllocPData(iId, this);
-  @Entity_SetPData(this, itPData);
-  return itPData;
+ClassInstance:@Entity_AllocClassInstance(&this, iId) {
+  new ClassInstance:pInstance = AllocPData(iId, this);
+
+  @Entity_SetClassInstance(this, pInstance);
+
+  return pInstance;
 }
 
-@Entity_FreePData(const &this) {
-  new Trie:itPData = @Entity_GetPData(this);
-  
-  new iId = GetPDataMember(itPData, CE_MEMBER_ID);
-  ExecuteHookFunction(CEFunction_Remove, iId, this);
+@Entity_DestroyClassInstance(&this) {
+  ExecuteHookFunction(CEFunction_Remove, this);
 
-  FreePData(itPData);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  ClassInstanceDestroy(pInstance);
 
   set_pev(this, pev_gaitsequence, 0);
   set_pev(this, pev_iStepLeft, 0);
@@ -1179,22 +989,15 @@ Trie:@Entity_AllocPData(const &this, iId) {
 /*--------------------------------[ Functions ]--------------------------------*/
 
 InitStorages() {
-  g_dpParams = CreateDataPack();
   g_itEntityIds = TrieCreate();
-  g_rgEntity[Entity_Name] = ArrayCreate(CE_MAX_NAME_LENGTH);
-  g_rgEntity[Entity_Preset] = ArrayCreate();
-  g_rgEntity[Entity_Parent] = ArrayCreate();
+  g_rgEntities[Entity_Name] = ArrayCreate(CE_MAX_NAME_LENGTH);
+  g_rgEntities[Entity_Preset] = ArrayCreate();
+  g_rgEntities[Entity_Class] = ArrayCreate();
+  g_rgEntities[Entity_KeyMemberBindings] = ArrayCreate();
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    g_rgEntity[Entity_Hooks][iFunction] = ArrayCreate();
+    g_rgEntities[Entity_Hooks][iFunction] = ArrayCreate();
   }
-
-  g_rgEntity[Entity_Methods] = ArrayCreate();
-  g_rgEntity[Entity_Hierarchy] = ArrayCreate();
-
-  g_irgMethods = ArrayCreate(CE_MAX_METHOD_NAME_LENGTH, 128);
-  g_itMethods = TrieCreate();
-  g_irgMethodCallStack = ArrayCreate(_:MethodCallStackItem);
 }
 
 DestroyStorages() {
@@ -1203,84 +1006,99 @@ DestroyStorages() {
   }
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    ArrayDestroy(g_rgEntity[Entity_Hooks][iFunction]);
+    ArrayDestroy(g_rgEntities[Entity_Hooks][iFunction]);
   }
 
   for (new Entity:iData = Entity:0; iData < Entity; ++iData) {
-    ArrayDestroy(Array:g_rgEntity[iData]);
+    ArrayDestroy(Array:g_rgEntities[iData]);
   }
 
-  ArrayDestroy(g_rgEntity[Entity_Hierarchy]);
-  ArrayDestroy(g_rgEntity[Entity_Methods]);
-  ArrayDestroy(g_rgEntity[Entity_Parent]);
-  ArrayDestroy(g_rgEntity[Entity_Preset]);
-  ArrayDestroy(g_rgEntity[Entity_Name]);
-
-  ArrayDestroy(g_irgMethodCallStack);
-  ArrayDestroy(g_irgMethods);
-  TrieDestroy(g_itMethods);
-
-  DestroyDataPack(g_dpParams);
+  ArrayDestroy(g_rgEntities[Entity_KeyMemberBindings]);
+  ArrayDestroy(g_rgEntities[Entity_Class]);
+  ArrayDestroy(g_rgEntities[Entity_Preset]);
+  ArrayDestroy(g_rgEntities[Entity_Name]);
 
   TrieDestroy(g_itEntityIds);
 }
 
-RegisterEntity(const szClassName[], CEPreset:iPreset = CEPreset_None, const szParent[] = "") {
+RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const szParent[] = "") {
   new iId = g_iEntitiesNum;
 
-  new iParentId = -1; 
-  if (!equal(szParent, "")) {
+  new Class:cParent = Invalid_Class;
+  if (!equal(szParent, NULL_STRING)) {
+    new iParentId = -1;
     if (!TrieGetCell(g_itEntityIds, szParent, iParentId)) {
       log_error(AMX_ERR_NATIVE, "%s Cannot extend entity class ^"%s^". The class is not exists!", LOG_PREFIX, szParent);
       return -1;
     }
 
-    iPreset = ArrayGetCell(g_rgEntity[Entity_Preset], iParentId);
+    iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iParentId);
+    cParent = ArrayGetCell(g_rgEntities[Entity_Class], iParentId);
   }
 
-  TrieSetCell(g_itEntityIds, szClassName, iId);
-  ArrayPushString(g_rgEntity[Entity_Name], szClassName);
-  ArrayPushCell(g_rgEntity[Entity_Preset], iPreset);
-  ArrayPushCell(g_rgEntity[Entity_Parent], iParentId);
-  ArrayPushCell(g_rgEntity[Entity_Methods], TrieCreate());
-  ArrayPushCell(g_rgEntity[Entity_Hierarchy], Invalid_Array);
+  new Class:cEntity = ClassCreate(cParent);
+  ClassSetMetadata(cEntity, CLASS_METADATA_ID, iId);
+
+  TrieSetCell(g_itEntityIds, szClassname, iId);
+  ArrayPushString(g_rgEntities[Entity_Name], szClassname);
+  ArrayPushCell(g_rgEntities[Entity_Preset], iPreset);
+  ArrayPushCell(g_rgEntities[Entity_Class], cEntity);
+  ArrayPushCell(g_rgEntities[Entity_KeyMemberBindings], TrieCreate());
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    ArrayPushCell(g_rgEntity[Entity_Hooks][iFunction], ArrayCreate(_:EntityHook));
+    ArrayPushCell(g_rgEntities[Entity_Hooks][iFunction], ArrayCreate(_:EntityHook));
   }
 
   g_iEntitiesNum++;
 
-  log_amx("%s Entity ^"%s^" successfully registred.", LOG_PREFIX, szClassName);
+  RegisterKeyMemberBinding(iId, "origin", CE_MEMBER_ORIGIN, CEMemberType_Vector);
+  RegisterKeyMemberBinding(iId, "angles", CE_MEMBER_ANGLES, CEMemberType_Vector);
+  RegisterKeyMemberBinding(iId, "master", CE_MEMBER_MASTER, CEMemberType_String);
+  RegisterKeyMemberBinding(iId, "targetname", CE_MEMBER_TARGETNAME, CEMemberType_String);
+  RegisterKeyMemberBinding(iId, "target", CE_MEMBER_TARGET, CEMemberType_String);
+  RegisterKeyMemberBinding(iId, "model", CE_MEMBER_MODEL, CEMemberType_String);
+
+  log_amx("%s Entity ^"%s^" successfully registred.", LOG_PREFIX, szClassname);
 
   return iId;
 }
 
 FreeRegisteredEntity(iId) {
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    new Array:irgHooks = ArrayGetCell(g_rgEntity[Entity_Hooks][iFunction], iId);
+    new Array:irgHooks = ArrayGetCell(g_rgEntities[Entity_Hooks][iFunction], iId);
     ArrayDestroy(irgHooks);
-    ArraySetCell(g_rgEntity[Entity_Hooks][iFunction], iId, Invalid_Array);
+    ArraySetCell(g_rgEntities[Entity_Hooks][iFunction], iId, Invalid_Array);
   }
 
-  new Trie:itMethods = ArrayGetCell(g_rgEntity[Entity_Methods], iId);
-  TrieDestroy(itMethods);
-  ArraySetCell(g_rgEntity[Entity_Methods], iId, Invalid_Trie);
+  new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iId);
 
-  new Array:irgHierarchy = ArrayGetCell(g_rgEntity[Entity_Hierarchy], iId);
-  ArrayDestroy(irgHierarchy);
+  new TrieIter:itKeyMemberBindingsIter = TrieIterCreate(itKeyMemberBindings);
+
+  while (!TrieIterEnded(itKeyMemberBindingsIter)) {
+    new Trie:itMemberTypes; TrieIterGetCell(itKeyMemberBindingsIter, itMemberTypes);
+    TrieDestroy(itMemberTypes);
+    TrieIterNext(itKeyMemberBindingsIter);
+  }
+
+  TrieIterDestroy(itKeyMemberBindingsIter);
+
+  TrieDestroy(itKeyMemberBindings);
+
+  new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
+  ClassDestroy(cEntity);
 }
 
-GetIdByClassName(const szClassName[]) {
-  new iId = -1; TrieGetCell(g_itEntityIds, szClassName, iId);
+GetIdByClassName(const szClassname[]) {
+  static iId; iId = -1;
+  TrieGetCell(g_itEntityIds, szClassname, iId);
 
   return iId;
 }
 
-RegisterEntityHook(CEFunction:iFunction, const szClassName[], const szCallback[], iPluginId = -1) {
-  new iId = GetIdByClassName(szClassName);
+RegisterEntityHook(CEFunction:iFunction, const szClassname[], const szCallback[], iPluginId = -1) {
+  new iId = GetIdByClassName(szClassname);
   if (iId == -1) {
-    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassName);
+    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassname);
     return -1;
   }
 
@@ -1296,156 +1114,97 @@ RegisterEntityHook(CEFunction:iFunction, const szClassName[], const szCallback[]
   rgHook[EntityHook_PluginID] = iPluginId;
   rgHook[EntityHook_FuncID] = iFunctionId;
 
-  new Array:irgHooks = ArrayGetCell(g_rgEntity[Entity_Hooks][iFunction], iId);
+  new Array:irgHooks = ArrayGetCell(g_rgEntities[Entity_Hooks][iFunction], iId);
   new iHookId = ArrayPushArray(irgHooks, rgHook[EntityHook:0], _:EntityHook);
 
   return iHookId;
 }
 
-RegisterEntityMethod(const szClassName[], const szMethod[], const szCallback[], iPluginId = -1, Array:irgParamTypes, bool:bVirtual) {
-  new iId = GetIdByClassName(szClassName);
-  if (iId == -1) {
-    log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassName);
+RegisterKeyMemberBinding(iId, const szKey[], const szMember[], CEMemberType:iType) {
+  new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iId);
+
+  new Trie:itMemberTypes = Invalid_Trie;
+  if (!TrieGetCell(itKeyMemberBindings, szKey, itMemberTypes)) {
+    itMemberTypes = TrieCreate();
+    TrieSetCell(itKeyMemberBindings, szKey, itMemberTypes);
+  }
+
+  TrieSetCell(itMemberTypes, szMember, iType);
+}
+
+RemoveKeyMemberBinding(iId, const szKey[], const szMember[]) {
+  new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iId);
+
+  new Trie:itMemberTypes = Invalid_Trie;
+  if (!TrieGetCell(itKeyMemberBindings, szKey, itMemberTypes)) {
     return;
   }
 
-  new iFunctionId = get_func_id(szCallback, iPluginId);
-  if (iFunctionId < 0) {
-    new szFilename[32];
-    get_plugin(iPluginId, szFilename, charsmax(szFilename));
-    log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
-    return;
-  }
-
-  new Trie:itMethods; itMethods = ArrayGetCell(g_rgEntity[Entity_Methods], iId);
-
-  if (TrieKeyExists(itMethods, szMethod)) {
-    log_error(AMX_ERR_NATIVE, "%s Method ^"%s^" is already registered for ^"%s^" entity.", LOG_PREFIX, szMethod, szClassName);
-    return;
-  }
-
-  new iParentId = ArrayGetCell(g_rgEntity[Entity_Parent], iId);
-  if (iParentId != -1) {
-    new rgMethod[Method];
-    if (FindEntityMethodInHierarchy(iId, szMethod, rgMethod) != -1) {
-      if (rgMethod[Method_IsVirtual]) {
-        if (!CompareParamTypes(rgMethod[Method_ParamTypes], irgParamTypes)) {
-          log_error(AMX_ERR_NATIVE, "%s Arguments mismatch in the overridden virtual method ^"%s^".", LOG_PREFIX, szMethod, szClassName);
-          return;
-        }
-      }
-    }
-  }
-
-  new rgMethod[Method];
-  rgMethod[Method_PluginID] = iPluginId;
-  rgMethod[Method_FunctionID] = iFunctionId;
-  rgMethod[Method_ParamTypes] = irgParamTypes;
-  rgMethod[Method_IsVirtual] = bVirtual;
-
-  TrieSetArray(itMethods, szMethod, rgMethod[Method:0], _:Method);
-
-  AddMethodToGlobalTable(szMethod);
+  TrieDeleteKey(itMemberTypes, szMember);
 }
 
-Trie:AllocPData(iId, pEntity) {
-  new Trie:itPData = TrieCreate();
-  SetPDataMember(itPData, CE_MEMBER_ID, iId);
-  SetPDataMember(itPData, CE_MEMBER_WORLD, false);
-  SetPDataMember(itPData, CE_MEMBER_POINTER, pEntity);
-  SetPDataMember(itPData, CE_MEMBER_INITIALIZED, false);
+ClassInstance:AllocPData(iId, pEntity) {
+  static Class:cEntity; cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
+  static ClassInstance:pInstance; pInstance = ClassInstanceCreate(cEntity);
 
-  return itPData;
+  ClassInstanceSetMember(pInstance, CE_MEMBER_ID, iId);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_WORLD, false);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_POINTER, pEntity);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_INITIALIZED, false);
+
+  return pInstance;
 }
 
-FreePData(Trie:itPData) {
-  TrieDestroy(itPData);
-}
-
-bool:HasPDataMember(Trie:itPData, const szMember[]) {
-  return TrieKeyExists(itPData, szMember);
-}
-
-any:GetPDataMember(Trie:itPData, const szMember[]) {
-  static any:value;
-  return TrieGetCell(itPData, szMember, value) ? value : 0;
-}
-
-DeletePDataMember(Trie:itPData, const szMember[]) {
-  TrieDeleteKey(itPData, szMember);
-}
-
-SetPDataMember(Trie:itPData, const szMember[], any:value) {
-  TrieSetCell(itPData, szMember, value);
-}
-
-bool:GetPDataMemberString(Trie:itPData, const szMember[], szOutput[], iLen) {
-  copy(szOutput, iLen, NULL_STRING);
-  return !!TrieGetString(itPData, szMember, szOutput, iLen);
-}
-
-SetPDataMemberString(Trie:itPData, const szMember[], const szValue[]) {
-  TrieSetString(itPData, szMember, szValue);
-}
-
-bool:GetPDataMemberVec(Trie:itPData, const szMember[], Float:vecOut[3]) {
-  xs_vec_copy(Float:{0.0, 0.0, 0.0}, vecOut);
-  return !!TrieGetArray(itPData, szMember, vecOut, 3);
-}
-
-SetPDataMemberVec(Trie:itPData, const szMember[], const Float:vecValue[3]) {
-  TrieSetArray(itPData, szMember, vecValue, 3);
-}
-
-ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
+ExecuteHookFunction(CEFunction:iFunction, pEntity, any:...) {
   new iResult = 0;
 
-  // Do not use static here! (recursion)
-  new Array:irgHierarchy = GetEntityHierarchy(iId);
-  new iHierarchySize = ArraySize(irgHierarchy);
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
-  for (new i = 0; i < iHierarchySize; ++i) {
-    new iCurrentId; iCurrentId = ArrayGetCell(irgHierarchy, i);
-    new Array:irgHooks; irgHooks = ArrayGetCell(g_rgEntity[Entity_Hooks][iFunction], iCurrentId);
+  new Class:rgHierarchy[MAX_HOOK_CALL_HIERARCHY_DEPTH], iHierarchySize;
+  GetInstanceHierarchy(pInstance, rgHierarchy, iHierarchySize);
+
+  for (new i = iHierarchySize - 1; i >= 0; --i) {
+    new iCurrentId; iCurrentId = ClassGetMetadata(rgHierarchy[i], CLASS_METADATA_ID);
+    new Array:irgHooks; irgHooks = ArrayGetCell(g_rgEntities[Entity_Hooks][iFunction], iCurrentId);
     new iHooksNum; iHooksNum = ArraySize(irgHooks);
 
     for (new iHookId = 0; iHookId < iHooksNum; ++iHookId) {
       static iPluginId; iPluginId = ArrayGetCell(irgHooks, iHookId, _:EntityHook_PluginID);
       static iFunctionId; iFunctionId = ArrayGetCell(irgHooks, iHookId, _:EntityHook_FuncID);
-      
+
       if (callfunc_begin_i(iFunctionId, iPluginId) == 1)  {
         callfunc_push_int(pEntity);
 
         switch (iFunction) {
           case CEFunction_Touch, CEFunction_Touched: {
-            static pToucher; pToucher = getarg(3);
+            static pToucher; pToucher = getarg(2);
             callfunc_push_int(pToucher);
           }
           case CEFunction_Kill, CEFunction_Killed: {
-            static pKiller; pKiller = getarg(3);
-            static bool:bPicked; bPicked = bool:getarg(4);
+            static pKiller; pKiller = getarg(2);
+            static bool:bPicked; bPicked = bool:getarg(3);
             callfunc_push_int(pKiller);
             callfunc_push_int(bPicked);
           }
           case CEFunction_Pickup, CEFunction_Picked: {
-            static pPlayer; pPlayer = getarg(3);
+            static pPlayer; pPlayer = getarg(2);
             callfunc_push_int(pPlayer);
           }
           case CEFunction_Activate, CEFunction_Activated: {
-            static pPlayer; pPlayer = getarg(3);
+            static pPlayer; pPlayer = getarg(2);
             callfunc_push_int(pPlayer);
           }
           case CEFunction_KeyValue: {
             static szKey[32];
             for (new i = 0; i < charsmax(szKey); ++i) {
-              szKey[i] = getarg(3, i);
+              szKey[i] = getarg(2, i);
               
               if (szKey[i]  == '^0') break;
             }
             
             static szValue[32];
             for (new i = 0; i < charsmax(szValue); ++i) {
-              szValue[i] = getarg(4, i);
+              szValue[i] = getarg(3, i);
               
               if (szValue[i]  == '^0') break;
             }
@@ -1463,163 +1222,45 @@ ExecuteHookFunction(CEFunction:iFunction, iId, pEntity, any:...) {
   return iResult;
 }
 
-ExecuteMethod(const szMethod[], const iId, const pEntity, const DataPack:dpParams) {
-  static Trie:itMethods; itMethods = ArrayGetCell(g_rgEntity[Entity_Methods], iId);
-  
-  static rgMethod[Method];
-  if (!TrieGetArray(itMethods, szMethod, rgMethod[Method:0], _:Method)) {
-    return 0;
+GetInstanceHierarchy(ClassInstance:pInstance, Class:rgValue[MAX_HOOK_CALL_HIERARCHY_DEPTH], &iSize) {
+  iSize = 0;
+
+  for (new Class:cStart = ClassInstanceGetClass(pInstance); cStart != Invalid_Class; cStart = ClassGetBaseClass(cStart)) {
+    rgValue[iSize] = cStart;
+    iSize++;
   }
+}
 
-  new iResult = 0;
+Array:ReadMethodParamsFromNativeCall(iStartArg, iArgc) {
+  static Array:irgParams; irgParams = ArrayCreate();
 
-  PushMethodToCallStack(pEntity, iId, szMethod);
+  for (new iParam = iStartArg; iParam <= iArgc; ++iParam) {
+    static iType; iType = get_param_byref(iParam);
 
-  if (callfunc_begin_i(rgMethod[Method_FunctionID], rgMethod[Method_PluginID]) == 1) {
-    callfunc_push_int(pEntity);
-
-    #if defined _datapack_included
-      static Array:irgParamTypes; irgParamTypes = rgMethod[Method_ParamTypes];
-
-      if (irgParamTypes != Invalid_Array) {
-        static iParamsNum; iParamsNum = ArraySize(irgParamTypes);
-
-        for (new iParam = 0; iParam < iParamsNum; ++iParam) {
-          static iType; iType = ArrayGetCell(irgParamTypes, iParam, _:MethodParam_Type);
-
-          switch (iType) {
-            case CE_MP_Cell: {
-              static iValue; iValue = ReadPackCell(dpParams);
-              callfunc_push_int(iValue);
-            }
-            case CE_MP_Float: {
-              static Float:flValue; flValue = ReadPackFloat(dpParams);
-              callfunc_push_float(flValue);
-            }
-            case CE_MP_String: {
-              ReadPackString(dpParams, g_szBuffer, charsmax(g_szBuffer));
-              callfunc_push_str(g_szBuffer);
-            }
-            case CE_MP_Array: {
-              static iLen; iLen = ReadPackArray(dpParams, g_rgiBuffer);
-              callfunc_push_array(g_rgiBuffer, iLen, false);
-            }
-            case CE_MP_FloatArray: {
-              static iLen; iLen = ReadPackFloatArray(dpParams, g_rgflBuffer);
-              callfunc_push_array(_:g_rgflBuffer, iLen, false);
-            }
-          }
-        }
+    switch (iType) {
+      case CE_MP_Cell: {
+        ArrayPushCell(irgParams, CMP_Cell);
       }
-    #endif
-
-    iResult = callfunc_end();
-  }
-
-  PopMethodFromCallStack();
-
-  return iResult;
-}
-
-FindEntityMethodInHierarchy(iId, const szMethod[], rgMethod[Method]) {
-    new iCurrentId = iId;
-
-    do {
-      static Trie:itMethods; itMethods = ArrayGetCell(g_rgEntity[Entity_Methods], iCurrentId);
-
-      if (TrieGetArray(itMethods, szMethod, rgMethod[Method:0], _:Method)) {
-        break;
+      case CE_MP_Float: {
+        ArrayPushCell(irgParams, CMP_Float);
       }
-
-    } while ((iCurrentId = ArrayGetCell(g_rgEntity[Entity_Parent], iCurrentId)) != -1);
-
-    return iCurrentId;
-}
-
-Array:GetEntityHierarchy(iId) {
-  static Array:irgHierarchy; irgHierarchy = ArrayGetCell(g_rgEntity[Entity_Hierarchy], iId);
-
-  if (irgHierarchy == Invalid_Array) {
-    irgHierarchy = CreateHierarchyList(iId);
-    ArraySetCell(g_rgEntity[Entity_Hierarchy], iId, irgHierarchy);
-  }
-
-  return irgHierarchy;
-}
-
-Array:CreateHierarchyList(iId) {
-  new Array:irgHierarchy = ArrayCreate();
-
-  new iCurrentId = iId;
-
-  do {
-    if (iCurrentId == iId) {
-      ArrayPushCell(irgHierarchy, iCurrentId);
-    } else {
-      ArrayInsertCellBefore(irgHierarchy, 0, iCurrentId);
+      case CE_MP_String: {
+        ArrayPushCell(irgParams, CMP_String);
+      }
+      case CE_MP_Array: {
+        ArrayPushCell(irgParams, CMP_Array);
+        ArrayPushCell(irgParams, get_param_byref(iParam + 1));
+        iParam++;
+      }
+      case CE_MP_FloatArray: {
+        ArrayPushCell(irgParams, CMP_FloatArray);
+        ArrayPushCell(irgParams, get_param_byref(iParam + 1));
+        iParam++;
+      }
     }
-    iCurrentId = ArrayGetCell(g_rgEntity[Entity_Parent], iCurrentId);
-  } while (iCurrentId != -1);
-
-  return irgHierarchy;
-}
-
-AddMethodToGlobalTable(const szMethod[]) {
-  if (TrieKeyExists(g_itMethods, szMethod)) return -1;
-
-  new iIndex = ArraySize(g_irgMethods);
-
-  ArrayPushString(g_irgMethods, szMethod);
-  TrieSetCell(g_itMethods, szMethod, iIndex);
-
-  return iIndex;
-}
-
-GetNameFromMethodGlobalTable(iIndex, szMethod[], iLen) {
-  return ArrayGetString(g_irgMethods, iIndex, szMethod, iLen);
-}
-
-GetIndexFromMethodGlobalTable(const szMethod[]) {
-  static iValue;
-  if (!TrieGetCell(g_itMethods, szMethod, iValue)) return -1;
-
-  return iValue;
-}
-
-bool:IsMethodCallStackEmtpy() {
-  return !ArraySize(g_irgMethodCallStack);
-}
-
-PushMethodToCallStack(const pEntity, const iId, const szMethod[]) {
-  static rgCallStackItem[MethodCallStackItem];
-  rgCallStackItem[MethodCallStackItem_Entity] = pEntity;
-  rgCallStackItem[MethodCallStackItem_EntityID] = iId;
-  rgCallStackItem[MethodCallStackItem_Method] = GetIndexFromMethodGlobalTable(szMethod);
-  
-  ArrayPushArray(g_irgMethodCallStack, rgCallStackItem[MethodCallStackItem:0], sizeof(rgCallStackItem));
-}
-
-PopMethodFromCallStack() {
-  ArrayDeleteItem(g_irgMethodCallStack, ArraySize(g_irgMethodCallStack) - 1);
-}
-
-GetCurrentMethodFromCallStack(rgCallStackItem[MethodCallStackItem]) {
-  ArrayGetArray(g_irgMethodCallStack, ArraySize(g_irgMethodCallStack) - 1, rgCallStackItem[MethodCallStackItem:0], sizeof(rgCallStackItem));
-}
-
-CompareParamTypes(const &Array:irgParams, const &Array:irgOtherParams) {
-  new iSize = ArraySize(irgParams);
-  new iOtherSize = ArraySize(irgOtherParams);
-
-  if (iSize != iOtherSize) {
-    return false;
   }
 
-  for (new i = 0; i < iSize; ++i) {
-    if (ArrayGetCell(irgParams, i) != ArrayGetCell(irgOtherParams, i)) return false;
-  }
-
-  return true;
+  return irgParams;
 }
 
 /*--------------------------------[ Stocks ]--------------------------------*/
@@ -1637,10 +1278,11 @@ stock bool:UTIL_IsMasterTriggered(const szMaster[], pActivator) {
 }
 
 stock UTIL_ParseVector(const szBuffer[], Float:vecOut[3]) {
-  new rgszOrigin[3][8];
+  static rgszOrigin[3][8];
   parse(szBuffer, rgszOrigin[0], charsmax(rgszOrigin[]), rgszOrigin[1], charsmax(rgszOrigin[]), rgszOrigin[2], charsmax(rgszOrigin[]));
 
   for (new i = 0; i < 3; ++i) {
     vecOut[i] = str_to_float(rgszOrigin[i]);
   }
 }
+

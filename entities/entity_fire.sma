@@ -1,8 +1,3 @@
-/*
-  Credits:
-     georgik57 aka D7 - for the code the fire effect is based on.
-*/
-
 #pragma semicolon 1
 
 #include <amxmodx>
@@ -95,12 +90,16 @@ public plugin_precache() {
 
     g_iCeHandler = CE_Register(ENTITY_NAME);
     CE_RegisterHook(ENTITY_NAME, CEFunction_Init, "@Entity_Init");
-    CE_RegisterHook(ENTITY_NAME, CEFunction_KeyValue, "@Entity_KeyValue");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Spawned, "@Entity_Spawned");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Touch, "@Entity_Touch");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Think, "@Entity_Think");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Killed, "@Entity_Killed");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Remove, "@Entity_Remove");
+
+    CE_RegisterKeyMemberBinding(ENTITY_NAME, "damage", m_flDamage, CEMemberType_Float);
+    CE_RegisterKeyMemberBinding(ENTITY_NAME, "lifetime", m_flChildrenLifeTime, CEMemberType_Float);
+    CE_RegisterKeyMemberBinding(ENTITY_NAME, "range", m_flSpreadRange, CEMemberType_Float);
+    CE_RegisterKeyMemberBinding(ENTITY_NAME, "spread", m_bAllowSpread, CEMemberType_Cell);
 
     register_forward(FM_OnFreeEntPrivateData, "FMHook_OnFreeEntPrivateData");
 }
@@ -116,18 +115,6 @@ public plugin_init() {
 
 public plugin_end() {
     ArrayDestroy(g_irgFireEntities);
-}
-
-@Entity_KeyValue(this, const szKey[], const szValue[]) {
-    if (equal(szKey, "damage")) {
-        CE_SetMember(this, m_flDamage, str_to_float(szValue));
-    } else if (equal(szKey, "lifetime")) {
-        CE_SetMember(this, m_flChildrenLifeTime, str_to_float(szValue));
-    } else if (equal(szKey, "range")) {
-        CE_SetMember(this, m_flSpreadRange, str_to_float(szValue));
-    } else if (equal(szKey, "spread")) {
-        CE_SetMember(this, m_bAllowSpread, str_to_num(szValue));
-    }
 }
 
 @Entity_Init(this) {
@@ -279,9 +266,7 @@ public plugin_end() {
 }
 
 @Entity_SpreadThink(this) {
-    if (!@Entity_CanSpread(this)) {
-        return;
-    }
+    if (!@Entity_CanSpread(this)) return;
 
     static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
     new Float:flRange = CE_GetMember(this, m_flSpreadRange);
@@ -318,23 +303,18 @@ public plugin_end() {
 }
 
 @Entity_UpdateSize(this) {
-    if (pev(this, pev_movetype) != MOVETYPE_FOLLOW) {
-        return;
-    }
+    if (pev(this, pev_movetype) != MOVETYPE_FOLLOW) return;
 
-    new pAimEnt = pev(this, pev_aiment);
+    static pAimEnt; pAimEnt = pev(this, pev_aiment);
+
+    static szModel[256]; pev(pAimEnt, pev_model, szModel, charsmax(szModel));
+    static iModelStrLen; iModelStrLen = strlen(szModel);
+    static bool:bHasModel; bHasModel = !!iModelStrLen;
+    static bool:bIsBspModel; bIsBspModel = bHasModel && szModel[0] == '*';
+    static bool:bIsSprite; bIsSprite = iModelStrLen > 5 && equal(szModel[iModelStrLen - 5], ".spr");
 
     static Float:vecMins[3];
     static Float:vecMaxs[3];
-
-    static szModel[256];
-    pev(pAimEnt, pev_model, szModel, charsmax(szModel));
-
-    new iModelStrLen = strlen(szModel);
-
-    static bool:bIsBspModel; bIsBspModel = szModel[0] == '*';
-    static bool:bHasModel; bHasModel = !!pev(pAimEnt, pev_modelindex);
-    static bool:bIsSprite; bIsSprite = iModelStrLen > 4 && equal(szModel[iModelStrLen - 4], ".spr");
 
     if (!bHasModel || bIsBspModel || bIsSprite) {
         pev(pAimEnt, pev_mins, vecMins);
@@ -353,13 +333,8 @@ public plugin_end() {
 }
 
 bool:@Entity_CanSpread(this) {
-    if (!get_pcvar_bool(g_pCvarSpread)) {
-        return false;
-    }
-
-    if (!CE_GetMember(this, m_bAllowSpread)) {
-        return false;
-    }
+    if (!get_pcvar_bool(g_pCvarSpread)) return false;
+    if (!CE_GetMember(this, m_bAllowSpread)) return false;
 
     return true;
 }
@@ -373,33 +348,21 @@ bool:@Entity_CanSpread(this) {
         static szTargetClassName[32];
         pev(pTarget, pev_classname, szTargetClassName, charsmax(szTargetClassName));
 
-        if (equal(szTargetClassName, "func_water")) {
-            return true;
-        }
+        if (equal(szTargetClassName, "func_water")) return true;
     }
 
     return false;
 }
 
 bool:@Entity_Damage(this, pTarget) {
-    if (!pTarget) {
-        return false;
-    }
-
-    if (pev(pTarget, pev_takedamage) == DAMAGE_NO) {
-        return false;
-    }
-
-    // if (pev(pTarget, pev_solid) <= SOLID_TRIGGER) {
-    //     return false;
-    // }
+    if (!pTarget) return false;
+    if (pev(pTarget, pev_takedamage) == DAMAGE_NO) return false;
+    // if (pev(pTarget, pev_solid) <= SOLID_TRIGGER) return false;
 
     static Float:flGameTime; flGameTime = get_gametime();
     static Float:flNextDamage; flNextDamage = CE_GetMember(this, m_flNextDamage);
 
-    if (flNextDamage > flGameTime) {
-        return false;
-    }
+    if (flNextDamage > flGameTime) return false;
 
     static Float:flDamage; flDamage = Float:CE_GetMember(this, m_flDamage) * FIRE_DAMAGE_RATE;
     if (flDamage) {
@@ -434,14 +397,10 @@ bool:@Entity_Damage(this, pTarget) {
 }
 
 @Entity_Spread(this, pTarget) {
-    if (!@Entity_CanIgnite(this, pTarget)) {
-        return 0;
-    }
+    if (!@Entity_CanIgnite(this, pTarget)) return 0;
 
     new pChild = @Entity_CreateChild(this);
-    if (!pChild) {
-        return 0;
-    }
+    if (!pChild) return 0;
 
     set_pev(pChild, pev_aiment, pTarget);
     set_pev(pChild, pev_movetype, MOVETYPE_FOLLOW);
@@ -453,9 +412,7 @@ bool:@Entity_Damage(this, pTarget) {
     static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
     new pChild = CE_Create(ENTITY_NAME, vecOrigin);
-    if (!pChild) {
-        return 0;
-    }
+    if (!pChild) return 0;
 
     dllfunc(DLLFunc_Spawn, pChild);
 
@@ -474,28 +431,17 @@ bool:@Entity_Damage(this, pTarget) {
 }
 
 @Entity_CanIgnite(this, pTarget) {
-    if (pev(pTarget, pev_takedamage) == DAMAGE_NO) {
-        return false;
-    }
-
-    if (pev(pTarget, pev_deadflag) != DEAD_NO) {
-        return false;
-    }
+    if (pev(pTarget, pev_takedamage) == DAMAGE_NO) return false;
+    if (pev(pTarget, pev_deadflag) != DEAD_NO) return false;
 
     // Fire entity cannot be ignited
-    if (CE_GetHandlerByEntity(pTarget) == g_iCeHandler) {
-        return false;
-    }
+    if (CE_GetHandlerByEntity(pTarget) == g_iCeHandler) return false;
 
     static iMoveType; iMoveType = pev(this, pev_movetype);
     static pAimEnt; pAimEnt = pev(this, pev_aiment);
-    if (iMoveType == MOVETYPE_FOLLOW && pAimEnt == pTarget) {
-        return false;
-    }
+    if (iMoveType == MOVETYPE_FOLLOW && pAimEnt == pTarget) return false;
 
-    if (@Base_IsOnFire(pTarget)) {
-        return false;
-    }
+    if (@Base_IsOnFire(pTarget)) return false;
 
     return true;
 }

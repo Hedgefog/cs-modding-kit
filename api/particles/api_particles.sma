@@ -72,6 +72,9 @@ enum Particle {
   Particle_AbsPositionVars[PositionVars]
 };
 
+new g_pCvarEnabled;
+new bool:g_bEnabled;
+
 new g_iszParticleClassName;
 new g_pTrace;
 
@@ -92,6 +95,10 @@ public plugin_init() {
   register_plugin(PLUGIN, VERSION, AUTHOR);
 
   register_forward(FM_AddToFullPack, "FMHook_AddToFullPack", 0);
+
+  g_pCvarEnabled = register_cvar("particles", "1");
+  bind_pcvar_num(g_pCvarEnabled, g_bEnabled);
+  hook_cvar_change(g_pCvarEnabled, "CvarHook_Enabled");
   
   register_concmd("particle_create", "Command_Create", ADMIN_CVAR);
 }
@@ -502,11 +509,13 @@ public Float:Native_GetParticleLastThink(iPluginId, iArgc) {
 /*--------------------------------[ Forwards ]--------------------------------*/
 
 public server_frame() {
-  static Float:flGameTime; flGameTime =  get_gametime();
+  if (g_bEnabled) {
+    static Float:flGameTime; flGameTime =  get_gametime();
 
-  if (g_flNextSystemsUpdate <= flGameTime) {
-    UpdateSystems();
-    g_flNextSystemsUpdate = flGameTime + UPDATE_RATE;
+    if (g_flNextSystemsUpdate <= flGameTime) {
+      UpdateSystems();
+      g_flNextSystemsUpdate = flGameTime + UPDATE_RATE;
+    }
   }
 }
 
@@ -549,6 +558,12 @@ public FMHook_AddToFullPack(es, e, pEntity, pHost, hostflags, player, pSet) {
   }
 
   return FMRES_IGNORED;
+}
+
+public CvarHook_Enabled() {
+  if (!get_pcvar_num(g_pCvarEnabled)) {
+    FreeParticles();
+  }
 }
 
 /*--------------------------------[ ParticleEffect Methods ]--------------------------------*/
@@ -658,6 +673,18 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
   StructDestroy(this);
 }
 
+@ParticleSystem_FreeParticles(const &Struct:this) {
+  static Array:irgParticles; irgParticles = StructGetCell(this, ParticleSystem_Particles);
+  static iParticlesNum; iParticlesNum = ArraySize(irgParticles);
+
+  for (new iParticle = 0; iParticle < iParticlesNum; ++iParticle) {
+    static Struct:sParticle; sParticle = ArrayGetCell(irgParticles, iParticle);
+    if (sParticle == Invalid_Struct) continue;
+    @Particle_Destroy(sParticle);
+    ArraySetCell(irgParticles, iParticle, Invalid_Struct);
+  }
+}
+
 @ParticleSystem_Update(const &Struct:this) {
   static Float:flGameTime; flGameTime = get_gametime();
 
@@ -683,13 +710,13 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
   // Emit particles
   if (bActive) {
     static Float:flNextEmit; flNextEmit = StructGetCell(this, ParticleSystem_NextEmit);
-    if (flNextEmit <= flGameTime) {
+    if (iVisibilityBits && flNextEmit <= flGameTime) {
       static Float:flEmitRate; flEmitRate = StructGetCell(sEffect, ParticleEffect_EmitRate);
       static iEmitAmount; iEmitAmount = StructGetCell(sEffect, ParticleEffect_EmitAmount);
 
       if (flEmitRate || !iParticlesNum) {
         for (new iBatchIndex = 0; iBatchIndex < iEmitAmount; ++iBatchIndex) {
-        @ParticleSystem_Emit(this, iBatchIndex);
+          @ParticleSystem_Emit(this, iBatchIndex);
         }
       }
 
@@ -987,6 +1014,16 @@ UpdateSystems() {
   }
 
   UTIL_ArrayFindAndDelete(g_irgSystems, Invalid_Struct);
+}
+
+FreeParticles() {
+  static irgSystemsNum; irgSystemsNum = ArraySize(g_irgSystems);
+
+  for (new iSystem = 0; iSystem < irgSystemsNum; ++iSystem) {
+    static Struct:sSystem; sSystem = ArrayGetCell(g_irgSystems, iSystem);
+    if (sSystem == Invalid_Struct) continue;
+    @ParticleSystem_FreeParticles(sSystem);
+  }
 }
 
 PositionVarsToPevMemberVec(PositionVars:iVariable) {

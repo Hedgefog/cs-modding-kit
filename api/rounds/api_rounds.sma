@@ -225,8 +225,8 @@ public server_frame() {
     new iTeam;
 
     switch (iStatus) {
-      case WINSTATUS_CTS: iTeam = 1;
-      case WINSTATUS_TERRORISTS: iTeam = 2;
+      case WINSTATUS_TERRORISTS: iTeam = 1;
+      case WINSTATUS_CTS: iTeam = 2;
       case WINSTATUS_DRAW: iTeam = 3;
     }
 

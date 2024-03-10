@@ -14,11 +14,10 @@
 stock ReadPackArray(DataPack:pack, buffer[], maxlen = -1) {
   static len; len = ReadPackCell(pack);
 
-  if (maxlen == -1) maxlen = len;
+  if (maxlen != -1) len = min(maxlen, len);
 
   for (new i = 0; i < len; ++i) {
     static value; value = ReadPackCell(pack);
-    if (i >= maxlen) continue;
     buffer[i] = value;
   }
 
@@ -28,11 +27,10 @@ stock ReadPackArray(DataPack:pack, buffer[], maxlen = -1) {
 stock ReadPackFloatArray(DataPack:pack, Float:buffer[], maxlen = -1) {
   static len; len = ReadPackCell(pack);
   
-  if (maxlen == -1) maxlen = len;
+  if (maxlen != -1) len = min(maxlen, len);
 
   for (new i = 0; i < len; ++i) {
     static Float:value; value = ReadPackFloat(pack);
-    if (i >= maxlen) continue;
     buffer[i] = value;
   }
 

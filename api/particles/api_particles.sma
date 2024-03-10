@@ -786,6 +786,10 @@ Struct:@ParticleSystem_Create(const &Struct:sEffect, const Float:vecOrigin[3], c
 
   @ParticleSystem_AddParticle(this, sParticle);
 
+  @ParticleEffect_ExecuteHook(sEffect, ParticleEffectHook_Particle_Init, sParticle);
+
+  @Particle_InitEntity(sParticle);
+
   static Float:flEmitRate; flEmitRate = StructGetCell(sEffect, ParticleEffect_EmitRate);
   StructSetCell(this, ParticleSystem_NextEmit, flGameTime + (flEmitRate * flSpeed));
 
@@ -939,12 +943,6 @@ Struct:@Particle_Create(const &Struct:sSystem, bool:bAttached) {
   StructSetArray(this, Particle_PositionVars, Float:{0.0, 0.0, 0.0}, 3, PositionVars_Origin);
   StructSetArray(this, Particle_PositionVars, Float:{0.0, 0.0, 0.0}, 3, PositionVars_Angles);
   StructSetArray(this, Particle_PositionVars, Float:{0.0, 0.0, 0.0}, 3, PositionVars_Velocity);
-
-  static Struct:sSystem; sSystem = StructGetCell(this, Particle_System);
-  static Struct:sEffect; sEffect = StructGetCell(sSystem, ParticleSystem_Effect);
-  @ParticleEffect_ExecuteHook(sEffect, ParticleEffectHook_Particle_Init, this);
-
-  @Particle_InitEntity(this);
 
   return this;
 }

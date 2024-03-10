@@ -155,6 +155,10 @@ ActivatePlayerCamera(pPlayer) {
 
   engfunc(EngFunc_SetView, pPlayer, g_rgpPlayerCamera[pPlayer]);
 
+  static Float:vecOrigin[3];
+  pev(g_pPlayerTargetEntity[pPlayer], pev_origin, vecOrigin);
+  engfunc(EngFunc_SetOrigin, g_rgpPlayerCamera[pPlayer], vecOrigin);
+
   ExecuteForward(g_fwActivated, _, pPlayer);
 }
 

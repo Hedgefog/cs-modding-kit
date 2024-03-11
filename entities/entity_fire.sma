@@ -4,6 +4,7 @@
 #include <amxmisc>
 #include <hamsandwich>
 #include <fakemeta>
+#include <xs>
 
 #include <api_custom_entities>
 
@@ -313,14 +314,16 @@ public plugin_end() {
     static bool:bIsBspModel; bIsBspModel = bHasModel && szModel[0] == '*';
     static bool:bIsSprite; bIsSprite = iModelStrLen > 5 && equal(szModel[iModelStrLen - 5], ".spr");
 
-    static Float:vecMins[3];
-    static Float:vecMaxs[3];
+    static Float:vecMins[3]; xs_vec_set(vecMins, 0.0, 0.0, 0.0);
+    static Float:vecMaxs[3]; xs_vec_set(vecMaxs, 0.0, 0.0, 0.0);
 
-    if (!bHasModel || bIsBspModel || bIsSprite) {
+    if (bHasModel && bIsBspModel && bIsSprite) {
+        GetModelBoundingBox(pAimEnt, vecMins, vecMaxs, Model_CurrentSequence);
+    }
+
+    if (!xs_vec_distance(vecMins, vecMaxs)) {
         pev(pAimEnt, pev_mins, vecMins);
         pev(pAimEnt, pev_maxs, vecMaxs);
-    } else {
-        GetModelBoundingBox(pAimEnt, vecMins, vecMaxs, Model_CurrentSequence);
     }
 
     // Add fire borders (useful for fire spread)

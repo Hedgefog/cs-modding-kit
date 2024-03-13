@@ -6,7 +6,7 @@ Here is a simple example of how to make something like an RTS system using the A
 
 ![Simple Strategy Mode](../../images/example-entity-selection.gif)
 
-```cpp
+```pawn
 #include <amxmodx>
 #include <fakemeta>
 #include <hamsandwich>
@@ -18,7 +18,7 @@ Here is a simple example of how to make something like an RTS system using the A
 
 #define ENTITY_BASE_MONSTER_CLASS "monster_base"
 
-new const g_rgiSelectionColor[3] = {255, 0, 0};
+new const SelectionColor[3] = {255, 0, 0};
 
 new bool:g_rgbPlayerInStrategyMode[MAX_PLAYERS + 1];
 new Selection:g_rgiPlayerSelection[MAX_PLAYERS + 1];
@@ -59,7 +59,7 @@ public HamHook_Player_PreThink(pPlayer) {
   if (bValue) {
     new Selection:iSelection = EntitySelection_Create(this);
     EntitySelection_SetFilter(iSelection, "Callback_SelectionMonstersFilter");
-    EntitySelection_SetColor(iSelection, g_rgiSelectionColor);
+    EntitySelection_SetColor(iSelection, SelectionColor);
 
     console_print(this, "Entered strategy mode!");
   } else {
@@ -97,25 +97,12 @@ public HamHook_Player_PreThink(pPlayer) {
 }
 
 @Player_HighlightSelectedMonsters(this) {
-  static const Float:flRadiusBorder = 8.0;
-  static pPlayer; pPlayer = EntitySelection_GetPlayer(g_rgiPlayerSelection[pPlayer]);
-  static Float:vecSelectionStart[3]; EntitySelection_GetStartPos(g_rgiPlayerSelection[pPlayer], vecSelectionStart);
-
   new iMonstersNum = EntitySelection_GetSize(g_rgiPlayerSelection[this]);
   if (!iMonstersNum) return;
 
   for (new i = 0; i < iMonstersNum; ++i) {
     new pMonster = EntitySelection_GetEntity(g_rgiPlayerSelection[this], i);
-
-    static Float:vecTarget[3]; pev(pMonster, pev_origin, vecTarget);
-    vecTarget[2] = UTIL_TraceGroundPosition(vecTarget, pMonster) + 1.0;
-
-    static Float:vecMins[3]; pev(pMonster, pev_mins, vecMins);
-    static Float:vecMaxs[3]; pev(pMonster, pev_maxs, vecMaxs);
-    static Float:flTargetRadius; flTargetRadius = floatmax(vecMaxs[0] - vecMins[0], vecMaxs[1] - vecMins[1]) / 2;
-    static Float:flRadius; flRadius = flTargetRadius + flRadiusBorder;
-
-    @Player_DrawTarget(pPlayer, vecTarget, flRadius);
+    @Monster_Highlight(pMonster, this);
   }
 }
 
@@ -125,10 +112,7 @@ public HamHook_Player_PreThink(pPlayer) {
 
   for (new i = 0; i < iMonstersNum; ++i) {
     new pMonster = EntitySelection_GetEntity(g_rgiPlayerSelection[this], i);
-
-    set_pev(pMonster, pev_enemy, 0);
-    CE_SetMemberVec(pMonster, "vecGoal", vecGoal);
-    CE_SetMember(pMonster, "flNextEnemyUpdate", get_gametime() + 5.0);
+    @Monster_SetGoal(pMonster, vecGoal);
   }
 
   return true;
@@ -153,12 +137,38 @@ public HamHook_Player_PreThink(pPlayer) {
   write_byte(iLifeTime);
   write_byte(8);
   write_byte(0);
-  write_byte(g_rgiSelectionColor[0]);
-  write_byte(g_rgiSelectionColor[1]);
-  write_byte(g_rgiSelectionColor[2]);
+  write_byte(SelectionColor[0]);
+  write_byte(SelectionColor[1]);
+  write_byte(SelectionColor[2]);
   write_byte(255);
   write_byte(0);
   message_end();
+}
+
+@Monster_SetGoal(this, const Float:vecGoal[3]) {
+  set_pev(this, pev_enemy, 0);
+  CE_SetMemberVec(this, "vecGoal", vecGoal);
+  CE_SetMember(this, "flNextEnemyUpdate", get_gametime() + 5.0);
+}
+
+@Monster_Highlight(this, pPlayer) {
+  static Float:vecTarget[3]; pev(this, pev_origin, vecTarget);
+  vecTarget[2] = UTIL_TraceGroundPosition(vecTarget, this) + 1.0;
+
+  static Float:flRadius; flRadius = @Entity_GetSelectionRadius(this);
+
+  @Player_DrawTarget(pPlayer, vecTarget, flRadius);
+}
+
+Float:@Entity_GetSelectionRadius(this) {
+  static const Float:flRadiusBorder = 8.0;
+
+  static Float:vecMins[3]; pev(this, pev_mins, vecMins);
+  static Float:vecMaxs[3]; pev(this, pev_maxs, vecMaxs);
+  static Float:flTargetRadius; flTargetRadius = floatmax(vecMaxs[0] - vecMins[0], vecMaxs[1] - vecMins[1]) / 2;
+  static Float:flRadius; flRadius = flTargetRadius + flRadiusBorder;
+
+  return flRadius;
 }
 
 public bool:Callback_SelectionMonstersFilter(pPlayer, pEntity) {

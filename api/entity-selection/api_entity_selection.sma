@@ -5,26 +5,47 @@
 #include <hamsandwich>
 #include <xs>
 
+#include <cellstruct>
+
+#define MAX_SELECTIONS 256
+
+#define NOT_VALID_SELECTION_ERR "Selection %d is not valid selection handle!"
+
 const Float:SelectionGroundOffset = 1.0;
-new const SelectionColor[3] = {0, 255, 0};
 
 new const g_szTrailModel[] = "sprites/zbeam2.spr";
 
-new g_rgiSelectionFilterPluginId[MAX_PLAYERS + 1];
-new g_rgiSelectionFilterFunctionId[MAX_PLAYERS + 1];
-new bool:g_rgbSelectionActive[MAX_PLAYERS + 1];
-new Array:g_rgirgSelectionEntities[MAX_PLAYERS + 1];
-new Float:g_rgflSelectionNextDraw[MAX_PLAYERS + 1];
-new Float:g_rgvecSelectionStart[MAX_PLAYERS + 1][3];
-new Float:g_rgvecSelectionEnd[MAX_PLAYERS + 1][3];
+enum Callback {
+  Callback_PluginId,
+  Callback_FunctionId
+}
+
+enum Selection {
+  Selection_Index,
+  bool:Selection_Active,
+  bool:Selection_Free,
+  Selection_Player,
+  Selection_FilterCallback[Callback],
+  Array:Selection_Entities,
+  Float:Selection_Start[3],
+  Float:Selection_End[3],
+  Selection_Color[3],
+  Selection_Brightness,
+  Float:Selection_NextDraw
+};
 
 new g_pTrace;
-
 new g_iMaxEntities = 0;
+
+new g_rgSelections[MAX_SELECTIONS][Selection];
 
 public plugin_precache() {
   g_pTrace = create_tr2();
   g_iMaxEntities = global_get(glb_maxEntities);
+
+  for (new iSelection = 0; iSelection < MAX_SELECTIONS; ++iSelection) {
+    g_rgSelections[iSelection][Selection_Free] = true;
+  }
 }
 
 public plugin_init() {
@@ -37,293 +58,449 @@ public plugin_init() {
 
 public plugin_end() {
   free_tr2(g_pTrace);
+
+  for (new iSelection = 0; iSelection < MAX_SELECTIONS; ++iSelection) {
+    if (g_rgSelections[iSelection][Selection_Free]) continue;
+
+    @Selection_Free(g_rgSelections[iSelection]);
+  }
 }
 
 public plugin_natives() {
   register_library("api_entity_selection");
+  register_native("EntitySelection_Create", "Native_CreateSelection");
+  register_native("EntitySelection_Destroy", "Native_DestroySelection");
+  register_native("EntitySelection_SetFilter", "Native_SetSelectionFilter");
+  register_native("EntitySelection_SetColor", "Native_SetSelectionColor");
+  register_native("EntitySelection_SetBrightness", "Native_SetSelectionBrightness");
+  register_native("EntitySelection_GetPlayer", "Native_GetSelectionPlayer");
   register_native("EntitySelection_Start", "Native_StartSelection");
   register_native("EntitySelection_End", "Native_EndSelection");
   register_native("EntitySelection_GetEntity", "Native_GetSelectionEntity");
   register_native("EntitySelection_GetSize", "Native_GetSelectionSize");
-  register_native("EntitySelection_GetStartPos", "Native_GetStartPos");
-  register_native("EntitySelection_GetEndPos", "Native_GetEndPos");
   register_native("EntitySelection_GetCursorPos", "Native_GetSelectionCursorPos");
+  register_native("EntitySelection_GetStartPos", "Native_GetSelectionStartPos");
+  register_native("EntitySelection_GetEndPos", "Native_GetSelectionEndPos");
 }
 
 /*--------------------------------[ Natives ]--------------------------------*/
 
-public Native_StartSelection(iPluginId, iArgc) {
+public Native_CreateSelection(iPluginId, iArgc) {
   static pPlayer; pPlayer = get_param(1);
-  static szFilterCallback[64]; get_string(2, szFilterCallback, charsmax(szFilterCallback));
 
-  static iFunctionId; iFunctionId = get_func_id(szFilterCallback, iPluginId);
-  if (iFunctionId == -1) {
-    log_error(AMX_ERR_NATIVE, "Cannot find function ^"%s^" in plugin %d!", szFilterCallback, iPluginId);
+  new iSelection = FindFreeSelection();
+  if (iSelection == -1) {
+    log_error(AMX_ERR_NATIVE, "Failed to allocate new selection!");
+    return -1;
+  }
+
+  @Selection_Init(g_rgSelections[iSelection], pPlayer, iSelection);
+
+  return iSelection;
+}
+
+public Native_DestroySelection(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
     return;
   }
 
-  if (g_rgiSelectionFilterPluginId[pPlayer] != -1) {
-    @Player_SelectionRelease(pPlayer);
+  @Selection_Free(g_rgSelections[iSelection]);
+
+  set_param_byref(1, -1);
+}
+
+public Native_SetSelectionFilter(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+  static szCallback[64]; get_string(2, szCallback, charsmax(szCallback));
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
   }
 
-  @Player_SelectionInit(pPlayer, iFunctionId, iPluginId);
-  @Player_SelectionStart(pPlayer);
+  static iFunctionId; iFunctionId = get_func_id(szCallback, iPluginId);
+  if (iFunctionId == -1) {
+    log_error(AMX_ERR_NATIVE, "Cannot find function ^"%s^" in plugin %d!", szCallback, iPluginId);
+    return;
+  }
+
+  @Selection_SetFilterFunction(g_rgSelections[iSelection], iFunctionId, iPluginId);
+}
+
+public Native_SetSelectionColor(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+  static rgiColor[3]; get_array(2, rgiColor, sizeof(rgiColor));
+
+  @Selection_SetColor(g_rgSelections[iSelection], rgiColor);
+}
+
+public Native_SetSelectionBrightness(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+  static iBrightness; iBrightness = get_param(2);
+
+  @Selection_SetBrightness(g_rgSelections[iSelection], iBrightness);
+}
+
+public Native_GetSelectionPlayer(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return 0;
+  }
+
+  return g_rgSelections[iSelection][Selection_Player]; 
+}
+
+public Native_StartSelection(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  if (g_rgSelections[iSelection][Selection_Active]) {
+    log_error(AMX_ERR_NATIVE, "Cannot start selection! Selection is already started!");
+    return;
+  }
+
+  @Selection_Start(g_rgSelections[iSelection]);
 }
 
 public Native_EndSelection(iPluginId, iArgc) {
-  static pPlayer; pPlayer = get_param(1);
+  static iSelection; iSelection = get_param_byref(1);
 
-  if (!g_rgbSelectionActive[pPlayer]) {
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  if (!g_rgSelections[iSelection][Selection_Active]) {
     log_error(AMX_ERR_NATIVE, "Cannot end selection! Selection is not started!");
     return;
   }
 
-  @Player_SelectionEnd(pPlayer);
+  @Selection_End(g_rgSelections[iSelection]);
 }
 
 public Native_GetSelectionEntity(iPluginId, iArgc) {
-  new pPlayer = get_param(1);
+  new iSelection = get_param_byref(1);
   new iIndex = get_param(2);
 
-  if (g_rgirgSelectionEntities[pPlayer] == Invalid_Array) return -1;
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return -1;
+  }
 
-  return ArrayGetCell(g_rgirgSelectionEntities[pPlayer], iIndex);
+  if (g_rgSelections[iSelection][Selection_Entities] == Invalid_Array) return -1;
+
+  return ArrayGetCell(g_rgSelections[iSelection][Selection_Entities], iIndex);
 }
 
 public Native_GetSelectionSize(iPluginId, iArgc) {
-  new pPlayer = get_param(1);
+  new iSelection = get_param_byref(1);
 
-  if (g_rgirgSelectionEntities[pPlayer] == Invalid_Array) return 0;
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return 0;
+  }
+
+  if (g_rgSelections[iSelection][Selection_Entities] == Invalid_Array) return 0;
   
-  return ArraySize(g_rgirgSelectionEntities[pPlayer]);
+  return ArraySize(g_rgSelections[iSelection][Selection_Entities]);
 }
 
-public Native_GetStartPos(iPluginId, iArgc) {
-  new pPlayer = get_param(1);
+public Native_GetSelectionStartPos(iPluginId, iArgc) {
+  new iSelection = get_param_byref(1);
 
-  set_array_f(2, g_rgvecSelectionStart[pPlayer], 3);
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  set_array_f(2, g_rgSelections[iSelection][Selection_Start], 3);
 }
 
-public Native_GetEndPos(iPluginId, iArgc) {
-  new pPlayer = get_param(1);
+public Native_GetSelectionEndPos(iPluginId, iArgc) {
+  new iSelection = get_param_byref(1);
 
-  set_array_f(2, g_rgvecSelectionEnd[pPlayer], 3);
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  set_array_f(2, g_rgSelections[iSelection][Selection_End], 3);
 }
 
 public Native_GetSelectionCursorPos(iPluginId, iArgc) {
-  new pPlayer = get_param(1);
+  new iSelection = get_param_byref(1);
 
-  static Float:vecTarget[3]; @Player_GetCursorPosition(pPlayer, vecTarget);
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  static Float:vecTarget[3]; @Selection_GetCursorPos(g_rgSelections[iSelection], vecTarget);
 
   set_array_f(2, vecTarget, 3);
-}
-
-/*--------------------------------[ Forwards ]--------------------------------*/
-
-public client_connect(pPlayer) {
-  g_rgiSelectionFilterPluginId[pPlayer] = -1;
-  g_rgiSelectionFilterFunctionId[pPlayer] = -1;
-  g_rgbSelectionActive[pPlayer] = false;
-  g_rgirgSelectionEntities[pPlayer] = Invalid_Array;
-  g_rgflSelectionNextDraw[pPlayer] = 0.0;
-}
-
-public client_disconnected(pPlayer) {
-  @Player_SelectionRelease(pPlayer);
 }
 
 /*--------------------------------[ Hooks ]--------------------------------*/
 
 public HamHook_Player_PostThink_Post(pPlayer) {
-  if (g_rgbSelectionActive[pPlayer]) {
-    @Player_SelectionThink(pPlayer);
-  }
+  @Player_SelectionsThink(pPlayer);
 }
 
 public FMHook_OnFreeEntPrivateData(pEntity) {
   if (!pev_valid(pEntity)) return;
 
-  for (new pPlayer = 1; pPlayer <= MaxClients; ++pPlayer) {
-    @Player_RemoveEntityFronSelection(pPlayer, pEntity);
+  for (new iSelection = 0; iSelection < MAX_SELECTIONS; ++iSelection) {
+    if (g_rgSelections[iSelection][Selection_Free]) continue;
+
+    @Selection_RemoveEntity(g_rgSelections[iSelection], pEntity);
   }
 }
 
 /*--------------------------------[ Methods ]--------------------------------*/
 
-@Player_SelectionInit(this, iFunctionId, iPluginId) {
-  if (g_rgiSelectionFilterPluginId[this] != -1) return;
+@Player_SelectionsThink(this) {
+  for (new iSelection = 0; iSelection < MAX_SELECTIONS; ++iSelection) {
+    if (g_rgSelections[iSelection][Selection_Player] != this) continue;
+    if (!g_rgSelections[iSelection][Selection_Active]) continue;
 
-  g_rgiSelectionFilterPluginId[this] = iPluginId;
-  g_rgiSelectionFilterFunctionId[this] = iFunctionId;
-  g_rgirgSelectionEntities[this] = ArrayCreate();
-}
-
-@Player_SelectionRelease(this) {
-  if (g_rgirgSelectionEntities[this] != Invalid_Array) {
-    ArrayDestroy(g_rgirgSelectionEntities[this]);
-  }
-
-  g_rgbSelectionActive[this] = false;
-  g_rgiSelectionFilterPluginId[this] = -1;
-  g_rgiSelectionFilterFunctionId[this] = -1;
-  g_rgirgSelectionEntities[this] = Invalid_Array;
-}
-
-@Player_SelectionStart(this) {
-    @Player_GetCursorPosition(this, g_rgvecSelectionStart[this]);
-
-    ArrayClear(g_rgirgSelectionEntities[this]);
-
-    g_rgbSelectionActive[this] = true;
-    g_rgflSelectionNextDraw[this] = get_gametime();
-}
-
-@Player_SelectionEnd(this) {
-  if (!g_rgbSelectionActive[this]) return;
-
-  @Player_UpdateEndPosition(this);
-
-  UTIL_NormalizeBox(g_rgvecSelectionStart[this], g_rgvecSelectionEnd[this]);
-
-  g_rgvecSelectionEnd[this][2] = g_rgvecSelectionStart[this][2] + @Player_GetSelectionHeight(this);
-
-  @Player_FindEntitiesInSelection(this);
-
-  new iEntitiesNum = ArraySize(g_rgirgSelectionEntities[this]);
-
-  for (new i = 0; i < iEntitiesNum; ++i) {
-    static pEntity; pEntity = ArrayGetCell(g_rgirgSelectionEntities[this], i);
-    @Player_HighlightEntityInSelection(this, pEntity);
-  }
-
-  g_rgbSelectionActive[this] = false;
-}
-
-@Player_SelectionThink(this) {
-  if (g_rgflSelectionNextDraw[this] <= get_gametime()) {
-    @Player_UpdateEndPosition(this);
-    @Player_DrawSelectionBox(this);
-    g_rgflSelectionNextDraw[this] = get_gametime() + 0.1;
+    @Selection_Think(g_rgSelections[iSelection]);
   }
 }
 
-@Player_GetCursorPosition(this, Float:vecOut[3]) {
-  static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, this, vecOrigin);
+bool:@Selection_IsValid(rgSelection[Selection]) {
+  return !rgSelection[Selection_Free];
+}
 
-  pev(this, pev_v_angle, vecOut);
-  angle_vector(vecOut, ANGLEVECTOR_FORWARD, vecOut);
-  xs_vec_add_scaled(vecOrigin, vecOut, 8192.0, vecOut);
+@Selection_Init(rgSelection[Selection], pPlayer, iIndex) {
+  rgSelection[Selection_Index] = iIndex;
+  rgSelection[Selection_Active] = false;
+  rgSelection[Selection_Free] = false;
+  rgSelection[Selection_Player] = pPlayer;
+  rgSelection[Selection_FilterCallback][Callback_PluginId] = -1;
+  rgSelection[Selection_FilterCallback][Callback_FunctionId] = -1;
+  rgSelection[Selection_Color][0] = 255;
+  rgSelection[Selection_Color][1] = 255;
+  rgSelection[Selection_Color][2] = 255;
+  rgSelection[Selection_Brightness] = 255;
+  rgSelection[Selection_Entities] = ArrayCreate();
+  rgSelection[Selection_NextDraw] = get_gametime();
+}
 
-  engfunc(EngFunc_TraceLine, vecOrigin, vecOut, DONT_IGNORE_MONSTERS, this, g_pTrace);
+@Selection_Free(rgSelection[Selection]) {  
+  if (rgSelection[Selection_Entities] != Invalid_Array) {
+    ArrayDestroy(rgSelection[Selection_Entities]);
+  }
+
+  rgSelection[Selection_Index] = -1;
+  rgSelection[Selection_Active] = false;
+  rgSelection[Selection_Free] = true;
+  rgSelection[Selection_Player] = 0;
+  rgSelection[Selection_FilterCallback][Callback_PluginId] = -1;
+  rgSelection[Selection_FilterCallback][Callback_FunctionId] = -1;
+  rgSelection[Selection_Entities] = Invalid_Array;
+  rgSelection[Selection_NextDraw] = 0.0;
+}
+
+@Selection_SetFilterFunction(rgSelection[Selection], iFunctionId, iPluginId) {
+  rgSelection[Selection_FilterCallback][Callback_FunctionId] = iFunctionId;
+  rgSelection[Selection_FilterCallback][Callback_PluginId] = iPluginId;
+}
+
+@Selection_SetColor(rgSelection[Selection], const rgiColor[3]) {
+  rgSelection[Selection_Color][0] = rgiColor[0];
+  rgSelection[Selection_Color][1] = rgiColor[1];
+  rgSelection[Selection_Color][2] = rgiColor[2];
+}
+
+@Selection_SetBrightness(rgSelection[Selection], iBrightness) {
+  rgSelection[Selection_Brightness] = iBrightness;
+}
+
+@Selection_Start(rgSelection[Selection]) {
+  @Selection_GetCursorPos(rgSelection, rgSelection[Selection_Start]);
+
+  ArrayClear(rgSelection[Selection_Entities]);
+
+  rgSelection[Selection_Active] = true;
+  rgSelection[Selection_NextDraw] = get_gametime();
+}
+
+@Selection_End(rgSelection[Selection]) {
+  if (!rgSelection[Selection_Active]) return;
+
+  @Selection_GetCursorPos(rgSelection, rgSelection[Selection_End]);
+
+  UTIL_NormalizeBox(rgSelection[Selection_Start], rgSelection[Selection_End]);
+
+  static Float:flMinz; flMinz = floatmin(
+    TracePointHeight(rgSelection[Selection_End], -8192.0),
+    TracePointHeight(rgSelection[Selection_Start], -8192.0)
+  );
+
+  static Float:flMaxZ; flMaxZ = floatmax(
+    TracePointHeight(rgSelection[Selection_End], 8192.0),
+    TracePointHeight(rgSelection[Selection_Start], 8192.0)
+  );
+
+  rgSelection[Selection_Start][2] = flMinz;
+  rgSelection[Selection_End][2] = flMaxZ;
+
+  @Selection_FindEntities(rgSelection);
+
+  rgSelection[Selection_Active] = false;
+}
+
+@Selection_Think(rgSelection[Selection]) {
+  if (rgSelection[Selection_NextDraw] <= get_gametime()) {
+    @Selection_GetCursorPos(rgSelection, rgSelection[Selection_End]);
+    @Selection_DrawBox(rgSelection);
+    rgSelection[Selection_NextDraw] = get_gametime() + 0.1;
+  }
+}
+
+@Selection_GetCursorPos(const rgSelection[Selection], Float:vecOut[]) {
+  static pPlayer; pPlayer = rgSelection[Selection_Player];
+  static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, pPlayer, vecOrigin);
+
+  static Float:vecForward[3];
+  pev(pPlayer, pev_v_angle, vecForward);
+  angle_vector(vecForward, ANGLEVECTOR_FORWARD, vecForward);
+
+  xs_vec_add_scaled(vecOrigin, vecForward, 8192.0, vecOut);
+
+  engfunc(EngFunc_TraceLine, vecOrigin, vecOut, DONT_IGNORE_MONSTERS, pPlayer, g_pTrace);
 
   get_tr2(g_pTrace, TR_vecEndPos, vecOut);
 }
 
-Float:@Player_GetSelectionHeight(this) {
-  return floatmin(
-    GetHeight(g_rgvecSelectionStart[this]),
-    GetHeight(g_rgvecSelectionEnd[this])
-  );
-}
-
-@Player_UpdateEndPosition(this) {
-    @Player_GetCursorPosition(this, g_rgvecSelectionEnd[this]);
-    g_rgvecSelectionEnd[this][2] = g_rgvecSelectionStart[this][2];
-}
-
-Array:@Player_FindEntitiesInSelection(this) {
+Array:@Selection_FindEntities(rgSelection[Selection]) {
   for (new pEntity = 1; pEntity < g_iMaxEntities; ++pEntity) {
     if (!pev_valid(pEntity)) continue;
-    if (!UTIL_IsEntityInBox(pEntity, g_rgvecSelectionStart[this], g_rgvecSelectionEnd[this])) continue;
+    if (!UTIL_IsEntityInBox(pEntity, rgSelection[Selection_Start], rgSelection[Selection_End])) continue;
 
-    callfunc_begin_i(g_rgiSelectionFilterFunctionId[this], g_rgiSelectionFilterPluginId[this]);
-    callfunc_push_int(this);
-    callfunc_push_int(pEntity);
-    static bResult; bResult = callfunc_end();
+    static bResult; bResult = true;
+
+    if (rgSelection[Selection_FilterCallback][Callback_FunctionId] != -1) {
+      callfunc_begin_i(rgSelection[Selection_FilterCallback][Callback_FunctionId], rgSelection[Selection_FilterCallback][Callback_PluginId]);
+      callfunc_push_int(rgSelection[Selection_Index]);
+      callfunc_push_int(pEntity);
+      bResult = callfunc_end();
+    }
 
     if (bResult) {
-      ArrayPushCell(g_rgirgSelectionEntities[this], pEntity);
+      ArrayPushCell(rgSelection[Selection_Entities], pEntity);
     }
   }
 }
 
-@Player_HighlightEntityInSelection(this, pEntity) {
-  static Float:vecOrigin[3]; pev(pEntity, pev_origin, vecOrigin);
-  static Float:vecMins[3]; pev(pEntity, pev_mins, vecMins);
-  static Float:vecMaxs[3]; pev(pEntity, pev_maxs, vecMaxs);
-  static Float:flRadius; flRadius = floatmax(vecMaxs[0] - vecMins[0], vecMaxs[1] - vecMins[1]) / 2;
+@Selection_RemoveEntity(rgSelection[Selection], pEntity) {
+  if (rgSelection[Selection_Entities] == Invalid_Array) return;
 
-  // vecOrigin[2] += vecMins[2];
-  vecOrigin[2] = g_rgvecSelectionStart[this][2];
-
-  @Player_HighlightTarget(this, vecOrigin, flRadius);
-}
-
-@Player_RemoveEntityFronSelection(this, pEntity) {
-  if (g_rgirgSelectionEntities[this] == Invalid_Array) return;
-
-  static iIndex; iIndex = ArrayFindValue(g_rgirgSelectionEntities[this], pEntity);
+  static iIndex; iIndex = ArrayFindValue(rgSelection[Selection_Entities], pEntity);
   if (iIndex == -1) return;
 
-  ArrayDeleteItem(g_rgirgSelectionEntities[this], iIndex);
+  ArrayDeleteItem(rgSelection[Selection_Entities], iIndex);
 }
 
-@Player_DrawSelectionBox(this) {
-  engfunc(EngFunc_MessageBegin, MSG_ONE, SVC_TEMPENTITY, Float:{0.0, 0.0, 0.0}, this);
-  write_byte(TE_BOX);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionStart[this][0]);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionStart[this][1]);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionStart[this][2] + SelectionGroundOffset);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionEnd[this][0]);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionEnd[this][1]);
-  engfunc(EngFunc_WriteCoord, g_rgvecSelectionEnd[this][2] + SelectionGroundOffset);
-  write_short(1);
-  write_byte(0);
-  write_byte(255);
-  write_byte(0);
-  message_end();
-}
-
-@Player_HighlightTarget(this, const Float:vecTarget[3], Float:flRadius) {
+@Selection_DrawBox(rgSelection[Selection]) {
+  static pPlayer; pPlayer = rgSelection[Selection_Player];
   static iModelIndex; iModelIndex = engfunc(EngFunc_ModelIndex, g_szTrailModel);
+  static Float:flHeight; flHeight = floatmax(rgSelection[Selection_Start][2], rgSelection[Selection_End][2]) + SelectionGroundOffset;
 
-  engfunc(EngFunc_MessageBegin, MSG_ONE, SVC_TEMPENTITY, vecTarget, this);
-  write_byte(TE_BEAMCYLINDER);
-  engfunc(EngFunc_WriteCoord, vecTarget[0]);
-  engfunc(EngFunc_WriteCoord, vecTarget[1]);
-  engfunc(EngFunc_WriteCoord, vecTarget[2] + SelectionGroundOffset);
-  engfunc(EngFunc_WriteCoord, 0.0);
-  engfunc(EngFunc_WriteCoord, 0.0);
-  engfunc(EngFunc_WriteCoord, vecTarget[2] + SelectionGroundOffset + flRadius);
-  write_short(iModelIndex);
-  write_byte(0);
-  write_byte(0);
-  write_byte(5);
-  write_byte(8);
-  write_byte(0);
-  write_byte(SelectionColor[0]);
-  write_byte(SelectionColor[1]);
-  write_byte(SelectionColor[2]);
-  write_byte(255);
-  write_byte(0);
-  message_end();
+  for (new i = 0; i < 4; ++i) {
+    engfunc(EngFunc_MessageBegin, MSG_ONE, SVC_TEMPENTITY, Float:{0.0, 0.0, 0.0}, pPlayer);
+    write_byte(TE_BEAMPOINTS);
+
+    switch (i) {
+      case 0: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
+      }
+      case 1: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
+      }
+      case 2: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
+      }
+      case 3: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+      }
+    }
+
+    engfunc(EngFunc_WriteCoord, flHeight);
+
+    switch (i) {
+      case 0: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+      }
+      case 1: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
+      }
+      case 2: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+      }
+      case 3: {
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+      }
+    }
+
+    engfunc(EngFunc_WriteCoord, flHeight);
+
+    write_short(iModelIndex);
+    write_byte(0);
+    write_byte(0);
+    write_byte(1);
+    write_byte(16);
+    write_byte(0);
+    write_byte(rgSelection[Selection_Color][0]);
+    write_byte(rgSelection[Selection_Color][1]);
+    write_byte(rgSelection[Selection_Color][2]);
+    write_byte(rgSelection[Selection_Brightness]);
+    write_byte(0);
+    message_end();
+  }
 }
 
 /*--------------------------------[ Functions ]--------------------------------*/
 
-Float:GetHeight(const Float:vecOrigin[3]) {
-  static Float:vecTarget[3]; xs_vec_set(vecTarget, vecOrigin[0], vecOrigin[1], vecOrigin[2] + 8192.0);
+FindFreeSelection() {
+  for (new i = 0; i < MAX_SELECTIONS; ++i) {
+    if (g_rgSelections[i][Selection_Free]) return i;
+  }
+
+  return -1;
+}
+
+Float:TracePointHeight(const Float:vecOrigin[], Float:flMaxDistance) {
+  static Float:vecTarget[3];
+  xs_vec_set(vecTarget, vecOrigin[0], vecOrigin[1], vecOrigin[2] + flMaxDistance);
 
   engfunc(EngFunc_TraceLine, vecOrigin, vecTarget, IGNORE_MONSTERS, 0, g_pTrace);
 
   get_tr2(g_pTrace, TR_vecEndPos, vecTarget);
 
-  return vecTarget[2] - vecOrigin[2];
+  return vecTarget[2];
 }
 
 /*--------------------------------[ Stocks ]--------------------------------*/
 
-stock UTIL_IsEntityInBox(pEntity, const Float:vecBoxMin[3], const Float:vecBoxMax[3]) {
+stock UTIL_IsEntityInBox(pEntity, const Float:vecBoxMin[], const Float:vecBoxMax[]) {
   static Float:vecAbsMin[3]; pev(pEntity, pev_absmin, vecAbsMin);
   static Float:vecAbsMax[3]; pev(pEntity, pev_absmax, vecAbsMax);
 
@@ -335,7 +512,7 @@ stock UTIL_IsEntityInBox(pEntity, const Float:vecBoxMin[3], const Float:vecBoxMa
   return true;
 }
 
-stock UTIL_NormalizeBox(Float:vecMin[3], Float:vecMax[3]) {
+stock UTIL_NormalizeBox(Float:vecMin[], Float:vecMax[]) {
   for (new i = 0; i < 3; ++i) {
     if (vecMin[i] > vecMax[i]) UTIL_FloatSwap(vecMin[i], vecMax[i]);
   }

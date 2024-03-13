@@ -4,6 +4,8 @@ This API provides in-game select entities functionality using a virtual cursor.
 ## Making simple strategy system
 Here is a simple example of how to make something like an RTS system using the API.
 
+![Simple Strategy Mode](../../images/example-entity-selection.gif)
+
 ```cpp
 #include <amxmodx>
 #include <fakemeta>

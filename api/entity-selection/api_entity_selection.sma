@@ -7,6 +7,8 @@
 
 #include <cellstruct>
 
+#define IS_PLAYER(%1) (%1 >= 1 && %1 <= MaxClients)
+
 #define MAX_SELECTIONS 256
 
 #define NOT_VALID_SELECTION_ERR "Selection %d is not valid selection handle!"
@@ -25,6 +27,7 @@ enum Selection {
   bool:Selection_Active,
   bool:Selection_Free,
   Selection_Player,
+  Selection_CursorEntity,
   Selection_FilterCallback[Callback],
   Array:Selection_Entities,
   Float:Selection_Start[3],
@@ -74,6 +77,8 @@ public plugin_natives() {
   register_native("EntitySelection_SetColor", "Native_SetSelectionColor");
   register_native("EntitySelection_SetBrightness", "Native_SetSelectionBrightness");
   register_native("EntitySelection_GetPlayer", "Native_GetSelectionPlayer");
+  register_native("EntitySelection_SetCursorEntity", "Native_SetSelectionCursorEntity");
+  register_native("EntitySelection_GetCursorEntity", "Native_GetSelectionCursorEntity");
   register_native("EntitySelection_Start", "Native_StartSelection");
   register_native("EntitySelection_End", "Native_EndSelection");
   register_native("EntitySelection_GetEntity", "Native_GetSelectionEntity");
@@ -153,6 +158,29 @@ public Native_GetSelectionPlayer(iPluginId, iArgc) {
   }
 
   return g_rgSelections[iSelection][Selection_Player]; 
+}
+
+public Native_GetSelectionCursorEntity(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return 0;
+  }
+
+  return g_rgSelections[iSelection][Selection_CursorEntity]; 
+}
+
+public Native_SetSelectionCursorEntity(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+  static pCursor; pCursor = get_param(2);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  g_rgSelections[iSelection][Selection_CursorEntity] = pCursor;
 }
 
 public Native_StartSelection(iPluginId, iArgc) {
@@ -285,6 +313,7 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
   rgSelection[Selection_Active] = false;
   rgSelection[Selection_Free] = false;
   rgSelection[Selection_Player] = pPlayer;
+  rgSelection[Selection_CursorEntity] = pPlayer;
   rgSelection[Selection_FilterCallback][Callback_PluginId] = -1;
   rgSelection[Selection_FilterCallback][Callback_FunctionId] = -1;
   rgSelection[Selection_Color][0] = 255;
@@ -304,6 +333,7 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
   rgSelection[Selection_Active] = false;
   rgSelection[Selection_Free] = true;
   rgSelection[Selection_Player] = 0;
+  rgSelection[Selection_CursorEntity] = 0;
   rgSelection[Selection_FilterCallback][Callback_PluginId] = -1;
   rgSelection[Selection_FilterCallback][Callback_FunctionId] = -1;
   rgSelection[Selection_Entities] = Invalid_Array;
@@ -368,16 +398,22 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
 }
 
 @Selection_GetCursorPos(const rgSelection[Selection], Float:vecOut[]) {
-  static pPlayer; pPlayer = rgSelection[Selection_Player];
-  static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, pPlayer, vecOrigin);
+  static pCursor; pCursor = rgSelection[Selection_CursorEntity];
+  static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, pCursor, vecOrigin);
 
   static Float:vecForward[3];
-  pev(pPlayer, pev_v_angle, vecForward);
+
+  if (IS_PLAYER(pCursor)) {
+    pev(pCursor, pev_v_angle, vecForward);
+  } else {
+    pev(pCursor, pev_angles, vecForward); 
+  }
+
   angle_vector(vecForward, ANGLEVECTOR_FORWARD, vecForward);
 
   xs_vec_add_scaled(vecOrigin, vecForward, 8192.0, vecOut);
 
-  engfunc(EngFunc_TraceLine, vecOrigin, vecOut, DONT_IGNORE_MONSTERS, pPlayer, g_pTrace);
+  engfunc(EngFunc_TraceLine, vecOrigin, vecOut, DONT_IGNORE_MONSTERS, pCursor, g_pTrace);
 
   get_tr2(g_pTrace, TR_vecEndPos, vecOut);
 }

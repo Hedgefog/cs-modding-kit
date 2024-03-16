@@ -17,6 +17,7 @@ native EntitySelection_GetSize(const &Selection:selection);
 native EntitySelection_GetPlayer(const &Selection:selection);
 native EntitySelection_SetCursorEntity(const &Selection:selection, pCursor);
 native EntitySelection_GetCursorEntity(const &Selection:selection);
+native EntitySelection_SetCursorPos(const &Selection:selection, const Float:vecOrigin[]);
 native EntitySelection_GetCursorPos(const &Selection:selection, Float:vecOut[]);
 native EntitySelection_GetStartPos(const &Selection:selection, Float:vecOut[]);
 native EntitySelection_GetEndPos(const &Selection:selection, Float:vecOut[]);

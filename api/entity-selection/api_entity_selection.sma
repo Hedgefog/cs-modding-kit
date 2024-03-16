@@ -30,6 +30,7 @@ enum Selection {
   Selection_CursorEntity,
   Selection_FilterCallback[Callback],
   Array:Selection_Entities,
+  Float:Selection_Cursor[3],
   Float:Selection_Start[3],
   Float:Selection_End[3],
   Selection_Color[3],
@@ -84,6 +85,7 @@ public plugin_natives() {
   register_native("EntitySelection_GetEntity", "Native_GetSelectionEntity");
   register_native("EntitySelection_GetSize", "Native_GetSelectionSize");
   register_native("EntitySelection_GetCursorPos", "Native_GetSelectionCursorPos");
+  register_native("EntitySelection_SetCursorPos", "Native_SetSelectionCursorPos");
   register_native("EntitySelection_GetStartPos", "Native_GetSelectionStartPos");
   register_native("EntitySelection_GetEndPos", "Native_GetSelectionEndPos");
 }
@@ -216,8 +218,8 @@ public Native_EndSelection(iPluginId, iArgc) {
 }
 
 public Native_GetSelectionEntity(iPluginId, iArgc) {
-  new iSelection = get_param_byref(1);
-  new iIndex = get_param(2);
+  static iSelection; iSelection = get_param_byref(1);
+  static iIndex; iIndex = get_param(2);
 
   if (!@Selection_IsValid(g_rgSelections[iSelection])) {
     log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
@@ -230,7 +232,7 @@ public Native_GetSelectionEntity(iPluginId, iArgc) {
 }
 
 public Native_GetSelectionSize(iPluginId, iArgc) {
-  new iSelection = get_param_byref(1);
+  static iSelection; iSelection = get_param_byref(1);
 
   if (!@Selection_IsValid(g_rgSelections[iSelection])) {
     log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
@@ -243,7 +245,7 @@ public Native_GetSelectionSize(iPluginId, iArgc) {
 }
 
 public Native_GetSelectionStartPos(iPluginId, iArgc) {
-  new iSelection = get_param_byref(1);
+  static iSelection; iSelection = get_param_byref(1);
 
   if (!@Selection_IsValid(g_rgSelections[iSelection])) {
     log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
@@ -254,7 +256,7 @@ public Native_GetSelectionStartPos(iPluginId, iArgc) {
 }
 
 public Native_GetSelectionEndPos(iPluginId, iArgc) {
-  new iSelection = get_param_byref(1);
+  static iSelection; iSelection = get_param_byref(1);
 
   if (!@Selection_IsValid(g_rgSelections[iSelection])) {
     log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
@@ -265,16 +267,26 @@ public Native_GetSelectionEndPos(iPluginId, iArgc) {
 }
 
 public Native_GetSelectionCursorPos(iPluginId, iArgc) {
-  new iSelection = get_param_byref(1);
+  static iSelection; iSelection = get_param_byref(1);
 
   if (!@Selection_IsValid(g_rgSelections[iSelection])) {
     log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
     return;
   }
 
-  static Float:vecTarget[3]; @Selection_GetCursorPos(g_rgSelections[iSelection], vecTarget);
+  set_array_f(2, g_rgSelections[iSelection][Selection_Cursor], 3);
+}
 
-  set_array_f(2, vecTarget, 3);
+public Native_SetSelectionCursorPos(iPluginId, iArgc) {
+  static iSelection; iSelection = get_param_byref(1);
+  static Float:vecOrigin[3]; get_array_f(2, vecOrigin, 3);
+
+  if (!@Selection_IsValid(g_rgSelections[iSelection])) {
+    log_error(AMX_ERR_NATIVE, NOT_VALID_SELECTION_ERR, iSelection);
+    return;
+  }
+
+  xs_vec_copy(vecOrigin, g_rgSelections[iSelection][Selection_Cursor]);
 }
 
 /*--------------------------------[ Hooks ]--------------------------------*/
@@ -356,7 +368,9 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
 }
 
 @Selection_Start(rgSelection[Selection]) {
-  @Selection_GetCursorPos(rgSelection, rgSelection[Selection_Start]);
+  @Selection_CalculateCursorPos(rgSelection);
+
+  xs_vec_copy(rgSelection[Selection_Cursor], rgSelection[Selection_Start]);
 
   ArrayClear(rgSelection[Selection_Entities]);
 
@@ -367,7 +381,7 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
 @Selection_End(rgSelection[Selection]) {
   if (!rgSelection[Selection_Active]) return;
 
-  @Selection_GetCursorPos(rgSelection, rgSelection[Selection_End]);
+  xs_vec_copy(rgSelection[Selection_Cursor], rgSelection[Selection_End]);
 
   UTIL_NormalizeBox(rgSelection[Selection_Start], rgSelection[Selection_End]);
 
@@ -391,31 +405,36 @@ bool:@Selection_IsValid(rgSelection[Selection]) {
 
 @Selection_Think(rgSelection[Selection]) {
   if (rgSelection[Selection_NextDraw] <= get_gametime()) {
-    @Selection_GetCursorPos(rgSelection, rgSelection[Selection_End]);
-    @Selection_DrawBox(rgSelection);
+    @Selection_CalculateCursorPos(rgSelection);
+    @Selection_DrawSelection(rgSelection);
     rgSelection[Selection_NextDraw] = get_gametime() + 0.1;
   }
 }
 
-@Selection_GetCursorPos(const rgSelection[Selection], Float:vecOut[]) {
+bool:@Selection_CalculateCursorPos(rgSelection[Selection]) {
   static pCursor; pCursor = rgSelection[Selection_CursorEntity];
-  static Float:vecOrigin[3]; ExecuteHamB(Ham_EyePosition, pCursor, vecOrigin);
 
-  static Float:vecForward[3];
+  if (pCursor <= 0) return false;
+
+  static Float:vecOrigin[3];
+  static Float:vecAngles[3];
 
   if (IS_PLAYER(pCursor)) {
-    pev(pCursor, pev_v_angle, vecForward);
+    ExecuteHamB(Ham_EyePosition, pCursor, vecOrigin);
+    pev(pCursor, pev_v_angle, vecAngles);
   } else {
-    pev(pCursor, pev_angles, vecForward); 
+    pev(pCursor, pev_origin, vecOrigin);
+    pev(pCursor, pev_angles, vecAngles); 
   }
 
-  angle_vector(vecForward, ANGLEVECTOR_FORWARD, vecForward);
+  static Float:vecForward[3]; angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecForward);
+  static Float:vecEnd[3]; xs_vec_add_scaled(vecOrigin, vecForward, 8192.0, vecEnd);
 
-  xs_vec_add_scaled(vecOrigin, vecForward, 8192.0, vecOut);
+  engfunc(EngFunc_TraceLine, vecOrigin, vecEnd, DONT_IGNORE_MONSTERS, pCursor, g_pTrace);
 
-  engfunc(EngFunc_TraceLine, vecOrigin, vecOut, DONT_IGNORE_MONSTERS, pCursor, g_pTrace);
+  get_tr2(g_pTrace, TR_vecEndPos, rgSelection[Selection_Cursor]);
 
-  get_tr2(g_pTrace, TR_vecEndPos, vecOut);
+  return true;
 }
 
 Array:@Selection_FindEntities(rgSelection[Selection]) {
@@ -447,10 +466,10 @@ Array:@Selection_FindEntities(rgSelection[Selection]) {
   ArrayDeleteItem(rgSelection[Selection_Entities], iIndex);
 }
 
-@Selection_DrawBox(rgSelection[Selection]) {
+@Selection_DrawSelection(rgSelection[Selection]) {
   static pPlayer; pPlayer = rgSelection[Selection_Player];
   static iModelIndex; iModelIndex = engfunc(EngFunc_ModelIndex, g_szTrailModel);
-  static Float:flHeight; flHeight = floatmax(rgSelection[Selection_Start][2], rgSelection[Selection_End][2]) + SelectionGroundOffset;
+  static Float:flHeight; flHeight = floatmax(rgSelection[Selection_Start][2], rgSelection[Selection_Cursor][2]) + SelectionGroundOffset;
 
   for (new i = 0; i < 4; ++i) {
     engfunc(EngFunc_MessageBegin, MSG_ONE, SVC_TEMPENTITY, Float:{0.0, 0.0, 0.0}, pPlayer);
@@ -466,12 +485,12 @@ Array:@Selection_FindEntities(rgSelection[Selection]) {
         engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
       }
       case 2: {
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][0]);
         engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
       }
       case 3: {
         engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][1]);
       }
     }
 
@@ -480,19 +499,19 @@ Array:@Selection_FindEntities(rgSelection[Selection]) {
     switch (i) {
       case 0: {
         engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][0]);
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][1]);
       }
       case 1: {
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][0]);
         engfunc(EngFunc_WriteCoord, rgSelection[Selection_Start][1]);
       }
       case 2: {
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][1]);
       }
       case 3: {
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][0]);
-        engfunc(EngFunc_WriteCoord, rgSelection[Selection_End][1]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][0]);
+        engfunc(EngFunc_WriteCoord, rgSelection[Selection_Cursor][1]);
       }
     }
 

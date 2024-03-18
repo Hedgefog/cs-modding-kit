@@ -55,7 +55,11 @@ enum {
   CMP_String,
   CMP_Array,
   CMP_FloatArray,
-  CMP_ReadFromCellArray
+  CMP_ReadFromCellArray,
+  __cls_CMP_InternalStart = 1000,
+  __cls_CMP_StringRef,
+  __cls_CMP_ArrayRef,
+  __cls_CMP_FloatArrayRef
 };
 
 // Internal structures
@@ -63,13 +67,17 @@ enum {
 enum __cls_MethodType {
   __cls_MethodType_Invalid = -1,
   __cls_MethodType_Method,
-  __cls_MethodType_Virtual
+  __cls_MethodType_Virtual,
+  __cls_MethodType_Getter,
+  __cls_MethodType_Setter
 };
 
 enum __cls_Data {
     Class:__cls_Data_Base,
     Trie:__cls_Data_Members,
-    Trie:__cls_Data_Methods
+    Trie:__cls_Data_Methods,
+    Trie:__cls_Data_Setters,
+    Trie:__cls_Data_Getters
 };
 
 enum __cls_MethodParamData {
@@ -124,6 +132,8 @@ stock Class:ClassCreate(const &Class:sBaseClass = Invalid_Class) {
   StructSetCell(Struct:class, __cls_Data_Base, sBaseClass);
   StructSetCell(Struct:class, __cls_Data_Methods, TrieCreate());
   StructSetCell(Struct:class, __cls_Data_Members, TrieCreate());
+  StructSetCell(Struct:class, __cls_Data_Setters, TrieCreate());
+  StructSetCell(Struct:class, __cls_Data_Getters, TrieCreate());
 
   return Class:class;
 }
@@ -132,6 +142,11 @@ stock ClassDestroy(&Class:class) {
   new Trie:itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
   __cls_DestroyMethodsTrie(itMethods);
 
+  new Trie:itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+  __cls_DestroyMethodsTrie(itGetters);
+
+  new Trie:itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+  __cls_DestroyMethodsTrie(itSetters);
 
   new Trie:itMembers = StructGetCell(Struct:class, __cls_Data_Members);
   TrieDestroy(itMembers);
@@ -172,7 +187,7 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const szCallbac
   ArrayDestroy(irgArgs);
 
   if (sBaseClass != Invalid_Class) {
-    new Struct:sBaseMethod = __cls_FindClassMethodInHierarchy(sBaseClass, szMethod);
+    new Struct:sBaseMethod = __cls_FindClassMethodInHierarchy(sBaseClass, szMethod, __cls_MethodType_Method);
     if (sBaseMethod != Invalid_Struct) {
       if (StructGetCell(sBaseMethod, __cls_MethodData_Type) == __cls_MethodType_Virtual) {
         if (!__cls_CompareParamTypes(sBaseMethod, irgParamTypes)) {
@@ -188,6 +203,14 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const szCallbac
   ArrayDestroy(irgParamTypes);
 
   TrieSetCell(itMethods, szMethod, sMethod);
+}
+
+stock ClassAddSetter(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, iType, iSize = 1) {
+  __cls_AddMemberAccessorMethod(class, szMember, szCallback, iPluginId, __cls_MethodType_Setter, iType, iSize);
+}
+
+stock ClassAddGetter(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, iType, iSize = 1) {
+  __cls_AddMemberAccessorMethod(class, szMember, szCallback, iPluginId, __cls_MethodType_Getter, iType, iSize);
 }
 
 stock Class:ClassGetBaseClass(const &Class:class) {
@@ -286,7 +309,7 @@ stock Class:ClassInstanceGetCurrentClass() {
 }
 
 stock ClassInstanceCallMethod(const &ClassInstance:pInstance, const szMethod[], any:...) {
-  __cls_CallMethodBegin(pInstance, szMethod);
+  __cls_CallMethodBegin(pInstance, szMethod, __cls_MethodType_Method);
 
   #if defined _datapack_included    
     for (new iMethodParam = 0; iMethodParam < __cls_call_iParamTypesNum; ++iMethodParam) {
@@ -360,7 +383,7 @@ stock ClassInstanceCallBaseMethod(any:...) {
         case CMP_Float: {
           ClassInstanceCallMethodPushParamFloat(bUseDefault ? __cls_DefaultValue_Float : Float:getarg(iParam));
         }
-        case CMP_String: {
+        case CMP_String, __cls_CMP_StringRef: {
           if (bUseDefault) {
             copy(__cls_szBuffer, sizeof(__cls_szBuffer), __cls_DefaultValue_String);
           } else {
@@ -372,7 +395,7 @@ stock ClassInstanceCallBaseMethod(any:...) {
 
           ClassInstanceCallMethodPushParamString(__cls_szBuffer);
         }
-        case CMP_Array: {
+        case CMP_Array, __cls_CMP_ArrayRef: {
           if (bUseDefault) {
             arrayset(__cls_rgiBuffer, __cls_DefaultValue_Float, iSize);
           } else {
@@ -383,7 +406,7 @@ stock ClassInstanceCallBaseMethod(any:...) {
 
           ClassInstanceCallMethodPushParamArray(__cls_rgiBuffer, iSize);
         }
-        case CMP_FloatArray: {
+        case CMP_FloatArray, __cls_CMP_FloatArrayRef: {
           if (bUseDefault) {
             arrayset(__cls_rgflBuffer, __cls_DefaultValue_Float, iSize);
           } else {
@@ -402,7 +425,7 @@ stock ClassInstanceCallBaseMethod(any:...) {
 }
 
 stock ClassInstanceCallMethodBegin(const &ClassInstance:pInstance, const szMethod[]) {
-  __cls_CallMethodBegin(pInstance, szMethod);
+  __cls_CallMethodBegin(pInstance, szMethod, __cls_MethodType_Method);
 }
 
 stock ClassInstanceCallMethodBeginBase(any:...) {
@@ -420,8 +443,9 @@ stock ClassInstanceCallMethodBeginBase(any:...) {
   }
 
   static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(rgCallStackItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Name, szMethod, charsmax(szMethod));
+  static __cls_MethodType:iMethodType; iMethodType = StructGetCell(Struct:rgCallStackItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Type);
 
-  __cls_InitMethodCall(rgCallStackItem[__cls_MethodCallStackItem_Instance], szMethod, class);
+  __cls_InitMethodCall(rgCallStackItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
 }
 
 stock any:ClassInstanceCallMethodEnd() {
@@ -520,6 +544,13 @@ stock ClassInstanceDeleteMember(const &ClassInstance:pInstance, const szMember[]
 }
 
 stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[]) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+
+  if (TrieKeyExists(itGetters, szMember)) {
+    return __cls_CallGetter(pInstance, szMember);
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   static any:value;
@@ -527,12 +558,27 @@ stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[
 }
 
 stock ClassInstanceSetMember(const &ClassInstance:pInstance, const szMember[], any:value, bool:bReplace = true) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+
+  if (TrieKeyExists(itSetters, szMember)) {
+    __cls_CallSetter(pInstance, szMember, value);
+    return;
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   TrieSetCell(itMembers, szMember, value, bReplace);
 }
 
 stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const szMember[], szOut[], iMaxLen) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+
+  if (TrieKeyExists(itGetters, szMember)) {
+    return __cls_CallGetter(pInstance, szMember, szOut, iMaxLen);
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   copy(szOut, iMaxLen, NULL_STRING);
@@ -540,18 +586,41 @@ stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const sz
 }
 
 stock ClassInstanceSetMemberString(const &ClassInstance:pInstance, const szMember[], const szValue[], bool:bReplace = true) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+
+  if (TrieKeyExists(itSetters, szMember)) {
+    __cls_CallSetter(pInstance, szMember, szValue);
+    return;
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   TrieSetString(itMembers, szMember, szValue, bReplace);
 }
 
 stock bool:ClassInstanceGetMemberArray(const &ClassInstance:pInstance, const szMember[], any:rgOut[], iLen) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+
+  if (TrieKeyExists(itGetters, szMember)) {
+    return __cls_CallGetter(pInstance, szMember, rgOut, iLen);
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   return !!TrieGetArray(itMembers, szMember, rgOut, iLen);
 }
 
 stock ClassInstanceSetMemberArray(const &ClassInstance:pInstance, const szMember[], const any:rgValue[], iLen, bool:bReplace = true) {
+  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+
+  if (TrieKeyExists(itSetters, szMember)) {
+    __cls_CallSetter(pInstance, szMember, rgValue, iLen);
+    return;
+  }
+
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
 
   TrieSetArray(itMembers, szMember, rgValue, iLen, bReplace);
@@ -626,11 +695,11 @@ stock __cls_ValidateParams() {
   }
 }
 
-stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], const &Class:class = Invalid_Class) {
+stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], const &Class:class = Invalid_Class, __cls_MethodType:iMethodType) {
   static Class:callClass; callClass = class == Invalid_Class ? __cls_GetCallMethodClass(pInstance) : class;
 
   __cls_call_pInstance = pInstance;
-  __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod);
+  __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
 
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
@@ -651,16 +720,17 @@ stock __cls_FreeMethodCall() {
   __cls_call_iParamTypesNum = 0;
 }
 
-stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[]) {
-  __cls_InitMethodCall(pInstance, szMethod);
+stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __cls_MethodType:iMethodType = __cls_MethodType_Method) {
+  __cls_InitMethodCall(pInstance, szMethod, _, iMethodType);
 
   // Check for virtual method call
   // If we are already in the execution context and the method is virual jump to top level context
+  // All Getters and Setter works like virtual methods
   if (!__cls_IsMethodCallStackEmpty()) {
     if (StructGetCell(__cls_call_sMethod, __cls_MethodData_Type) != __cls_MethodType_Method) {
       static Class:sInstanceClass; sInstanceClass = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
       if (sInstanceClass != StructGetCell(__cls_call_sMethod, __cls_MethodData_Class)) {
-        __cls_call_sMethod = __cls_FindClassMethodInHierarchy(sInstanceClass, szMethod);
+        __cls_call_sMethod = __cls_FindClassMethodInHierarchy(sInstanceClass, szMethod, iMethodType);
       }
     }
   }
@@ -669,6 +739,111 @@ stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[]) {
     set_fail_state(__cls_err_MethodNotFound, szMethod, pInstance);
     return;
   }
+}
+
+stock any:__cls_CallGetter(const &ClassInstance:pInstance, const szMember[], any:...) {
+  static const any:rgEmpty[1];
+  static const iParam = 2;
+
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Getter);
+
+  // Cannot use "static" because of recursion
+  new iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Type);
+  new iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Size);
+
+  switch (iType) {
+      case CMP_String, __cls_CMP_StringRef: {
+        iSize = getarg(iParam + 1);
+        ClassInstanceCallMethodPushParamString(NULL_STRING);
+        ClassInstanceCallMethodPushParamCell(iSize);
+      }
+      case CMP_Array, __cls_CMP_ArrayRef: {
+        iSize = min(iSize, getarg(iParam + 1));
+        ClassInstanceCallMethodPushParamArray(rgEmpty, sizeof(rgEmpty));
+        ClassInstanceCallMethodPushParamCell(iSize);
+      }
+      case CMP_FloatArray, __cls_CMP_FloatArrayRef: {
+        iSize = min(iSize, getarg(iParam + 1));
+        ClassInstanceCallMethodPushParamFloatArray(rgEmpty, sizeof(rgEmpty));
+        ClassInstanceCallMethodPushParamCell(iSize);
+      }
+    }
+
+  new any:result = ClassInstanceCallMethodEnd();
+
+  #if defined _datapack_included
+    switch (iType) {
+      case __cls_CMP_StringRef: {
+        for (new i = 0; i < iSize; ++i) {
+            setarg(iParam, i, __cls_szBuffer[i]);
+            if (__cls_szBuffer[i]  == '^0') break;
+        }
+      }
+      case __cls_CMP_ArrayRef: {
+        for (new i = 0; i < iSize; ++i) {
+          setarg(iParam, i, __cls_rgiBuffer[i]);
+        }
+      }
+      case __cls_CMP_FloatArrayRef: {
+        for (new i = 0; i < iSize; ++i) {
+          setarg(iParam, i, any:__cls_rgflBuffer[i]);
+        }
+      }
+    }
+  #endif
+
+  return result;
+}
+
+stock __cls_CallSetter(const &ClassInstance:pInstance, const szMember[], any:...) {
+  static const iParam = 2;
+
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Setter);
+
+  static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Type);
+  static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Size);
+
+  if (iParam < numargs() - 2) {
+    iSize = min(iSize, getarg(iParam + 1));
+  }
+
+  #if defined _datapack_included
+    switch (iType) {
+      case CMP_Cell: {
+        ClassInstanceCallMethodPushParamCell(getarg(iParam));
+      }
+      case CMP_Float: {
+        ClassInstanceCallMethodPushParamFloat(Float:getarg(iParam));
+      }
+      case CMP_String: {
+        for (new i = 0; i < charsmax(__cls_szBuffer); ++i) {
+            __cls_szBuffer[i] = getarg(iParam, i);
+            if (__cls_szBuffer[i]  == '^0') break;
+        }
+
+        ClassInstanceCallMethodPushParamString(__cls_szBuffer);
+        ClassInstanceCallMethodPushParamCell(iSize);
+      }
+      case CMP_Array: {
+        for (new i = 0; i < iSize; ++i) {
+            __cls_rgiBuffer[i] = getarg(iParam, i);
+        }
+
+        ClassInstanceCallMethodPushParamArray(__cls_rgiBuffer, iSize);
+        ClassInstanceCallMethodPushParamCell(getarg(iParam + 1));
+      }
+      case CMP_FloatArray: {          
+        for (new i = 0; i < iSize; ++i) {
+            __cls_rgflBuffer[i] = Float:getarg(iParam, i);
+        }
+
+        ClassInstanceCallMethodPushParamFloatArray(__cls_rgflBuffer, iSize);
+        ClassInstanceCallMethodPushParamCell(getarg(iParam + 1));
+      }
+    }
+  #endif
+
+  return ClassInstanceCallMethodEnd();
 }
 
 stock __cls_DestroyMethod(&Struct:sMethod) {
@@ -693,6 +868,57 @@ stock __cls_DestroyMethodsTrie(&Trie:itMethods) {
   TrieIterDestroy(iMethodsIter);
 
   TrieDestroy(itMethods);
+}
+
+stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, __cls_MethodType:iMethodType, iType, iSize) {
+  new iStructField = -1;
+
+  switch (iMethodType) {
+    case __cls_MethodType_Getter: {
+      iStructField = __cls_Data_Getters;
+    }
+    case __cls_MethodType_Setter: {
+      iStructField = __cls_Data_Setters;
+    }
+  }
+
+  if (iStructField == -1) return;
+
+  new Trie:itMethods = StructGetCell(Struct:class, iStructField);
+
+  new Array:irgParamTypes; irgParamTypes = ArrayCreate(_:__cls_MethodParamData, 1);
+
+  new rgParam[__cls_MethodParamData];
+  rgParam[__cls_MethodParamData_Type] = __cls_ResolveAccessorParamType(iType, iMethodType);
+  rgParam[__cls_MethodParamData_Size] = iSize;
+
+  ArrayPushArray(irgParamTypes, rgParam[any:0], _:__cls_MethodParamData);
+
+  if (iType == CMP_String || iType == CMP_Array || iType == CMP_FloatArray) {
+    new rgSizeParam[__cls_MethodParamData];
+    rgSizeParam[__cls_MethodParamData_Type] = CMP_Cell;
+    rgSizeParam[__cls_MethodParamData_Size] = 1;
+
+    ArrayPushArray(irgParamTypes, rgSizeParam[any:0], _:__cls_MethodParamData);
+  }
+
+  new Struct:sMethod = __cls_CreateMethod(class, szMember, szCallback, iPluginId, irgParamTypes, iMethodType);
+
+  ArrayDestroy(irgParamTypes);
+
+  TrieSetCell(itMethods, szMember, sMethod);
+}
+
+stock __cls_ResolveAccessorParamType(iType, __cls_MethodType:iMethodType) {
+  if (iMethodType == __cls_MethodType_Getter) {
+    switch (iType) {
+      case CMP_String: return __cls_CMP_StringRef;
+      case CMP_Array: return __cls_CMP_ArrayRef;
+      case CMP_FloatArray: return __cls_CMP_FloatArrayRef;
+    }
+  }
+
+  return iType;
 }
 
 stock Struct:__cls_CreateMethod(Class:class, const szName[], const szCallback[], iPluginId, Array:irgParamTypes, __cls_MethodType:iType = __cls_MethodType_Method) {
@@ -755,8 +981,8 @@ stock __cls_ExecuteMethod(const &ClassInstance:pInstance, const &Struct:sMethod,
               callfunc_push_float(flValue);
             }
             case CMP_String: {
-              ReadPackString(dpParams, __cls_szBuffer, charsmax(__cls_szBuffer));
-              callfunc_push_str(__cls_szBuffer, false);
+                ReadPackString(dpParams, __cls_szBuffer, charsmax(__cls_szBuffer));
+                callfunc_push_str(__cls_szBuffer, false);
             }
             case CMP_Array: {
               iSize = ReadPackArray(dpParams, __cls_rgiBuffer, iSize);
@@ -765,6 +991,41 @@ stock __cls_ExecuteMethod(const &ClassInstance:pInstance, const &Struct:sMethod,
             case CMP_FloatArray: {
               iSize = ReadPackFloatArray(dpParams, __cls_rgflBuffer, iSize);
               callfunc_push_array(_:__cls_rgflBuffer, iSize, false);
+            }
+            case __cls_CMP_StringRef: {
+              ReadPackString(dpParams, __cls_szBuffer, 0);
+              /*
+                The "copyback" functionality seems to be broken or works in an odd way,
+                because it only copies the same number of characters that were in the string
+                before calling the function.
+
+                To fix it I decided to "prepare" a string using the max length from the required max length parameter (second)
+                and fill the string with some characters so AmxModX will calculate the correct string length for copyback.
+              */
+              iSize = ReadPackCell(dpParams);
+              arrayset(__cls_szBuffer, '^n', iSize);
+              iParam++; // Skip next parameter (length)
+
+              callfunc_push_str(__cls_szBuffer, true);
+              callfunc_push_int(iSize);
+            }
+            case __cls_CMP_ArrayRef: {
+              // If the second parameter is passed to the getter, use it as the size of the array
+              if (++iParam < iParamsNum - 1) {
+                iSize = min(iSize, ReadPackCell(dpParams));
+              }
+
+              callfunc_push_array(__cls_rgiBuffer, iSize, true);
+              callfunc_push_int(iSize);
+            }
+            case __cls_CMP_FloatArrayRef: {
+              // If the second parameter is passed to the getter, use it as the size of the array
+              if (++iParam < iParamsNum - 1) {
+                iSize = ReadPackCell(dpParams);
+              }
+
+              callfunc_push_array(_:__cls_rgflBuffer, iSize, true);
+              callfunc_push_int(iSize);
             }
           }
         }
@@ -779,11 +1040,24 @@ stock __cls_ExecuteMethod(const &ClassInstance:pInstance, const &Struct:sMethod,
   return iResult;
 }
 
-stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod[]) {
+stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod[], __cls_MethodType:iMethodType) {
   new Class:sCurrentClass = class;
 
+  static iStructMethodsField= __cls_MethodType_Invalid;
+  switch (iMethodType) {
+    case __cls_MethodType_Method, __cls_MethodType_Virtual: {
+      iStructMethodsField = __cls_Data_Methods;
+    }
+    case __cls_MethodType_Getter: {
+      iStructMethodsField = __cls_Data_Getters;
+    }
+    case __cls_MethodType_Setter: {
+      iStructMethodsField = __cls_Data_Setters;
+    }
+  }
+
   do {
-    static Trie:itMethods; itMethods = StructGetCell(Struct:sCurrentClass, __cls_Data_Methods);
+    static Trie:itMethods; itMethods = StructGetCell(Struct:sCurrentClass, iStructMethodsField);
 
     static Struct:sMethod;
     if (TrieGetCell(itMethods, szMethod, sMethod)) return sMethod;

@@ -22,6 +22,8 @@
 
 new g_pCvarUseAstar;
 
+new bool:g_bUseAstar;
+
 new g_pTrace;
 
 public plugin_precache() {
@@ -54,10 +56,10 @@ public plugin_precache() {
     CE_RegisterVirtualMethod(ENTITY_NAME, IsValidEnemy, "@Entity_IsValidEnemy", CE_MP_Cell);
     CE_RegisterVirtualMethod(ENTITY_NAME, UpdateEnemy, "@Entity_UpdateEnemy");
     CE_RegisterVirtualMethod(ENTITY_NAME, UpdateGoal, "@Entity_UpdateGoal");
-    CE_RegisterVirtualMethod(ENTITY_NAME, CanAttack, "@Entity_CanAttack", CE_MP_Cell, CE_MP_Float, CE_MP_FloatArray, 3);
-    CE_RegisterVirtualMethod(ENTITY_NAME, StartAttack, "@Entity_StartAttack", CE_MP_Float, CE_MP_Float, CE_MP_FloatArray, 3, CE_MP_Float, CE_MP_Cell);
-    CE_RegisterVirtualMethod(ENTITY_NAME, ReleaseAttack, "@Entity_ReleaseAttack", CE_MP_Float, CE_MP_Float, CE_MP_FloatArray, 3, CE_MP_Float, CE_MP_Cell);
-    CE_RegisterVirtualMethod(ENTITY_NAME, Hit, "@Entity_Hit", CE_MP_Float, CE_MP_Float, CE_MP_FloatArray, 3, CE_MP_Float, CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, CanAttack, "@Entity_CanAttack", CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, StartAttack, "@Entity_StartAttack");
+    CE_RegisterVirtualMethod(ENTITY_NAME, ReleaseAttack, "@Entity_ReleaseAttack");
+    CE_RegisterVirtualMethod(ENTITY_NAME, Hit, "@Entity_Hit");
     CE_RegisterVirtualMethod(ENTITY_NAME, HandlePath, "@Entity_HandlePath", CE_MP_Cell);
     CE_RegisterVirtualMethod(ENTITY_NAME, UpdateTarget, "@Entity_UpdateTarget");
     CE_RegisterVirtualMethod(ENTITY_NAME, Dying, "@Entity_Dying");
@@ -74,6 +76,7 @@ public plugin_precache() {
     CE_RegisterVirtualMethod(ENTITY_NAME, StopMovement, "@Entity_StopMovement");
     CE_RegisterVirtualMethod(ENTITY_NAME, MovementThink, "@Entity_MovementThink");
     CE_RegisterVirtualMethod(ENTITY_NAME, IsInViewCone, "@Entity_IsInViewCone", CE_MP_FloatArray, 3);
+    CE_RegisterVirtualMethod(ENTITY_NAME, Pain, "@Entity_Pain");
 }
 
 public plugin_init() {
@@ -82,6 +85,8 @@ public plugin_init() {
     RegisterHam(Ham_TakeDamage, CE_BASE_CLASSNAME, "HamHook_Base_TakeDamage_Post", .Post = 1);
 
     g_pCvarUseAstar = register_cvar("npc_use_astar", "1");
+
+    bind_pcvar_num(g_pCvarUseAstar, g_bUseAstar);
 }
 
 public plugin_end() {
@@ -95,16 +100,20 @@ public plugin_end() {
     CE_SetMemberVec(this, CE_MEMBER_MAXS, Float:{12.0, 12.0, 32.0});
     CE_SetMember(this, m_flAIThinkRate, 0.1);
     CE_SetMember(this, m_irgPath, ArrayCreate(3));
-    CE_SetMember(this, m_flAttackRange, 0.0);
-    CE_SetMember(this, m_flAttackRate, 0.0);
+    CE_SetMember(this, m_flAttackRange, 18.0);
+    CE_SetMember(this, m_flHitRange, 24.0);
+    CE_SetMember(this, m_flAttackRate, 1.0);
+    CE_SetMember(this, m_flAttackDuration, 1.0);
+    CE_SetMember(this, m_flHitDelay, 0.0);
     CE_SetMember(this, m_iRevengeChance, 10);
     CE_SetMember(this, m_flStepHeight, 18.0);
-    CE_SetMember(this, m_flAttackDelay, 0.0);
     CE_SetMember(this, m_flDamage, 0.0);
     CE_SetMember(this, m_flPathSearchDelay, 5.0);
     CE_SetMember(this, m_flDieDuration, 0.1);
+    CE_SetMember(this, m_flPainRate, 0.25);
     CE_SetMember(this, m_pBuildPathTask, Invalid_NavBuildPathTask);
-    CE_SetMemberVec(this, m_vecHitOffset, Float:{0.0, 0.0, 0.0});
+    CE_SetMemberVec(this, m_vecHitAngle, Float:{0.0, 0.0, 0.0});
+    CE_SetMemberVec(this, m_vecWeaponOffset, Float:{0.0, 0.0, 0.0});
 }
 
 @Entity_Restart(this) {
@@ -114,14 +123,16 @@ public plugin_end() {
 @Entity_Spawned(this) {
     static Float:flGameTime; flGameTime = get_gametime();
 
-    CE_SetMember(this, m_flNextAttack, 0.0);
-    CE_SetMember(this, m_flReleaseAttack, 0.0);
+    CE_SetMember(this, m_flNextAttack, flGameTime);
     CE_SetMember(this, m_flNextAIThink, flGameTime);
     CE_SetMember(this, m_flLastAIThink, flGameTime);
     CE_SetMember(this, m_flNextAction, flGameTime);
     CE_SetMember(this, m_flNextPathSearch, flGameTime);
+    CE_SetMember(this, m_flNextPain, flGameTime);
     CE_SetMember(this, m_flNextGoalUpdate, flGameTime);
     CE_SetMember(this, m_flTargetArrivalTime, 0.0);
+    CE_SetMember(this, m_flReleaseAttack, 0.0);
+    CE_SetMember(this, m_flReleaseHit, 0.0);
     CE_DeleteMember(this, m_vecGoal);
     CE_DeleteMember(this, m_vecInput);
     CE_DeleteMember(this, m_vecTarget);
@@ -183,20 +194,6 @@ public plugin_end() {
     ArrayDestroy(irgPath);
 }
 
-@Entity_TakeDamage(this, pInflictor, pAttacker, Float:flDamage, iDamageBits) {
-    if (IS_PLAYER(pAttacker) && CE_CallMethod(this, IsEnemy, pAttacker)) {
-        static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
-        static Float:vecTarget[3]; pev(pAttacker, pev_origin, vecTarget);
-        static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
-
-        if (get_distance_f(vecOrigin, vecTarget) <= flAttackRange && CE_CallMethod(this, IsVisible, vecTarget, 0)) {
-            if (random(100) < CE_GetMember(this, m_iRevengeChance)) {
-                set_pev(this, pev_enemy, pAttacker);
-            }
-        }
-    }
-}
-
 @Entity_Think(this) {
     static Float:flGameTime; flGameTime = get_gametime();
     static iDeadFlag; iDeadFlag = pev(this, pev_deadflag);
@@ -252,7 +249,6 @@ public plugin_end() {
     if (!CE_HasMember(this, m_vecInput)) return;
 
     static Float:vecInput[3]; CE_GetMemberVec(this, m_vecInput, vecInput);
-    if (!xs_vec_len(vecInput)) return;
 
     static Float:flSpeed; pev(this, pev_maxspeed, flSpeed);
     static bool:bIsFlying; bIsFlying = @Entity_IsFlying(this);
@@ -265,40 +261,71 @@ public plugin_end() {
     static Float:vecAngles[3]; vector_to_angle(vecInput, vecAngles);
 
     if (!bIsFlying) {
-        engfunc(EngFunc_WalkMove, this, vecAngles[1], 0.5, WALKMOVE_NORMAL);
+        engfunc(EngFunc_WalkMove, this, vecAngles[1], 0.01, WALKMOVE_NORMAL);
     }
 
     set_pev(this, pev_speed, flSpeed);
     set_pev(this, pev_velocity, vecVelocity);
+
+    if (!xs_vec_len(vecInput)) {
+        CE_DeleteMember(this, m_vecInput);
+    }
 }
 
 @Entity_AttackThink(this) {
     static Float:flGameTime; flGameTime = get_gametime();
-    static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
-    static Float:flAttackDelay; flAttackDelay = CE_GetMember(this, m_flAttackDelay);
-    static Float:vecHitOffset[3]; CE_GetMemberVec(this, m_vecHitOffset, vecHitOffset);
-    static Float:flDamage; flDamage = CE_GetMember(this, m_flDamage);
     static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
 
     static Float:flReleaseAttack; flReleaseAttack = CE_GetMember(this, m_flReleaseAttack);
     if (!flReleaseAttack) {
         static Float:flNextAttack; flNextAttack = CE_GetMember(this, m_flNextAttack);
         if (flNextAttack <= flGameTime) {
-            if (pEnemy && CE_CallMethod(this, CanAttack, pEnemy, flAttackRange, vecHitOffset)) {
-                CE_CallMethod(this, StartAttack, flDamage, flAttackRange, vecHitOffset, flAttackDelay, pEnemy);
+            if (pEnemy && CE_CallMethod(this, CanAttack, pEnemy)) {
+                CE_CallMethod(this, StartAttack);
             }
         }
     } else if (flReleaseAttack <= flGameTime) {
-        CE_CallMethod(this, ReleaseAttack, flDamage, flAttackRange, vecHitOffset, flAttackDelay, pEnemy);
+        CE_CallMethod(this, ReleaseAttack);
+    }
+
+    static Float:flReleaseHit; flReleaseHit = CE_GetMember(this, m_flReleaseHit);
+    if (flReleaseHit && flReleaseHit <= flGameTime) {
+        CE_CallMethod(this, Hit);
+        CE_SetMember(this, m_flReleaseHit, 0.0);
     }
 }
 
-@Entity_CanAttack(this, pEnemy, Float:flAttackRange, const Float:vecOffset[3]) {
-    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+@Entity_TakeDamage(this, pInflictor, pAttacker, Float:flDamage, iDamageBits) {
+    static Float:flGameTime; flGameTime = get_gametime();
 
-    static Float:vecTarget[3];
-    pev(pEnemy, pev_origin, vecTarget);
-    xs_vec_add(vecTarget, vecOffset, vecTarget);
+    if (IS_PLAYER(pAttacker) && CE_CallMethod(this, IsEnemy, pAttacker)) {
+        static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+        static Float:vecTarget[3]; pev(pAttacker, pev_origin, vecTarget);
+        static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
+
+        if (get_distance_f(vecOrigin, vecTarget) <= flAttackRange && CE_CallMethod(this, IsVisible, vecTarget, 0)) {
+            if (random(100) < CE_GetMember(this, m_iRevengeChance)) {
+                set_pev(this, pev_enemy, pAttacker);
+            }
+        }
+    }
+
+    static Float:flNextPain; flNextPain = CE_GetMember(this, m_flNextPain);
+
+    if (flNextPain <= flGameTime) {
+        CE_CallMethod(this, Pain);
+        
+        static Float:flPainRate; flPainRate = CE_GetMember(this, m_flPainRate);
+        CE_SetMember(this, m_flNextPain, flGameTime + flPainRate);
+    }
+}
+
+@Entity_Pain(this) {}
+
+@Entity_CanAttack(this, pEnemy) {
+    static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
+    static Float:vecOrigin[3]; @Entity_GetWeaponOrigin(this, vecOrigin);
+    static Float:vecTarget[3]; pev(pEnemy, pev_origin, vecTarget);
 
     if (get_distance_f(vecOrigin, vecTarget) > flAttackRange) return false;
 
@@ -318,67 +345,74 @@ public plugin_end() {
     return false;
 }
 
-@Entity_StartAttack(this, Float:flDamage, Float:flAttackRange, Float:vecHitOffset[3], Float:flAttackDelay, pEnemy) {
-    CE_SetMember(this, m_flReleaseAttack, get_gametime() + flAttackDelay);
-
-    static Float:vecTargetVelocity[3]; pev(pEnemy, pev_velocity, vecTargetVelocity);
-    if (xs_vec_len(vecTargetVelocity) < flAttackRange) {
-        CE_CallMethod(this, StopMovement);
-    }
-}
-
-@Entity_ReleaseAttack(this, Float:flDamage, Float:flAttackRange, Float:vecHitOffset[3], Float:flAttackDelay, pEnemy) {
-    CE_CallMethod(this, Hit, flDamage, flAttackRange, vecHitOffset, flAttackDelay, pEnemy);
-
+@Entity_StartAttack(this) {
+    static Float:flGameTime; flGameTime = get_gametime();
+    static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
+    static Float:flAttackDelay; flAttackDelay = CE_GetMember(this, m_flAttackDuration);
     static Float:flAttackRate; flAttackRate = CE_GetMember(this, m_flAttackRate);
+    static Float:flHitDelay; flHitDelay = CE_GetMember(this, m_flHitDelay);
+    static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
 
-    CE_SetMember(this, m_flReleaseAttack, 0.0);
-    CE_SetMember(this, m_flNextAttack, get_gametime() + flAttackRate);
+    if (pEnemy) {
+        static Float:vecTargetVelocity[3]; pev(pEnemy, pev_velocity, vecTargetVelocity);
+
+        if (xs_vec_len(vecTargetVelocity) < flAttackRange) {
+            CE_CallMethod(this, StopMovement);
+        }
+    }
+
+    CE_SetMember(this, m_flReleaseHit, flGameTime + flHitDelay);
+    CE_SetMember(this, m_flReleaseAttack, flGameTime + flAttackDelay);
+    CE_SetMember(this, m_flNextAttack, flGameTime + flAttackDelay + flAttackRate);
 }
 
-@Entity_Hit(this, Float:flDamage, Float:flAttackRange, const Float:vecHitOffset[3], Float:flAttackDelay, pEnemy) {
-    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
-    static Float:vecDirection[3]; @Entity_GetDirectionVector(this, vecDirection);
+@Entity_ReleaseAttack(this) {
+    CE_SetMember(this, m_flReleaseAttack, 0.0);
+}
 
-    static Float:vecTarget[3];
-    xs_vec_mul_scalar(vecDirection, flAttackRange, vecTarget);
-    xs_vec_add(vecTarget, vecOrigin, vecTarget);
-    xs_vec_add(vecTarget, vecHitOffset, vecTarget);
+@Entity_Hit(this) {
+    static Float:flDamage; flDamage = CE_GetMember(this, m_flDamage);
+    static Float:flHitRange; flHitRange = CE_GetMember(this, m_flHitRange);
+    static Float:vecHitAngle[3]; CE_GetMemberVec(this, m_vecHitAngle, vecHitAngle);
+
+    static Float:vecAngles[3];
+    pev(this, pev_angles, vecAngles);
+    xs_vec_add(vecAngles, vecHitAngle, vecAngles);
+    vecAngles[0] = -vecAngles[0];
+    
+    static Float:vecDirection[3]; angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecDirection);
+    static Float:vecOrigin[3]; @Entity_GetWeaponOrigin(this, vecOrigin);
+    static Float:vecTarget[3]; xs_vec_add_scaled(vecOrigin, vecDirection, flHitRange, vecTarget);
+
+    xs_vec_sub(vecTarget, vecOrigin, vecDirection);
+    xs_vec_normalize(vecDirection, vecDirection);
 
     engfunc(EngFunc_TraceLine, vecOrigin, vecTarget, DONT_IGNORE_MONSTERS, this, g_pTrace);
 
     static pTarget; pTarget = get_tr2(g_pTrace, TR_pHit);
+
     if (pTarget == -1) {
         engfunc(EngFunc_TraceHull, vecOrigin, vecTarget, DONT_IGNORE_MONSTERS, HULL_HEAD, this, g_pTrace);
         pTarget = get_tr2(g_pTrace, TR_pHit);
     }
 
-    static bool:bHit; bHit = pTarget != -1;
-
-    if (bHit) {
+    if (pTarget != -1) {
         get_tr2(g_pTrace, TR_vecEndPos, vecTarget);
-        xs_vec_sub(vecOrigin, vecTarget, vecDirection);
+        xs_vec_sub(vecTarget, vecOrigin, vecDirection);
         xs_vec_normalize(vecDirection, vecDirection);
 
         rg_multidmg_clear();
         ExecuteHamB(Ham_TraceAttack, pTarget, this, flDamage, vecDirection, g_pTrace, DMG_GENERIC);
         rg_multidmg_apply(this, this);
-
-        bHit = IS_PLAYER(pTarget) || IS_MONSTER(pTarget);
     }
 
-    return bHit;
+    return pTarget;
 }
 
 @Entity_GetDirectionVector(this, Float:vecOut[3]) {
     static Float:vecAngles[3];
-
-    if (IS_PLAYER(this)) {
-        pev(this, pev_v_angle, vecAngles);
-    } else {
-        pev(this, pev_angles, vecAngles);
-        vecAngles[0] = -vecAngles[0];
-    }
+    pev(this, pev_angles, vecAngles);
+    vecAngles[0] = -vecAngles[0];
 
     angle_vector(vecAngles, ANGLEVECTOR_FORWARD, vecOut);
     xs_vec_normalize(vecOut, vecOut);
@@ -400,9 +434,7 @@ public plugin_end() {
     @Entity_TurnTo(this, vecTarget, rgbLockAxis, flMaxAngle);
 
     if (CE_CallMethod(this, IsInViewCone, vecTarget)) {
-        static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
-
-        if (flMaxSpeed > 0.0 && get_distance_f(vecOrigin, vecTarget) > 1.0) {
+        if (flMaxSpeed > 0.0) {
             CE_CallMethod(this, MoveForward);
         }
     }
@@ -445,23 +477,49 @@ public plugin_end() {
 }
 
 @Entity_UpdateTarget(this) {
-    CE_CallMethod(this, ProcessTarget);
     CE_CallMethod(this, ProcessPath);
     CE_CallMethod(this, ProcessGoal);
+    CE_CallMethod(this, ProcessTarget);
 }
 
 @Entity_ProcessTarget(this) {
     if (!CE_HasMember(this, m_vecTarget)) return;
 
-    static Float:flGameTime; flGameTime = get_gametime();
-    static Float:flArrivalTime; flArrivalTime = CE_GetMember(this, m_flTargetArrivalTime);
-    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
-    static Float:vecTarget[3]; CE_GetMemberVec(this, m_vecTarget, vecTarget);
+    // static Float:flGameTime; flGameTime = get_gametime();
+    // static Float:flArrivalTime; flArrivalTime = CE_GetMember(this, m_flTargetArrivalTime);
 
-    new bool:bHasReached = xs_vec_distance_2d(vecOrigin, vecTarget) < 10.0;
-    if (bHasReached || flGameTime > flArrivalTime) {
+    if (@Entity_IsTargetReached(this)) {
         CE_DeleteMember(this, m_vecTarget);
     }
+}
+
+@Entity_IsTargetReached(this) {
+    if (!CE_HasMember(this, m_vecTarget)) return true;
+
+    static Float:vecTarget[3]; CE_GetMemberVec(this, m_vecTarget, vecTarget);
+    if (!CE_CallMethod(this, IsInViewCone, vecTarget)) return false;
+
+    static Float:vecAbsMin[3]; pev(this, pev_absmin, vecAbsMin);
+    static Float:vecAbsMax[3]; pev(this, pev_absmax, vecAbsMax);
+
+    if (vecTarget[2] < vecAbsMin[2]) return false;
+    if (vecTarget[2] > vecAbsMax[2]) return false;
+
+    static Float:flMaxDistance; flMaxDistance = 0.0;
+
+    static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
+    static Array:irgPath; irgPath = CE_GetMember(this, m_irgPath);
+    if (pEnemy && !ArraySize(irgPath)) {
+        flMaxDistance = CE_GetMember(this, m_flAttackRange);
+    } else {
+        flMaxDistance = floatmin(vecAbsMax[0] - vecAbsMin[0], vecAbsMax[0] - vecAbsMin[0]) / 2;
+    }
+
+    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+
+    if (xs_vec_distance_2d(vecOrigin, vecTarget) > flMaxDistance) return false;
+
+    return true;
 }
 
 @Entity_ProcessGoal(this) {
@@ -471,7 +529,7 @@ public plugin_end() {
         static Float:vecGoal[3]; CE_GetMemberVec(this, m_vecGoal, vecGoal);
 
         if (!CE_CallMethod(this, IsReachable, vecGoal, pev(this, pev_enemy), 32.0)) {
-            if (get_pcvar_bool(g_pCvarUseAstar)) {
+            if (g_bUseAstar) {
                 if (Float:CE_GetMember(this, m_flNextPathSearch) <= flGameTime) {
                     CE_CallMethod(this, FindPath, vecGoal);
                     CE_SetMember(this, m_flNextPathSearch, flGameTime + Float:CE_GetMember(this, m_flPathSearchDelay));
@@ -539,12 +597,14 @@ bool:@Entity_ProcessPath(this) {
     new Array:irgPath = CE_GetMember(this, m_irgPath);
     if (!ArraySize(irgPath)) return false;
     
+    static Float:flStepHeight; flStepHeight = CE_GetMember(this, m_flStepHeight);
     static Float:vecMins[3]; pev(this, pev_mins, vecMins);
 
     static Float:vecTarget[3];
     ArrayGetArray(irgPath, 0, vecTarget);
     ArrayDeleteItem(irgPath, 0);
-    vecTarget[2] -= vecMins[2];
+
+    vecTarget[2] += -vecMins[2] + flStepHeight;
 
     CE_CallMethod(this, SetTarget, vecTarget);
 
@@ -734,24 +794,20 @@ bool:@Entity_IsReachable(this, const Float:vecTarget[3], pIgnoreEnt, Float:flSte
             static iStepsNum; iStepsNum = floatround(flDistance / flStepLength);
 
             if (iStepsNum) {
-                //Get direction vector
-                static Float:vecStep[3]; xs_vec_sub(vecTargetFixed, vecOrigin, vecStep);
-                
-                bIsReachable = @Entity_TestStep(this, vecOrigin, vecStep, vecStepOrigin);
+                // Get direction vector
+                static Float:vecStep[3];
+                xs_vec_sub(vecTargetFixed, vecOrigin, vecStep);
+                xs_vec_normalize(vecStep, vecStep);
+                xs_vec_mul_scalar(vecStep, flStepLength, vecStep);
 
-                if (bIsReachable) {
-                    xs_vec_normalize(vecStep, vecStep);
-                    xs_vec_mul_scalar(vecStep, flStepLength, vecStep);
+                xs_vec_copy(vecOrigin, vecStepOrigin);
 
-                    xs_vec_copy(vecOrigin, vecStepOrigin);
+                static iStep; iStep = 0;
 
-                    for (new iStep = 0; iStep < iStepsNum; ++iStep) {
-                        if (!@Entity_TestStep(this, vecStepOrigin, vecStep, vecStepOrigin)) {
-                            bIsReachable = false;
-                            break;
-                        }
-                    }
-                }
+                do {
+                    bIsReachable = @Entity_TestStep(this, vecStepOrigin, vecStep, vecStepOrigin);
+                    iStep++;
+                } while (bIsReachable && iStep < iStepsNum);
             }
         }
 
@@ -770,40 +826,22 @@ bool:@Entity_IsReachable(this, const Float:vecTarget[3], pIgnoreEnt, Float:flSte
 bool:@Entity_TestStep(this, const Float:vecOrigin[3], const Float:vecStep[3], Float:vecStepOrigin[3]) {
     static Float:vecMins[3]; pev(this, pev_mins, vecMins);
     static Float:flStepHeight; flStepHeight = CE_GetMember(this, m_flStepHeight);
-    
-    static Float:vecCurrentStepOrigin[3];
-    xs_vec_copy(vecStepOrigin, vecCurrentStepOrigin);
-    xs_vec_add(vecOrigin, vecStep, vecCurrentStepOrigin);
 
-    // check wall
-    static Float:vecStepStart[3];
-    xs_vec_copy(vecOrigin, vecStepStart);
-    vecStepStart[2] += vecMins[2] + flStepHeight;
-
-    static Float:vecStepEnd[3];
-    xs_vec_copy(vecCurrentStepOrigin, vecStepEnd);
-    vecStepEnd[2] += vecMins[2] + flStepHeight;
+    // Check wall
+    static Float:vecStepStart[3]; xs_vec_set(vecStepStart, vecOrigin[0], vecOrigin[1], vecOrigin[2] + vecMins[2] + flStepHeight);
+    static Float:vecStepEnd[3]; xs_vec_add(vecStepStart, vecStep, vecStepEnd);
 
     if (!IsOpen(vecStepStart, vecStepEnd, this)) return false;
 
-    vecCurrentStepOrigin[2] += flStepHeight; // add height to the step
+    static Float:vecNextOrigin[3]; xs_vec_set(vecNextOrigin, vecStepEnd[0], vecStepEnd[1], vecStepEnd[2] - vecMins[2]);
 
-    new Float:flDistanceToFloor = GetDistanceToFloor(this, vecCurrentStepOrigin);
-    if (flDistanceToFloor < 0.0) { // check if falling or solid
-        static Float:vecEnd[3];
-        xs_vec_copy(vecCurrentStepOrigin, vecEnd);
-        vecEnd[2] -= -vecMins[2] + flStepHeight;
-        return false;
-    }
+    // Check if falling or solid
+    new Float:flDistanceToFloor = GetDistanceToFloor(this, vecNextOrigin);
+    if (flDistanceToFloor < 0.0) return false;
 
-    if (flDistanceToFloor >= flStepHeight) { // subtract step height if not needed
-        flDistanceToFloor -= flStepHeight;
-        vecCurrentStepOrigin[2] -= flStepHeight;
-    }
+    vecNextOrigin[2] -= flDistanceToFloor; // apply possible height change
 
-    vecCurrentStepOrigin[2] -= flDistanceToFloor; // apply possible height change
-
-    xs_vec_copy(vecCurrentStepOrigin, vecStepOrigin); // copy result
+    xs_vec_copy(vecNextOrigin, vecStepOrigin); // copy result
 
     return true;
 }
@@ -820,7 +858,16 @@ bool:@Entity_TestStep(this, const Float:vecOrigin[3], const Float:vecStep[3], Fl
 }
 
 @Entity_StopMovement(this) {
-    CE_DeleteMember(this, m_vecInput);
+    if (CE_HasMember(this, m_vecInput)) {
+        CE_SetMemberVec(this, m_vecInput, Float:{0.0, 0.0, 0.0});
+    }
+}
+
+@Entity_GetWeaponOrigin(this, Float:vecOut[3]) {
+    static Float:vecWeaponOffset[3]; CE_GetMemberVec(this, m_vecWeaponOffset, vecWeaponOffset);
+
+    pev(this, pev_origin, vecOut);
+    xs_vec_add(vecOut, vecWeaponOffset, vecOut);
 }
 
 bool:@Entity_IsFlying(this) {
@@ -838,7 +885,7 @@ bool:@Entity_IsInViewCone(this, const Float:vecTarget[3]) {
     xs_vec_normalize(vecDirection, vecDirection);
 
     static Float:vecForward[3];
-    pev(this, pev_v_angle, vecForward);
+    pev(this, pev_angles, vecForward);
     angle_vector(vecForward, ANGLEVECTOR_FORWARD, vecForward);
 
     static Float:flAngle; flAngle = xs_rad2deg(xs_acos((vecDirection[0] * vecForward[0]) + (vecDirection[1] * vecForward[1]), radian));
@@ -859,17 +906,23 @@ Float:@Entity_GetPathCost(this, NavArea:nextArea, NavArea:prevArea) {
         // if (iTraverseType == GO_LADDER_DOWN) return -1.0;
     }
 
-    static Float:vecTarget[3]; Nav_Area_GetCenter(nextArea, vecTarget);
-    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+    static Float:flStepHeight; flStepHeight = CE_GetMember(this, m_flStepHeight);
 
-    static Float:vecSrc[3];
+    static Float:vecOrigin[3];
+
     if (prevArea != Invalid_NavArea) {
-        Nav_Area_GetCenter(prevArea, vecSrc);
+        Nav_Area_GetCenter(prevArea, vecOrigin);
     } else {
-        xs_vec_copy(vecOrigin, vecSrc);
+        pev(this, pev_origin, vecOrigin);
     }
+    
+    vecOrigin[2] += flStepHeight;
+    
+    static Float:vecTarget[3];
+    Nav_Area_GetCenter(nextArea, vecTarget);
+    vecTarget[2] = Nav_Area_GetZ(nextArea) + flStepHeight;
 
-    engfunc(EngFunc_TraceLine, vecSrc, vecTarget, IGNORE_MONSTERS, 0, g_pTrace);
+    engfunc(EngFunc_TraceLine, vecOrigin, vecTarget, IGNORE_MONSTERS, 0, g_pTrace);
 
     static pHit; pHit = get_tr2(g_pTrace, TR_pHit);
 
@@ -932,9 +985,7 @@ bool:IsOpen(const Float:vecSrc[3], const Float:vecEnd[3], pIgnoreEnt = 0, iIgnor
 }
 
 Float:GetDistanceToFloor(pEntity, const Float:vecOrigin[3]) {
-    static Float:vecTarget[3];
-    xs_vec_copy(vecOrigin, vecTarget);
-    vecTarget[2] = -8192.0;
+    static Float:vecTarget[3]; xs_vec_set(vecTarget, vecOrigin[0], vecOrigin[1], -8192.0);
 
     engfunc(EngFunc_TraceMonsterHull, pEntity, vecOrigin, vecTarget, IGNORE_MONSTERS, pEntity, g_pTrace);
 

@@ -654,7 +654,7 @@ Float:@Entity_GetEnemyPriority(this, pEnemy) {
         if (!bAllowMonsters && IS_MONSTER(pTarget)) {
             flTargetPriority *= 0.0;
         } else {
-            flTargetPriority *= CE_CallMethod(this, GetEnemyPriority, pTarget);
+            flTargetPriority *= Float:CE_CallMethod(this, GetEnemyPriority, pTarget);
         }
 
         if (flTargetPriority >= flMinPriority && bReachableOnly && !CE_CallMethod(this, IsReachable, vecTarget, pTarget)) {

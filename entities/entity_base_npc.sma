@@ -278,11 +278,8 @@ public plugin_end() {
 
     static Float:flReleaseAttack; flReleaseAttack = CE_GetMember(this, m_flReleaseAttack);
     if (!flReleaseAttack) {
-        static Float:flNextAttack; flNextAttack = CE_GetMember(this, m_flNextAttack);
-        if (flNextAttack <= flGameTime) {
-            if (pEnemy && CE_CallMethod(this, CanAttack, pEnemy)) {
-                CE_CallMethod(this, StartAttack);
-            }
+        if (pEnemy && CE_CallMethod(this, CanAttack, pEnemy)) {
+            CE_CallMethod(this, StartAttack);
         }
     } else if (flReleaseAttack <= flGameTime) {
         CE_CallMethod(this, ReleaseAttack);
@@ -323,11 +320,17 @@ public plugin_end() {
 @Entity_Pain(this) {}
 
 @Entity_CanAttack(this, pEnemy) {
+    static Float:flGameTime; flGameTime = get_gametime();
+    static Float:flNextAttack; flNextAttack = CE_GetMember(this, m_flNextAttack);
+    if (flNextAttack > flGameTime) return false;
+
+    if (!UTIL_CheckEntitiesLevel(this, pEnemy)) return false;
+
     static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
-    static Float:vecOrigin[3]; @Entity_GetWeaponOrigin(this, vecOrigin);
     static Float:vecTarget[3]; pev(pEnemy, pev_origin, vecTarget);
 
-    if (get_distance_f(vecOrigin, vecTarget) > flAttackRange) return false;
+    static Float:vecOrigin[3]; @Entity_GetWeaponOrigin(this, vecOrigin);
+    if (xs_vec_distance_2d(vecOrigin, vecTarget) > flAttackRange) return false;
 
     // if (!@Entity_IsInViewCone(this, vecTarget, 60.0)) return false;
 
@@ -336,19 +339,18 @@ public plugin_end() {
     static Float:flFraction; get_tr2(g_pTrace, TR_flFraction, flFraction);
 
     if (flFraction != 1.0) {
-        if (get_tr2(g_pTrace, TR_pHit) == pEnemy) {
-            get_tr2(g_pTrace, TR_vecEndPos, vecTarget);
-            return get_distance_f(vecOrigin, vecTarget) <= flAttackRange;
-        }
+        static pHit; pHit = get_tr2(g_pTrace, TR_pHit);
+
+        if (pHit != pEnemy) return false;
     }
 
-    return false;
+    return true;
 }
 
 @Entity_StartAttack(this) {
     static Float:flGameTime; flGameTime = get_gametime();
     static Float:flAttackRange; flAttackRange = CE_GetMember(this, m_flAttackRange);
-    static Float:flAttackDelay; flAttackDelay = CE_GetMember(this, m_flAttackDuration);
+    static Float:flAttackDuration; flAttackDuration = CE_GetMember(this, m_flAttackDuration);
     static Float:flAttackRate; flAttackRate = CE_GetMember(this, m_flAttackRate);
     static Float:flHitDelay; flHitDelay = CE_GetMember(this, m_flHitDelay);
     static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
@@ -362,8 +364,8 @@ public plugin_end() {
     }
 
     CE_SetMember(this, m_flReleaseHit, flGameTime + flHitDelay);
-    CE_SetMember(this, m_flReleaseAttack, flGameTime + flAttackDelay);
-    CE_SetMember(this, m_flNextAttack, flGameTime + flAttackDelay + flAttackRate);
+    CE_SetMember(this, m_flReleaseAttack, flGameTime + flAttackDuration);
+    CE_SetMember(this, m_flNextAttack, flGameTime + flAttackDuration + flAttackRate);
 }
 
 @Entity_ReleaseAttack(this) {
@@ -1066,4 +1068,16 @@ stock Float:UTIL_ApproachAngle(Float:flTarget, Float:flValue, Float:flSpeed) {
 
 stock Float:UTIL_AngleMod(Float:flAngle) {
   return (360.0/65536) * (floatround(flAngle * (65536.0/360.0), floatround_floor) & 65535);
+}
+
+stock bool:UTIL_CheckEntitiesLevel(pEntity, pOther) {
+    static Float:vecAbsMin[3]; pev(pEntity, pev_absmin, vecAbsMin);
+    static Float:vecAbsMax[3]; pev(pEntity, pev_absmax, vecAbsMax);
+    static Float:vecOtherAbsMin[3]; pev(pOther, pev_absmin, vecOtherAbsMin);
+    static Float:vecOtherAbsMax[3]; pev(pOther, pev_absmax, vecOtherAbsMax);
+
+    if (vecAbsMax[2] < vecOtherAbsMin[2]) return false;
+    if (vecAbsMin[2] > vecOtherAbsMax[2]) return false;
+
+    return true;
 }

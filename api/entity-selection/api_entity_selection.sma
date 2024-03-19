@@ -274,6 +274,8 @@ public Native_GetSelectionCursorPos(iPluginId, iArgc) {
     return;
   }
 
+  @Selection_CalculateCursorPos(g_rgSelections[iSelection]);
+
   set_array_f(2, g_rgSelections[iSelection][Selection_Cursor], 3);
 }
 

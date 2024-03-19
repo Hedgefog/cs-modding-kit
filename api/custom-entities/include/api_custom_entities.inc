@@ -15,7 +15,7 @@
  *
  * @return Handler of the registered entity
  */
-native CE:CE_Register(const szClassname[], CEPreset:iPreset = CEPreset_None);
+native CE:CE_Register(const szClassname[], CEPreset:iPreset = CEPreset_None, bool:bAbstract = false);
 
 /**
  * Extend entity
@@ -25,7 +25,7 @@ native CE:CE_Register(const szClassname[], CEPreset:iPreset = CEPreset_None);
  *
  * @return Handler of the registered entity
  */
-native CE:CE_RegisterDerived(const szClassname[], const szBase[]);
+native CE:CE_RegisterDerived(const szClassname[], const szBase[], bool:bAbstract = false);
 
 /**
  * Spawn entity

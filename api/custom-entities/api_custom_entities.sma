@@ -2,11 +2,9 @@
 
 #include <amxmodx>
 #include <amxmisc>
-#include <engine>
 #include <fakemeta>
 #include <hamsandwich>
 #tryinclude <datapack>
-#include <xs>
 
 #include <cellclass>
 #include <datapack_stocks>
@@ -14,39 +12,38 @@
 #include <api_custom_entities_const>
 
 #define MAX_HOOK_CALL_HIERARCHY_DEPTH 128
-
-#define DEFAULT_CELL_VALUE 0
-#define DEFAULT_FLOAT_VALUE 0.0
-#define DEFAULT_STRING_VALUE NULL_STRING
-
 #define CLASS_METADATA_ID "iId"
-
 #define LOG_PREFIX "[CE]"
 
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
 
+enum Callback {
+  Callback_PluginID,
+  Callback_FunctionId
+};
+
+enum EntityFlags (<<=1) {
+  EntityFlag_None = 0,
+  EntityFlag_Abstract = 1,
+}
+
 enum Entity {
   Array:Entity_Name,
   Array:Entity_Preset,
+  Array:Entity_Flags,
   Array:Entity_Hooks[CEFunction],
   Array:Entity_Class,
   Array:Entity_KeyMemberBindings
 };
 
-enum EntityHook {
-  EntityHook_PluginID,
-  EntityHook_FuncID
-};
-
 new g_iszBaseClassName;
+new bool:g_bIsCStrike = false;
 
 new Trie:g_itEntityIds = Invalid_Trie;
 new Array:g_rgEntities[Entity] = { Invalid_Array, ... };
 new g_iEntitiesNum = 0;
 
 new ClassInstance:g_pInstance = Invalid_ClassInstance;
-
-new bool:g_bIsCStrike = false;
 
 public plugin_precache() {
   g_bIsCStrike = !!cstrike_running();
@@ -86,7 +83,7 @@ public plugin_natives() {
   register_library("api_custom_entities");
 
   register_native("CE_Register", "Native_Register");  
-  register_native("CE_RegisterDerived", "Native_RegisterDerived");  
+  register_native("CE_RegisterDerived", "Native_RegisterDerived");
   register_native("CE_Create", "Native_Create");
   register_native("CE_Kill", "Native_Kill");
   register_native("CE_Remove", "Native_Remove");
@@ -123,15 +120,21 @@ public plugin_end() {
 public Native_Register(iPluginId, iArgc) {
   new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new CEPreset:iPreset = CEPreset:get_param(2);
+  new bool:bAbstract = bool:get_param(3);
+
+  new EntityFlags:iFlags = bAbstract ? EntityFlag_Abstract : EntityFlag_None;
   
-  return RegisterEntity(szClassname, iPreset);
+  return RegisterEntity(szClassname, iPreset, iFlags);
 }
 
 public Native_RegisterDerived(iPluginId, iArgc) {
   new szClassname[CE_MAX_NAME_LENGTH]; get_string(1, szClassname, charsmax(szClassname));
   new szBaseClassName[CE_MAX_NAME_LENGTH]; get_string(2, szBaseClassName, charsmax(szBaseClassName));
+  new bool:bAbstract = bool:get_param(3);
+
+  new EntityFlags:iFlags = bAbstract ? EntityFlag_Abstract : EntityFlag_None;
   
-  return RegisterEntity(szClassname, _, szBaseClassName);
+  return RegisterEntity(szClassname, _, iFlags, szBaseClassName);
 }
 
 public Native_Create(iPluginId, iArgc) {
@@ -140,10 +143,13 @@ public Native_Create(iPluginId, iArgc) {
   static bool:bTemp; bTemp = !!get_param(3);
 
   new pEntity = @Entity_Create(szClassname, vecOrigin, bTemp);
-  if (pEntity) {
-    new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
-    ClassInstanceSetMember(pInstance, CE_MEMBER_PLUGINID, iPluginId);
+  if (!pEntity) {
+    log_error(AMX_ERR_NATIVE, "%s Failed to create entity ^"%s^"! Entity is abstract or not registered!", LOG_PREFIX, szClassname);
+    return 0;
   }
+
+  new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
+  ClassInstanceSetMember(pInstance, CE_MEMBER_PLUGINID, iPluginId);
 
   return pEntity;
 }
@@ -246,7 +252,7 @@ public Native_GetHandler(iPluginId, iArgc) {
 }
 
 public Native_GetHandlerByEntity(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
 
   if (!@Entity_IsCustom(pEntity)) return -1;
 
@@ -256,7 +262,7 @@ public Native_GetHandlerByEntity(iPluginId, iArgc) {
 }
 
 public bool:Native_IsInstanceOf(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szClassname[CE_MAX_NAME_LENGTH]; get_string(2, szClassname, charsmax(szClassname));
 
   if (!@Entity_IsCustom(pEntity)) return false;
@@ -272,7 +278,7 @@ public bool:Native_IsInstanceOf(iPluginId, iArgc) {
 }
 
 public bool:Native_HasMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
@@ -283,7 +289,7 @@ public bool:Native_HasMember(iPluginId, iArgc) {
 }
 
 public any:Native_GetMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return 0;
@@ -294,7 +300,7 @@ public any:Native_GetMember(iPluginId, iArgc) {
 }
 
 public Native_DeleteMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return;
@@ -305,7 +311,7 @@ public Native_DeleteMember(iPluginId, iArgc) {
 }
 
 public Native_SetMember(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static iValue; iValue = get_param(3);
   static bool:bReplace; bReplace = bool:get_param(4);
@@ -318,7 +324,7 @@ public Native_SetMember(iPluginId, iArgc) {
 }
 
 public bool:Native_GetMemberVec(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
@@ -334,7 +340,7 @@ public bool:Native_GetMemberVec(iPluginId, iArgc) {
 }
 
 public Native_SetMemberVec(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static Float:vecValue[3]; get_array_f(3, vecValue, sizeof(vecValue));
   static bool:bReplace; bReplace = bool:get_param(4);
@@ -346,7 +352,7 @@ public Native_SetMemberVec(iPluginId, iArgc) {
 }
 
 public bool:Native_GetMemberString(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
 
   if (!@Entity_IsCustom(pEntity)) return false;
@@ -362,7 +368,7 @@ public bool:Native_GetMemberString(iPluginId, iArgc) {
 }
 
 public Native_SetMemberString(iPluginId, iArgc) {
-  new pEntity = get_param(1);
+  static pEntity; pEntity = get_param(1);
   static szMember[CE_MAX_MEMBER_NAME_LENGTH]; get_string(2, szMember, charsmax(szMember));
   static szValue[128]; get_string(3, szValue, charsmax(szValue));
   static bool:bReplace; bReplace = bool:get_param(4);
@@ -442,12 +448,14 @@ public FMHook_KeyValue(pEntity, hKVD) {
 
   if (equal(szKey, "classname")) {
     new iId = GetIdByClassName(szValue);
-
     if (iId != -1) {
       // using set_kvd leads to duplicate kvd emit, this check will fix the issue
       if (g_pInstance == Invalid_ClassInstance) {
-        set_kvd(hKVD, KV_Value, CE_BASE_CLASSNAME);
-        g_pInstance = AllocPData(iId, pEntity);
+        new EntityFlags:iFlags = ArrayGetCell(g_rgEntities[Entity_Flags], iId);
+        if (~iFlags & EntityFlag_Abstract) {
+          set_kvd(hKVD, KV_Value, CE_BASE_CLASSNAME);
+          g_pInstance = AllocPData(iId, pEntity);
+        }
       }
     } else {
         // if for some reason data was not assigned
@@ -564,6 +572,9 @@ public HamHook_Base_BloodColor(pEntity) {
 @Entity_Create(const szClassname[], const Float:vecOrigin[3], bool:bTemp) {
   new iId = GetIdByClassName(szClassname);
   if (iId == -1) return 0;
+
+  static EntityFlags:iFlags; iFlags = ArrayGetCell(g_rgEntities[Entity_Flags], iId);
+  if (iFlags & EntityFlag_Abstract) return 0;
 
   new this = engfunc(EngFunc_CreateNamedEntity, g_iszBaseClassName);
   set_pev(this, pev_classname, szClassname);
@@ -701,8 +712,7 @@ bool:@Entity_IsCustom(const &this) {
 @Entity_InitPhysics(&this) {
   if (ExecuteHookFunction(CEFunction_InitPhysics, this) != PLUGIN_CONTINUE) return;
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
-
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
   static iId; iId = ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
   static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iId);
 
@@ -748,7 +758,7 @@ bool:@Entity_IsCustom(const &this) {
 @Entity_InitModel(&this) {
   if (ExecuteHookFunction(CEFunction_InitModel, this) != PLUGIN_CONTINUE) return;
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
   if (ClassInstanceHasMember(pInstance, CE_MEMBER_MODEL)) {
     static szModel[MAX_RESOURCE_PATH_LENGTH];
@@ -760,7 +770,7 @@ bool:@Entity_IsCustom(const &this) {
 @Entity_InitSize(&this) {
   if (ExecuteHookFunction(CEFunction_InitSize, this) != PLUGIN_CONTINUE) return;
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
   if (ClassInstanceHasMember(pInstance, CE_MEMBER_MINS) && ClassInstanceHasMember(pInstance, CE_MEMBER_MAXS)) {
     static Float:vecMins[3]; ClassInstanceGetMemberArray(pInstance, CE_MEMBER_MINS, vecMins, 3);
@@ -772,7 +782,7 @@ bool:@Entity_IsCustom(const &this) {
 @Entity_Kill(&this, const &pKiller, bool:bPicked) {
   if (ExecuteHookFunction(CEFunction_Kill, this, pKiller, bPicked) != PLUGIN_CONTINUE) return;
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
   ClassInstanceSetMember(pInstance, CE_MEMBER_NEXTKILL, 0.0);
 
@@ -808,7 +818,7 @@ bool:@Entity_IsCustom(const &this) {
 
   ExecuteHookFunction(CEFunction_Think, this);
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
   static Float:flGameTime; flGameTime = get_gametime();
   static iDeadFlag; iDeadFlag = pev(this, pev_deadflag);
@@ -832,7 +842,7 @@ bool:@Entity_IsCustom(const &this) {
 @Entity_Touch(&this, const &pToucher) {
   if (ExecuteHookFunction(CEFunction_Touch, this, pToucher)) return;
 
-  new ClassInstance:pInstance = @Entity_GetClassInstance(this);
+  static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
   static iId; iId = ClassInstanceGetMember(pInstance, CE_MEMBER_ID);
   static CEPreset:iPreset; iPreset = ArrayGetCell(g_rgEntities[Entity_Preset], iId);
@@ -993,6 +1003,7 @@ InitStorages() {
   g_rgEntities[Entity_Name] = ArrayCreate(CE_MAX_NAME_LENGTH);
   g_rgEntities[Entity_Preset] = ArrayCreate();
   g_rgEntities[Entity_Class] = ArrayCreate();
+  g_rgEntities[Entity_Flags] = ArrayCreate();
   g_rgEntities[Entity_KeyMemberBindings] = ArrayCreate();
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
@@ -1009,19 +1020,16 @@ DestroyStorages() {
     ArrayDestroy(g_rgEntities[Entity_Hooks][iFunction]);
   }
 
-  for (new Entity:iData = Entity:0; iData < Entity; ++iData) {
-    ArrayDestroy(Array:g_rgEntities[iData]);
-  }
-
   ArrayDestroy(g_rgEntities[Entity_KeyMemberBindings]);
   ArrayDestroy(g_rgEntities[Entity_Class]);
+  ArrayDestroy(g_rgEntities[Entity_Flags]);
   ArrayDestroy(g_rgEntities[Entity_Preset]);
   ArrayDestroy(g_rgEntities[Entity_Name]);
 
   TrieDestroy(g_itEntityIds);
 }
 
-RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const szParent[] = "") {
+RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const EntityFlags:iFlags = EntityFlag_None, const szParent[] = "") {
   new iId = g_iEntitiesNum;
 
   new Class:cParent = Invalid_Class;
@@ -1043,10 +1051,11 @@ RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const szPa
   ArrayPushString(g_rgEntities[Entity_Name], szClassname);
   ArrayPushCell(g_rgEntities[Entity_Preset], iPreset);
   ArrayPushCell(g_rgEntities[Entity_Class], cEntity);
+  ArrayPushCell(g_rgEntities[Entity_Flags], iFlags);
   ArrayPushCell(g_rgEntities[Entity_KeyMemberBindings], TrieCreate());
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    ArrayPushCell(g_rgEntities[Entity_Hooks][iFunction], ArrayCreate(_:EntityHook));
+    ArrayPushCell(g_rgEntities[Entity_Hooks][iFunction], ArrayCreate(_:Callback));
   }
 
   g_iEntitiesNum++;
@@ -1070,6 +1079,13 @@ FreeRegisteredEntity(iId) {
     ArraySetCell(g_rgEntities[Entity_Hooks][iFunction], iId, Invalid_Array);
   }
 
+  FreeEntityKeyMemberBindings(iId);
+
+  new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
+  ClassDestroy(cEntity);
+}
+
+FreeEntityKeyMemberBindings(iId) {
   new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iId);
 
   new TrieIter:itKeyMemberBindingsIter = TrieIterCreate(itKeyMemberBindings);
@@ -1083,9 +1099,6 @@ FreeRegisteredEntity(iId) {
   TrieIterDestroy(itKeyMemberBindingsIter);
 
   TrieDestroy(itKeyMemberBindings);
-
-  new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
-  ClassDestroy(cEntity);
 }
 
 GetIdByClassName(const szClassname[]) {
@@ -1104,18 +1117,18 @@ RegisterEntityHook(CEFunction:iFunction, const szClassname[], const szCallback[]
 
   new iFunctionId = get_func_id(szCallback, iPluginId);
   if (iFunctionId < 0) {
-    new szFilename[32];
+    new szFilename[64];
     get_plugin(iPluginId, szFilename, charsmax(szFilename));
     log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
     return -1;
   }
 
-  new rgHook[EntityHook];
-  rgHook[EntityHook_PluginID] = iPluginId;
-  rgHook[EntityHook_FuncID] = iFunctionId;
+  new rgHook[Callback];
+  rgHook[Callback_PluginID] = iPluginId;
+  rgHook[Callback_FunctionId] = iFunctionId;
 
   new Array:irgHooks = ArrayGetCell(g_rgEntities[Entity_Hooks][iFunction], iId);
-  new iHookId = ArrayPushArray(irgHooks, rgHook[EntityHook:0], _:EntityHook);
+  new iHookId = ArrayPushArray(irgHooks, rgHook[Callback:0], _:Callback);
 
   return iHookId;
 }
@@ -1136,9 +1149,7 @@ RemoveKeyMemberBinding(iId, const szKey[], const szMember[]) {
   new Trie:itKeyMemberBindings = ArrayGetCell(g_rgEntities[Entity_KeyMemberBindings], iId);
 
   new Trie:itMemberTypes = Invalid_Trie;
-  if (!TrieGetCell(itKeyMemberBindings, szKey, itMemberTypes)) {
-    return;
-  }
+  if (!TrieGetCell(itKeyMemberBindings, szKey, itMemberTypes)) return;
 
   TrieDeleteKey(itMemberTypes, szMember);
 }
@@ -1169,8 +1180,8 @@ ExecuteHookFunction(CEFunction:iFunction, pEntity, any:...) {
     new iHooksNum; iHooksNum = ArraySize(irgHooks);
 
     for (new iHookId = 0; iHookId < iHooksNum; ++iHookId) {
-      static iPluginId; iPluginId = ArrayGetCell(irgHooks, iHookId, _:EntityHook_PluginID);
-      static iFunctionId; iFunctionId = ArrayGetCell(irgHooks, iHookId, _:EntityHook_FuncID);
+      static iPluginId; iPluginId = ArrayGetCell(irgHooks, iHookId, _:Callback_PluginID);
+      static iFunctionId; iFunctionId = ArrayGetCell(irgHooks, iHookId, _:Callback_FunctionId);
 
       if (callfunc_begin_i(iFunctionId, iPluginId) == 1)  {
         callfunc_push_int(pEntity);
@@ -1285,4 +1296,3 @@ stock UTIL_ParseVector(const szBuffer[], Float:vecOut[3]) {
     vecOut[i] = str_to_float(rgszOrigin[i]);
   }
 }
-

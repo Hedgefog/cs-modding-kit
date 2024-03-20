@@ -238,7 +238,7 @@ public plugin_end() {
     if (CE_HasMember(this, m_vecTarget)) {
         static Float:vecTarget[3]; CE_GetMemberVec(this, m_vecTarget, vecTarget);
         CE_CallMethod(this, MoveTo, vecTarget);
-    } else {
+    } else if (CE_HasMember(this, m_vecInput)) {
         CE_CallMethod(this, StopMovement);
     }
 
@@ -274,8 +274,11 @@ public plugin_end() {
 
 @Entity_AttackThink(this) {
     static Float:flGameTime; flGameTime = get_gametime();
-    static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
 
+    static pEnemy; pEnemy = CE_CallMethod(this, GetEnemy);
+    static Float:vecTarget[3]; pev(pEnemy, pev_origin, vecTarget);
+
+    if (CE_CallMethod(this, IsInViewCone, vecTarget)) {
     static Float:flReleaseAttack; flReleaseAttack = CE_GetMember(this, m_flReleaseAttack);
     if (!flReleaseAttack) {
         if (pEnemy && CE_CallMethod(this, CanAttack, pEnemy)) {
@@ -290,6 +293,9 @@ public plugin_end() {
         CE_CallMethod(this, Hit);
         CE_SetMember(this, m_flReleaseHit, 0.0);
     }
+    }
+
+    @Entity_TurnTo(this, vecTarget);
 }
 
 @Entity_TakeDamage(this, pInflictor, pAttacker, Float:flDamage, iDamageBits) {
@@ -421,21 +427,11 @@ public plugin_end() {
 }
 
 @Entity_MoveTo(this, const Float:vecTarget[3]) {
-    static Float:flGameTime; flGameTime = get_gametime();
-    static Float:flLastAIThink; flLastAIThink = CE_GetMember(this, m_flLastAIThink);
-    static Float:flDelta; flDelta = floatmin(flGameTime - flLastAIThink, 1.0);
-    static Float:flMaxSpeed; pev(this, pev_maxspeed, flMaxSpeed);
-    static Float:flMaxAngle; flMaxAngle = 180.0 * flDelta;
-    static bool:rgbLockAxis[3]; rgbLockAxis = bool:{true, false, true};
-
-    static iMoveType; iMoveType = pev(this, pev_movetype);
-    if (iMoveType == MOVETYPE_FLY || iMoveType == MOVETYPE_NOCLIP) {
-        rgbLockAxis[0] = false;
-    }
-
-    @Entity_TurnTo(this, vecTarget, rgbLockAxis, flMaxAngle);
+    @Entity_TurnTo(this, vecTarget);
 
     if (CE_CallMethod(this, IsInViewCone, vecTarget)) {
+        static Float:flMaxSpeed; pev(this, pev_maxspeed, flMaxSpeed);
+
         if (flMaxSpeed > 0.0) {
             CE_CallMethod(this, MoveForward);
         }
@@ -499,7 +495,6 @@ public plugin_end() {
     if (!CE_HasMember(this, m_vecTarget)) return true;
 
     static Float:vecTarget[3]; CE_GetMemberVec(this, m_vecTarget, vecTarget);
-    if (!CE_CallMethod(this, IsInViewCone, vecTarget)) return false;
 
     static Float:vecAbsMin[3]; pev(this, pev_absmin, vecAbsMin);
     static Float:vecAbsMax[3]; pev(this, pev_absmax, vecAbsMax);
@@ -945,7 +940,18 @@ Float:@Entity_GetPathCost(this, NavArea:nextArea, NavArea:prevArea) {
     return 1.0;
 }
 
-@Entity_TurnTo(this, const Float:vecTarget[3], const bool:rgbLockAxis[3], const Float:flSpeed) { 
+@Entity_TurnTo(this, const Float:vecTarget[3]) {
+    static Float:flGameTime; flGameTime = get_gametime();
+    static Float:flLastAIThink; flLastAIThink = CE_GetMember(this, m_flLastAIThink);
+    static Float:flDelta; flDelta = floatmin(flGameTime - flLastAIThink, 1.0);
+    static Float:flSpeed; flSpeed = 180.0 * flDelta;
+    static bool:rgbLockAxis[3]; rgbLockAxis = bool:{true, false, true};
+
+    static iMoveType; iMoveType = pev(this, pev_movetype);
+    if (iMoveType == MOVETYPE_FLY || iMoveType == MOVETYPE_NOCLIP) {
+        rgbLockAxis[0] = false;
+    }
+
     static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
     static Float:vecAngles[3]; pev(this, pev_angles, vecAngles);
 
@@ -1061,9 +1067,15 @@ stock Float:UTIL_ApproachAngle(Float:flTarget, Float:flValue, Float:flSpeed) {
         flDelta -= 360.0;
     }
 
-    flDelta = floatclamp(flDelta, -flSpeed, flSpeed);
+    if (flDelta > flSpeed) {
+        flValue += flSpeed;
+    } else if (flDelta < -flSpeed) {
+        flValue -= flSpeed;
+    } else { 
+        flValue = flTarget;
+    }
 
-    return floatmin(flTarget, UTIL_AngleMod(flValue + flDelta));
+    return flValue;
 }
 
 stock Float:UTIL_AngleMod(Float:flAngle) {

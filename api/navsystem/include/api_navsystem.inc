@@ -24,11 +24,12 @@ native Nav_Precache();
 native Nav_GetAreaCount();
 native Nav_GetArea(iIndex);
 native Nav_GetAreaById(iId);
-native Nav_GetAreaFromGrid(Float:vecPos[3], Float:flBeneathLimit);
+native NavArea:Nav_GetAreaFromGrid(Float:vecPos[3], Float:flBeneathLimit = 120.0);
 native Nav_WorldToGridX(Float:flValue);
 native Nav_WorldToGridY(Float:flValue);
 native NavArea:Nav_FindFirstAreaInDirection(const Float:vecStart[3], NavDirType:iDir, Float:flRange, Float:flBeneathLimit, pIgnoreEnt, Float:vecClosePos[3]);
 native bool:Nav_IsAreaVisible(const Float:vecPos[3], NavArea:pArea);
+native NavArea:Nav_GetNearestArea(const Float:vecPos[3], bool:bAnyZ = false, pIgnoreEnt = nullptr, NavArea:pIgnoreArea = Invalid_NavArea);
 
 native Nav_Area_GetId(NavArea:pArea);
 native NavAttributeType:Nav_Area_GetAttributes(NavArea:pArea);
@@ -78,9 +79,11 @@ native Array:Nav_Path_GetSegments(NavPath:pPath);
   *
   * @return Task handler
 */
-native NavBuildPathTask:Nav_Path_Find(const Float:vecStart[3], const Float:vecGoal[3], const szCbFunc[], pIgnoreEntity, any:iUserToken, const szCostFunc[] = "");
+native NavBuildPathTask:Nav_Path_Find(const Float:vecStart[3], const Float:vecGoal[3], const szCbFunc[] = "", pIgnoreEntity = 0, any:iUserToken = 0, const szCostFunc[] = "");
+native bool:Nav_Path_FindTask_Await(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_Abort(NavBuildPathTask:pTask);
 native NavPath:Nav_Path_FindTask_GetPath(NavBuildPathTask:pTask);
+native bool:Nav_Path_FindTask_IsFinished(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_IsSuccessed(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_IsTerminated(NavBuildPathTask:pTask);
 native any:Nav_Path_FindTask_GetUserToken(NavBuildPathTask:pTask);

@@ -962,6 +962,8 @@ stock __cls_ExecuteMethod(const &ClassInstance:pInstance, const &Struct:sMethod,
 
   __cls_PushMethodToCallStack(sMethod, pInstance);
 
+  __cls_LogExecution(pInstance, sMethod);
+
   if (callfunc_begin_i(StructGetCell(sMethod, __cls_MethodData_FunctionId), StructGetCell(sMethod, __cls_MethodData_PluginId)) == 1) {
     #if defined _datapack_included
       if (dpParams != Invalid_DataPack) {
@@ -1112,4 +1114,26 @@ stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
   }
 
   return StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+}
+
+stock __cls_LogExecution(const &ClassInstance:pInstance, const &Struct:sMethod) {
+  #if defined __cls_DEBUG
+    static Struct:sClass; sClass = StructGetCell(sMethod, __cls_MethodData_Class);
+    static szName[32]; ClassGetMetadataString(Class:sClass, "__NAME", szName, charsmax(szName));
+    static szMethodName[32]; StructGetString(sMethod, __cls_MethodData_Name, szMethodName, charsmax(szMethodName));
+
+    if (equal(szName, NULL_STRING)) {
+      format(szName, charsmax(szName), "CLASS_%d", sClass);
+    }
+
+    __cls_DebugMessage("[%d] %s::%s(...)", pInstance, szName, szMethodName);
+  #endif
+}
+
+stock __cls_DebugMessage(const szFormat[], any:...) {
+  #if defined __cls_DEBUG
+    static szMessage[MAX_FMT_LENGTH];
+    vformat(szMessage, charsmax(szMessage), szFormat, 2);
+    engfunc(EngFunc_AlertMessage, at_aiconsole, "%s^n", szMessage);
+  #endif
 }

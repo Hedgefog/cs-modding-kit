@@ -31,8 +31,9 @@
 #define CE_MEMBER_LASTINIT "_flLastInit"
 #define CE_MEMBER_LASTSPAWN "_flLastSpawn"
 #define CE_MEMBER_PLUGINID "_iPluginId"
-#define CE_MEMBER_TARGETNAME "_Targetname"
-#define CE_MEMBER_TARGET "_Target"
+#define CE_MEMBER_TARGETNAME "_szTargetname"
+#define CE_MEMBER_TARGET "_szTarget"
+#define CE_MEMBER_PICKED "_bPicked"
 
 enum CE {
   CE_InvalidHandler = -1

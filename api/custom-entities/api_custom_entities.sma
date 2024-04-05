@@ -45,6 +45,8 @@ new g_iEntitiesNum = 0;
 
 new ClassInstance:g_pInstance = Invalid_ClassInstance;
 
+new g_iCallPluginId = -1;
+
 public plugin_precache() {
   g_bIsCStrike = !!cstrike_running();
   g_iszBaseClassName = engfunc(EngFunc_AllocString, CE_BASE_CLASSNAME);
@@ -109,6 +111,7 @@ public plugin_natives() {
   register_native("CE_SetMemberString", "Native_SetMemberString");
   register_native("CE_CallMethod", "Native_CallMethod");
   register_native("CE_CallBaseMethod", "Native_CallBaseMethod");
+  register_native("CE_GetCallPluginId", "Native_GetCallPluginId");
 }
 
 public plugin_end() {
@@ -385,6 +388,10 @@ public any:Native_CallMethod(iPluginId, iArgc) {
 
   new ClassInstance:pInstance = @Entity_GetClassInstance(pEntity);
 
+  new iOldCallPluginId = g_iCallPluginId;
+
+  g_iCallPluginId = iPluginId;
+
   ClassInstanceCallMethodBegin(pInstance, szMethod);
 
   ClassInstanceCallMethodPushParamCell(pEntity);
@@ -393,12 +400,20 @@ public any:Native_CallMethod(iPluginId, iArgc) {
     ClassInstanceCallMethodPushNativeParam(iParam);
   }
 
-  return ClassInstanceCallMethodEnd();
+  new any:result = ClassInstanceCallMethodEnd();
+
+  g_iCallPluginId = iOldCallPluginId;
+
+  return result;
 }
 
 public any:Native_CallBaseMethod(iPluginId, iArgc) {
   new ClassInstance:pInstance = ClassInstanceGetCurrent();
   new pEntity = ClassInstanceGetMember(pInstance, CE_MEMBER_POINTER);
+
+  new iOldCallPluginId = g_iCallPluginId;
+
+  g_iCallPluginId = iPluginId;
 
   ClassInstanceCallMethodBeginBase();
 
@@ -408,7 +423,15 @@ public any:Native_CallBaseMethod(iPluginId, iArgc) {
     ClassInstanceCallMethodPushNativeParam(iParam);
   }
 
-  return ClassInstanceCallMethodEnd();
+  new any:result = ClassInstanceCallMethodEnd();
+
+  g_iCallPluginId = iOldCallPluginId;
+
+  return result;
+}
+
+public Native_GetCallPluginId(iPluginId, iArgc) {
+  return g_iCallPluginId;
 }
 
 /*--------------------------------[ Commands ]--------------------------------*/
@@ -535,9 +558,9 @@ public HamHook_Base_Touch_Post(pEntity, pToucher) {
   return HAM_IGNORED;
 }
 
-public HamHook_Base_Killed(pEntity, pKiller) {
+public HamHook_Base_Killed(pEntity, pKiller, iShouldGib) {
   if (@Entity_IsCustom(pEntity)) {
-    @Entity_Kill(pEntity, pKiller, false);
+    @Entity_Kill(pEntity, pKiller, iShouldGib);
     return HAM_SUPERCEDE;
   }
 
@@ -640,6 +663,9 @@ bool:@Entity_IsCustom(const &this) {
     }
     case CEPreset_NPC: {
       set_pev(this, pev_flags, pev(this, pev_flags) | FL_MONSTER);
+    }
+    case CEPreset_Item: {
+      ClassInstanceSetMember(pInstance, CE_MEMBER_PICKED, false);
     }
   }
 
@@ -779,8 +805,8 @@ bool:@Entity_IsCustom(const &this) {
   }
 }
 
-@Entity_Kill(&this, const &pKiller, bool:bPicked) {
-  if (ExecuteHookFunction(CEFunction_Kill, this, pKiller, bPicked) != PLUGIN_CONTINUE) return;
+@Entity_Kill(&this, const &pKiller, iShouldGib) {
+  if (ExecuteHookFunction(CEFunction_Kill, this, pKiller, iShouldGib) != PLUGIN_CONTINUE) return;
 
   static ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
 
@@ -810,7 +836,7 @@ bool:@Entity_IsCustom(const &this) {
     set_pev(this, pev_flags, pev(this, pev_flags) | FL_KILLME);
   }
 
-  ExecuteHookFunction(CEFunction_Killed, this, pKiller, bPicked);
+  ExecuteHookFunction(CEFunction_Killed, this, pKiller, iShouldGib);
 }
 
 @Entity_Think(&this) {
@@ -883,8 +909,11 @@ bool:@Entity_IsCustom(const &this) {
   if (~pev(this, pev_flags) & FL_ONGROUND) return;
 
   if (ExecuteHookFunction(CEFunction_Pickup, this, pToucher)) {
+    new ClassInstance:pInstance; pInstance = @Entity_GetClassInstance(this);
+
+    ClassInstanceSetMember(pInstance, CE_MEMBER_PICKED, true);
     ExecuteHookFunction(CEFunction_Picked, this, pToucher);
-    @Entity_Kill(this, pToucher, true);
+    @Entity_Kill(this, pToucher, 0);
   }
 }
 
@@ -1193,9 +1222,9 @@ ExecuteHookFunction(CEFunction:iFunction, pEntity, any:...) {
           }
           case CEFunction_Kill, CEFunction_Killed: {
             static pKiller; pKiller = getarg(2);
-            static bool:bPicked; bPicked = bool:getarg(3);
+            static iShouldGib; iShouldGib = getarg(3);
             callfunc_push_int(pKiller);
-            callfunc_push_int(bPicked);
+            callfunc_push_int(iShouldGib);
           }
           case CEFunction_Pickup, CEFunction_Picked: {
             static pPlayer; pPlayer = getarg(2);

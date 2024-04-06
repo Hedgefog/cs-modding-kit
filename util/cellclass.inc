@@ -63,8 +63,8 @@ enum _:__cls_ParamTypes {
   CMP_ParamsCellArray
 };
 
-#define CMP_Float CMP_Cell
-#define CMP_FloatArray CMP_Array
+// #define CMP_Float CMP_Cell
+// #define CMP_FloatArray CMP_Array
 
 stock const __cls_ParamTypeNames[__cls_ParamTypes][64] = {
   "Cell",
@@ -113,6 +113,11 @@ enum __cls_InstanceData {
   Trie:__cls_InstanceData_Members
 };
 
+enum __cls_InstanceCache {
+  ClassInstance:__cls_InstanceCache_Instance,
+  any:__cls_InstanceCache_Value
+};
+
 enum __cls_MethodCallStackItem {
   __cls_MethodCallStackItem_Name[CLASS_METHOD_MAX_NAME_LENGTH],
   ClassInstance:__cls_MethodCallStackItem_Instance,
@@ -131,18 +136,25 @@ stock __cls_call_iParamTypesNum = 0;
 stock __cls_call_iParamsNum = 0;
 stock __cls_call_iBufferPos = 0;
 
+// Cache
+stock __cls_cache_InstanceClass[__cls_InstanceCache] = { Invalid_ClassInstance, Invalid_Class };
+stock __cls_cache_InstanceMethods[__cls_InstanceCache] = { Invalid_ClassInstance, Invalid_Trie };
+stock __cls_cache_InstanceMembers[__cls_InstanceCache] = { Invalid_ClassInstance, Invalid_Trie };
+stock __cls_cache_InstanceGetters[__cls_InstanceCache] = { Invalid_ClassInstance, Invalid_Trie };
+stock __cls_cache_InstanceSetters[__cls_InstanceCache] = { Invalid_ClassInstance, Invalid_Trie };
+
 // Buffers
 stock any:__cls_rgBuffer[CLASS_PARAM_BUFFER_LENGTH];
 
 /*--------------------------------[ Class Functions] --------------------------------*/
 
 stock Class:ClassCreate(const &Class:sBaseClass = Invalid_Class) {
-  new Class:class = Class:StructCreate(__cls_Data);
-  StructSetCell(Struct:class, __cls_Data_Base, sBaseClass);
-  StructSetCell(Struct:class, __cls_Data_Methods, TrieCreate());
-  StructSetCell(Struct:class, __cls_Data_Members, TrieCreate());
-  StructSetCell(Struct:class, __cls_Data_Setters, TrieCreate());
-  StructSetCell(Struct:class, __cls_Data_Getters, TrieCreate());
+  new Struct:class = StructCreate(__cls_Data);
+  StructSetCell(class, __cls_Data_Base, sBaseClass);
+  StructSetCell(class, __cls_Data_Methods, TrieCreate());
+  StructSetCell(class, __cls_Data_Members, TrieCreate());
+  StructSetCell(class, __cls_Data_Setters, TrieCreate());
+  StructSetCell(class, __cls_Data_Getters, TrieCreate());
 
   return Class:class;
 }
@@ -281,7 +293,23 @@ stock ClassInstance:ClassInstanceCreate(const &Class:class) {
 }
 
 stock ClassInstanceDestroy(&ClassInstance:pInstance) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  if (pInstance == __cls_cache_InstanceClass[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceClass[__cls_InstanceCache_Instance] = Invalid_ClassInstance;
+  }
+
+  if (pInstance == __cls_cache_InstanceMembers[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceMembers[__cls_InstanceCache_Instance] = Invalid_ClassInstance;
+  }
+
+  if (pInstance == __cls_cache_InstanceGetters[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceGetters[__cls_InstanceCache_Instance] = Invalid_ClassInstance;
+  }
+
+  if (pInstance == __cls_cache_InstanceSetters[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceSetters[__cls_InstanceCache_Instance] = Invalid_ClassInstance;
+  }
+
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
   TrieDestroy(itMembers);
 
   StructDestroy(Struct:pInstance);
@@ -564,106 +592,100 @@ stock ClassInstanceCallMethodPushNativeParam(iParam) {
 }
 
 stock Class:ClassInstanceGetClass(const &ClassInstance:pInstance) {
-  return StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  return __cls_GetInstanceClass(pInstance);
 }
 
 stock bool:ClassInstanceHasMember(const &ClassInstance:pInstance, const szMember[]) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   return TrieKeyExists(itMembers, szMember);
 }
 
 stock ClassInstanceDeleteMember(const &ClassInstance:pInstance, const szMember[]) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   TrieDeleteKey(itMembers, szMember);
 }
 
 stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[]) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+  static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
   if (TrieKeyExists(itGetters, szMember)) {
     return __cls_CallCellGetter(pInstance, szMember);
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   static any:value;
   return TrieGetCell(itMembers, szMember, value) ? value : 0;
 }
 
 stock ClassInstanceSetMember(const &ClassInstance:pInstance, const szMember[], any:value, bool:bReplace = true) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+  static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
   if (TrieKeyExists(itSetters, szMember)) {
     __cls_CallCellSetter(pInstance, szMember, value);
     return;
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   TrieSetCell(itMembers, szMember, value, bReplace);
 }
 
 stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const szMember[], szOut[], iMaxLen) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+  static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
   if (TrieKeyExists(itGetters, szMember)) {
     return __cls_CallStringGetter(pInstance, szMember, szOut, iMaxLen);
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   copy(szOut, iMaxLen, NULL_STRING);
   return !!TrieGetString(itMembers, szMember, szOut, iMaxLen);
 }
 
 stock ClassInstanceSetMemberString(const &ClassInstance:pInstance, const szMember[], const szValue[], bool:bReplace = true) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+  static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
   if (TrieKeyExists(itSetters, szMember)) {
     __cls_CallStringSetter(pInstance, szMember, szValue);
     return;
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   TrieSetString(itMembers, szMember, szValue, bReplace);
 }
 
 stock bool:ClassInstanceGetMemberArray(const &ClassInstance:pInstance, const szMember[], any:rgOut[], iLen) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
+  static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
   if (TrieKeyExists(itGetters, szMember)) {
     return __cls_CallArrayGetter(pInstance, szMember, rgOut, iLen);
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   return !!TrieGetArray(itMembers, szMember, rgOut, iLen);
 }
 
 stock ClassInstanceSetMemberArray(const &ClassInstance:pInstance, const szMember[], const any:rgValue[], iLen, bool:bReplace = true) {
-  static Class:class; class = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
-  static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
+  static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
   if (TrieKeyExists(itSetters, szMember)) {
     __cls_CallArraySetter(pInstance, szMember, rgValue, iLen);
     return;
   }
 
-  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
 
   TrieSetArray(itMembers, szMember, rgValue, iLen, bReplace);
 }
 
 stock bool:ClassInstanceIsInstanceOf(const &ClassInstance:pInstance, const &Class:class) {
-  new Class:sCurrentClass = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  new Class:sCurrentClass = __cls_GetInstanceClass(pInstance);
 
   do {
     if (sCurrentClass == class) return true;
@@ -674,6 +696,44 @@ stock bool:ClassInstanceIsInstanceOf(const &ClassInstance:pInstance, const &Clas
 }
 
 /*--------------------------------[ Internal Functions] --------------------------------*/
+
+stock Class:__cls_GetInstanceClass(const &ClassInstance:pInstance) {
+  if (pInstance != __cls_cache_InstanceClass[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceClass[__cls_InstanceCache_Value] = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+    __cls_cache_InstanceClass[__cls_InstanceCache_Instance] = pInstance;
+  }
+
+  return __cls_cache_InstanceClass[__cls_InstanceCache_Value];
+}
+
+stock Trie:__cls_GetInstanceMembersTrie(const &ClassInstance:pInstance) {
+  if (pInstance != __cls_cache_InstanceMembers[__cls_InstanceCache_Instance]) {
+    __cls_cache_InstanceMembers[__cls_InstanceCache_Value] = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+    __cls_cache_InstanceMembers[__cls_InstanceCache_Instance] = pInstance;
+  }
+
+  return __cls_cache_InstanceMembers[__cls_InstanceCache_Value];
+}
+
+stock Trie:__cls_GetInstanceGettersTrie(const &ClassInstance:pInstance) {
+  if (pInstance != __cls_cache_InstanceGetters[__cls_InstanceCache_Instance]) {
+    static Class:class; class = __cls_GetInstanceClass(pInstance);
+    __cls_cache_InstanceGetters[__cls_InstanceCache_Value] = StructGetCell(Struct:class, __cls_Data_Getters);
+    __cls_cache_InstanceGetters[__cls_InstanceCache_Instance] = pInstance;
+  }
+
+  return __cls_cache_InstanceGetters[__cls_InstanceCache_Value];
+}
+
+stock Trie:__cls_GetInstanceSettersTrie(const &ClassInstance:pInstance) {
+  if (pInstance != __cls_cache_InstanceSetters[__cls_InstanceCache_Instance]) {
+    static Class:class; class = __cls_GetInstanceClass(pInstance);
+    __cls_cache_InstanceSetters[__cls_InstanceCache_Value] = StructGetCell(Struct:class, __cls_Data_Setters);
+    __cls_cache_InstanceSetters[__cls_InstanceCache_Instance] = pInstance;
+  }
+
+  return __cls_cache_InstanceSetters[__cls_InstanceCache_Value];
+}
 
 stock __cls_ParseParamTypes(Array:irgArgs, &Array:irgParamTypes) {
   new iArgc = ArraySize(irgArgs);
@@ -710,9 +770,8 @@ stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], con
   __cls_call_pInstance = pInstance;
   __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
-  __cls_call_iBufferPos = 0;
-
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
+  __cls_call_iBufferPos = 0;
 
   if (__cls_call_sMethod == Invalid_Struct) {
     set_fail_state(__cls_err_MethodNotFoundInBaseClass, szMethod);
@@ -730,7 +789,7 @@ stock __cls_FreeMethodCall() {
 stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __cls_MethodType:iMethodType = __cls_MethodType_Method) {
   __cls_InitMethodCall(pInstance, szMethod, _, iMethodType);
 
-  static Class:sInstanceClass; sInstanceClass = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  static Class:sInstanceClass; sInstanceClass = __cls_GetInstanceClass(pInstance);
 
   // Check for virtual method call
   // If we are already in the execution context and the method is virual jump to top level context
@@ -928,7 +987,7 @@ stock any:__cls_ExecuteMethod() {
 stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod[], __cls_MethodType:iMethodType) {
   new Class:sCurrentClass = class;
 
-  static iStructMethodsField= __cls_MethodType_Invalid;
+  static iStructMethodsField = __cls_MethodType_Invalid;
   switch (iMethodType) {
     case __cls_MethodType_Method, __cls_MethodType_Virtual: {
       iStructMethodsField = __cls_Data_Methods;
@@ -985,15 +1044,13 @@ stock __cls_GetCurrentMethodFromCallStack(rgCallStackItem[__cls_MethodCallStackI
 }
 
 stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
-  if (!__cls_IsMethodCallStackEmpty()) {
-      static rgCallStackItem[__cls_MethodCallStackItem]; __cls_GetCurrentMethodFromCallStack(rgCallStackItem);
-
-      if (rgCallStackItem[__cls_MethodCallStackItem_Instance] == pInstance) {
-        return rgCallStackItem[__cls_MethodCallStackItem_Class];
+  if (__cls_callstack_size) {
+      if (__cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance] == pInstance) {
+        return __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Class];
       }
   }
 
-  return StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+  return __cls_GetInstanceClass(pInstance);
 }
 
 stock __cls_LogExecution() {

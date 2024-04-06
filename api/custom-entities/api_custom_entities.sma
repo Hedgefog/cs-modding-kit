@@ -200,7 +200,7 @@ public Native_RegisterMethod(iPluginId, iArgc) {
   new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
   new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, false, CMP_Cell, CMP_ReadFromCellArray, irgParams);
+  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, false, CMP_Cell, CMP_ParamsCellArray, irgParams);
 
   ArrayDestroy(irgParams);
 }
@@ -214,7 +214,7 @@ public Native_RegisterVirtualMethod(iPluginId, iArgc) {
   new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
   new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, true, CMP_Cell, CMP_ReadFromCellArray, irgParams);
+  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, true, CMP_Cell, CMP_ParamsCellArray, irgParams);
 
   ArrayDestroy(irgParams);
 }
@@ -1074,6 +1074,7 @@ RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const Enti
   }
 
   new Class:cEntity = ClassCreate(cParent);
+  ClassSetMetadataString(cEntity, "__NAME", szClassname);
   ClassSetMetadata(cEntity, CLASS_METADATA_ID, iId);
 
   TrieSetCell(g_itEntityIds, szClassname, iId);
@@ -1278,22 +1279,14 @@ Array:ReadMethodParamsFromNativeCall(iStartArg, iArgc) {
     static iType; iType = get_param_byref(iParam);
 
     switch (iType) {
-      case CE_MP_Cell: {
+      case CE_MP_Cell, CE_MP_Float: {
         ArrayPushCell(irgParams, CMP_Cell);
-      }
-      case CE_MP_Float: {
-        ArrayPushCell(irgParams, CMP_Float);
       }
       case CE_MP_String: {
         ArrayPushCell(irgParams, CMP_String);
       }
-      case CE_MP_Array: {
+      case CE_MP_Array, CE_MP_FloatArray: {
         ArrayPushCell(irgParams, CMP_Array);
-        ArrayPushCell(irgParams, get_param_byref(iParam + 1));
-        iParam++;
-      }
-      case CE_MP_FloatArray: {
-        ArrayPushCell(irgParams, CMP_FloatArray);
         ArrayPushCell(irgParams, get_param_byref(iParam + 1));
         iParam++;
       }

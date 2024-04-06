@@ -5,8 +5,6 @@
 
 #include <amxmodx>
 #include <cellstruct>
-#tryinclude <datapack>
-#include <datapack_stocks>
 
 #if !defined CLASS_METHOD_CALL_STACK_SIZE
   #define CLASS_METHOD_CALL_STACK_SIZE 1024
@@ -20,6 +18,10 @@
   #define CLASS_METHOD_MAX_ARGUMENTS 32
 #endif
 
+#if !defined CLASS_PARAM_BUFFER_LENGTH
+  #define CLASS_PARAM_BUFFER_LENGTH 16384
+#endif
+
 // Default argument values
 
 #define __cls_DefaultValue_Cell 0
@@ -29,14 +31,17 @@
 // Error messages
 
 #define __cls_err_MethodAlreadyRegistered "Method ^"%s^" is already registered for the class!"
-#define __cls_err_VMethodArgumentsMismatch "Arguments mismatch in the overridden virtual method ^"%s^"."
+#define __cls_err_VMethodArgumentsMismatch "Arguments mismatch in the overridden virtual method ^"%s^"!"
 #define __cls_err_ClassIdNotFound "Class with id %d is not registered!"
 #define __cls_err_MethodNotFound "Method ^"%s^" is not registered for the instance (%d)!"
 #define __cls_err_CallMethodOutsideContext "Calling a base method is not allowed outside of the execution context!"
 #define __cls_err_ClassHasNoBaseClass "Cannot call base method of class without base class!"
 #define __cls_err_MethodNotFoundInBaseClass "Cannot find method ^"%s^" in base classes!"
 #define __cls_err_MaxCallStackSizeExceeded "Maximum call stack size exceeded!"
-#define __cls_err_ClassMethodCallEndWithoutStart "Call ClassInstanceCallMethodEnd but method call is not started"
+#define __cls_err_ClassMethodCallEndWithoutStart "Call ClassInstanceCallMethodEnd but method call is not started!"
+#define __cls_err_NumberOfParametersExceeded "Number of parameters exceeded!"
+#define __cls_err_InvalidParamType "Invalid parameter type at position %d for call method %s. Expected: ^"%s^" got ^"%s^"!"
+#define __cls_err_FailedToCallMethodFunction "Failed to call method ^"%s^" function!"
 
 #define __cls_MethodParamOffset(%1) (%1 * _:__cls_MethodParamData)
 
@@ -48,18 +53,26 @@ enum ClassInstance {
   Invalid_ClassInstance = -1
 };
 
-enum {
+enum _:__cls_ParamTypes {
   CMP_Invalid = -1,
   CMP_Cell,
-  CMP_Float,
   CMP_String,
   CMP_Array,
-  CMP_FloatArray,
-  CMP_ReadFromCellArray,
-  __cls_CMP_InternalStart = 1000,
-  __cls_CMP_StringRef,
-  __cls_CMP_ArrayRef,
-  __cls_CMP_FloatArrayRef
+  CMP_StringRef,
+  CMP_ArrayRef,
+  CMP_ParamsCellArray
+};
+
+#define CMP_Float CMP_Cell
+#define CMP_FloatArray CMP_Array
+
+stock const __cls_ParamTypeNames[__cls_ParamTypes][64] = {
+  "Cell",
+  "String",
+  "Array",
+  "StringRef",
+  "ArrayRef",
+  "ParamsCellArray"
 };
 
 // Internal structures
@@ -114,16 +127,12 @@ stock __cls_callstack_size = 0;
 // Variables to store info between Begin and End method calls
 stock ClassInstance:__cls_call_pInstance = Invalid_ClassInstance;
 stock Struct:__cls_call_sMethod = Invalid_Struct;
-stock DataPack:__cls_call_dpParams = Invalid_DataPack;
 stock __cls_call_iParamTypesNum = 0;
 stock __cls_call_iParamsNum = 0;
+stock __cls_call_iBufferPos = 0;
 
 // Buffers
-#if defined _datapack_included
-  stock __cls_szBuffer[MAX_STRING_LENGTH];
-  stock __cls_rgiBuffer[MAX_STRING_LENGTH];
-  stock Float:__cls_rgflBuffer[MAX_STRING_LENGTH];
-#endif
+stock any:__cls_rgBuffer[CLASS_PARAM_BUFFER_LENGTH];
 
 /*--------------------------------[ Class Functions] --------------------------------*/
 
@@ -154,12 +163,6 @@ stock ClassDestroy(&Class:class) {
   StructDestroy(Struct:class);
 
   class = Invalid_Class;
-}
-
-stock ClassFreeStorages() {
-  if (__cls_call_dpParams != Invalid_DataPack) {
-    DestroyDataPack(__cls_call_dpParams);
-  }
 }
 
 stock Class:ClassAddMethod(const &Class:class, const szMethod[], const szCallback[], iPluginId = -1, bool:bVirtual = false, any:...) {
@@ -311,57 +314,56 @@ stock Class:ClassInstanceGetCurrentClass() {
 stock ClassInstanceCallMethod(const &ClassInstance:pInstance, const szMethod[], any:...) {
   __cls_CallMethodBegin(pInstance, szMethod, __cls_MethodType_Method);
 
-  #if defined _datapack_included    
-    for (new iMethodParam = 0; iMethodParam < __cls_call_iParamTypesNum; ++iMethodParam) {
-      static iParam; iParam = 2 + iMethodParam;
-      static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Type);
-      static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Size);
-      static bool:bUseDefault; bUseDefault = iParam > numargs();
+  for (new iMethodParam = 0; iMethodParam < __cls_call_iParamTypesNum; ++iMethodParam) {
+    static iParam; iParam = 2 + iMethodParam;
+    static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Type);
+    static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Size);
+    static bool:bUseDefault; bUseDefault = iParam > numargs();
 
-      switch (iType) {
-        case CMP_Cell: {
-          ClassInstanceCallMethodPushParamCell(bUseDefault ? __cls_DefaultValue_Cell : getarg(iParam));
-        }
-        case CMP_Float: {
-          ClassInstanceCallMethodPushParamFloat(bUseDefault ? __cls_DefaultValue_Float : Float:getarg(iParam));
-        }
-        case CMP_String: {
-          if (bUseDefault) {
-            copy(__cls_szBuffer, sizeof(__cls_szBuffer), __cls_DefaultValue_String);
-          } else {
-            for (new i = 0; i < charsmax(__cls_szBuffer); ++i) {
-                __cls_szBuffer[i] = getarg(iParam, i);
-                if (__cls_szBuffer[i]  == '^0') break;
-            }
+    switch (iType) {
+      case CMP_Cell: {
+        ClassInstanceCallMethodPushParamCell(bUseDefault ? __cls_DefaultValue_Cell : any:getarg(iParam));
+      }
+      case CMP_String, CMP_StringRef: {
+        static iLen; iLen = 0;
+
+        if (bUseDefault) {
+          copy(__cls_rgBuffer[__cls_call_iBufferPos], charsmax(__cls_rgBuffer) - __cls_call_iBufferPos, __cls_DefaultValue_String);
+        } else {
+          for (new i = 0; i < charsmax(__cls_rgBuffer) - __cls_call_iBufferPos; ++i) {
+              __cls_rgBuffer[__cls_call_iBufferPos + i] = getarg(iParam, i);
+              if (__cls_rgBuffer[__cls_call_iBufferPos + i] == '^0') break;
+              iLen++;
           }
-
-          ClassInstanceCallMethodPushParamString(__cls_szBuffer);
         }
-        case CMP_Array: {
-          if (bUseDefault) {
-            arrayset(__cls_rgiBuffer, __cls_DefaultValue_Float, iSize);
-          } else {
-            for (new i = 0; i < iSize; ++i) {
-                __cls_rgiBuffer[i] = getarg(iParam, i);
-            }
+
+        if (iType == CMP_StringRef) {
+          ClassInstanceCallMethodPushParamStringRef(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
+        } else {
+          ClassInstanceCallMethodPushParamString(__cls_rgBuffer[__cls_call_iBufferPos]);
+        }
+
+        __cls_call_iBufferPos += iLen;
+      }
+      case CMP_Array, CMP_ArrayRef: {
+        if (bUseDefault) {
+          arrayset(__cls_rgBuffer[__cls_call_iBufferPos], __cls_DefaultValue_Float, iSize);
+        } else {
+          for (new i = 0; i < iSize; ++i) {
+              __cls_rgBuffer[__cls_call_iBufferPos + i] = getarg(iParam, i);
           }
-
-          ClassInstanceCallMethodPushParamArray(__cls_rgiBuffer, iSize);
         }
-        case CMP_FloatArray: {
-          if (bUseDefault) {
-            arrayset(__cls_rgflBuffer, __cls_DefaultValue_Float, iSize);
-          } else {
-            for (new i = 0; i < iSize; ++i) {
-                __cls_rgflBuffer[i] = Float:getarg(iParam, i);
-            }
-          }
 
-          ClassInstanceCallMethodPushParamFloatArray(__cls_rgflBuffer, iSize);
+        if (iType == CMP_ArrayRef) {
+          ClassInstanceCallMethodPushParamArrayRef(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
+        } else {
+          ClassInstanceCallMethodPushParamArray(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
         }
+
+        __cls_call_iBufferPos += iSize;
       }
     }
-  #endif
+  }
 
   return ClassInstanceCallMethodEnd();
 }
@@ -369,57 +371,56 @@ stock ClassInstanceCallMethod(const &ClassInstance:pInstance, const szMethod[], 
 stock ClassInstanceCallBaseMethod(any:...) {
   ClassInstanceCallMethodBeginBase();
 
-  #if defined _datapack_included
-    for (new iMethodParam = 0; iMethodParam < __cls_call_iParamTypesNum; ++iMethodParam) {
-      static iParam; iParam = 0 + iMethodParam;
-      static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Type);
-      static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Size);
-      static bool:bUseDefault; bUseDefault = iParam > numargs();
+  for (new iMethodParam = 0; iMethodParam < __cls_call_iParamTypesNum; ++iMethodParam) {
+    static iParam; iParam = 0 + iMethodParam;
+    static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Type);
+    static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iMethodParam) + _:__cls_MethodParamData_Size);
+    static bool:bUseDefault; bUseDefault = iParam > numargs();
 
-      switch (iType) {
-        case CMP_Cell: {
-          ClassInstanceCallMethodPushParamCell(bUseDefault ? __cls_DefaultValue_Cell : getarg(iParam));
-        }
-        case CMP_Float: {
-          ClassInstanceCallMethodPushParamFloat(bUseDefault ? __cls_DefaultValue_Float : Float:getarg(iParam));
-        }
-        case CMP_String, __cls_CMP_StringRef: {
-          if (bUseDefault) {
-            copy(__cls_szBuffer, sizeof(__cls_szBuffer), __cls_DefaultValue_String);
-          } else {
-            for (new i = 0; i < charsmax(__cls_szBuffer); ++i) {
-                __cls_szBuffer[i] = getarg(iParam, i);
-                if (__cls_szBuffer[i]  == '^0') break;
-            }
+    switch (iType) {
+      case CMP_Cell: {
+        ClassInstanceCallMethodPushParamCell(bUseDefault ? __cls_DefaultValue_Cell : any:getarg(iParam));
+      }
+      case CMP_String, CMP_StringRef: {
+        static iLen; iLen = 0;
+
+        if (bUseDefault) {
+          copy(__cls_rgBuffer[__cls_call_iBufferPos], charsmax(__cls_rgBuffer) - __cls_call_iBufferPos, __cls_DefaultValue_String);
+        } else {
+          for (new i = 0; i < charsmax(__cls_rgBuffer) - __cls_call_iBufferPos; ++i) {
+              __cls_rgBuffer[__cls_call_iBufferPos + i] = getarg(iParam, i);
+              if (__cls_rgBuffer[__cls_call_iBufferPos + i] == '^0') break;
+              iLen++;
           }
-
-          ClassInstanceCallMethodPushParamString(__cls_szBuffer);
         }
-        case CMP_Array, __cls_CMP_ArrayRef: {
-          if (bUseDefault) {
-            arrayset(__cls_rgiBuffer, __cls_DefaultValue_Float, iSize);
-          } else {
-            for (new i = 0; i < iSize; ++i) {
-                __cls_rgiBuffer[i] = getarg(iParam, i);
-            }
+
+        if (iType == CMP_StringRef) {
+          ClassInstanceCallMethodPushParamStringRef(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
+        } else {
+          ClassInstanceCallMethodPushParamString(__cls_rgBuffer[__cls_call_iBufferPos]);
+        }
+
+        __cls_call_iBufferPos += iLen;
+      }
+      case CMP_Array, CMP_ArrayRef: {
+        if (bUseDefault) {
+          arrayset(__cls_rgBuffer[__cls_call_iBufferPos], __cls_DefaultValue_Float, iSize);
+        } else {
+          for (new i = 0; i < iSize; ++i) {
+              __cls_rgBuffer[__cls_call_iBufferPos + i] = getarg(iParam, i);
           }
-
-          ClassInstanceCallMethodPushParamArray(__cls_rgiBuffer, iSize);
         }
-        case CMP_FloatArray, __cls_CMP_FloatArrayRef: {
-          if (bUseDefault) {
-            arrayset(__cls_rgflBuffer, __cls_DefaultValue_Float, iSize);
-          } else {
-            for (new i = 0; i < iSize; ++i) {
-                __cls_rgflBuffer[i] = Float:getarg(iParam, i);
-            }
-          }
 
-          ClassInstanceCallMethodPushParamFloatArray(__cls_rgflBuffer, iSize);
+        if (iType == CMP_ArrayRef) {
+          ClassInstanceCallMethodPushParamArrayRef(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
+        } else {
+          ClassInstanceCallMethodPushParamArray(__cls_rgBuffer[__cls_call_iBufferPos], iSize);
         }
+
+        __cls_call_iBufferPos += iSize;
       }
     }
-  #endif
+  }
 
   return ClassInstanceCallMethodEnd();
 }
@@ -446,6 +447,12 @@ stock ClassInstanceCallMethodBeginBase(any:...) {
   static __cls_MethodType:iMethodType; iMethodType = StructGetCell(Struct:rgCallStackItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Type);
 
   __cls_InitMethodCall(rgCallStackItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
+
+  if (callfunc_begin_i(StructGetCell(__cls_call_sMethod, __cls_MethodData_FunctionId), StructGetCell(__cls_call_sMethod, __cls_MethodData_PluginId)) != 1) {
+    static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
+    set_fail_state(__cls_err_FailedToCallMethodFunction, szMethod);
+    return;
+  }
 }
 
 stock any:ClassInstanceCallMethodEnd() {
@@ -454,11 +461,7 @@ stock any:ClassInstanceCallMethodEnd() {
     return 0;
   }
 
-  __cls_ValidateParams();
-
-  ResetPack(__cls_call_dpParams);
-
-  static any:result; result = __cls_ExecuteMethod(__cls_call_pInstance, __cls_call_sMethod, __cls_call_dpParams);
+  static any:result; result = __cls_ExecuteMethod();
 
   if (__cls_IsMethodCallStackEmpty()) {
     __cls_FreeMethodCall();
@@ -467,33 +470,69 @@ stock any:ClassInstanceCallMethodEnd() {
   return result;
 }
 
-stock ClassInstanceCallMethodPushParamCell(iValue) {
-    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) return;
-    WritePackCell(__cls_call_dpParams, iValue);
+stock __cls_ValidateParamPush(iParam, iType) {
+    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) {
+      set_fail_state(__cls_err_NumberOfParametersExceeded);
+      return 0;
+    }
+
+    static iExpectedType; iExpectedType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iParam) + _:__cls_MethodParamData_Type);
+
+    if (iType != iExpectedType) {
+      static szMethodName[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethodName, charsmax(szMethodName));
+      set_fail_state(__cls_err_InvalidParamType, iParam, szMethodName, __cls_ParamTypeNames[iType], __cls_ParamTypeNames[iExpectedType]);
+      return 0;
+    }
+
+    return 1;
+}
+
+stock ClassInstanceCallMethodPushParamCell(any:value) {
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_Cell)) return;
+
+    callfunc_push_int(value);
+
     __cls_call_iParamsNum++;
 }
 
-stock ClassInstanceCallMethodPushParamFloat(Float:flValue) {
-    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) return;
-    WritePackFloat(__cls_call_dpParams, flValue);
+stock ClassInstanceCallMethodPushParamCellRef(&any:value) {
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_Cell)) return;
+
+    callfunc_push_intrf(value);
+
     __cls_call_iParamsNum++;
 }
 
 stock ClassInstanceCallMethodPushParamString(const szValue[]) {
-    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) return;
-    WritePackString(__cls_call_dpParams, szValue);
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_String)) return;
+
+    callfunc_push_str(szValue, false);
+
     __cls_call_iParamsNum++;
 }
 
-stock ClassInstanceCallMethodPushParamArray(const rgValue[], iSize) {
-    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) return;
-    WritePackArray(__cls_call_dpParams, rgValue, iSize);
+stock ClassInstanceCallMethodPushParamArray(const any:rgValue[], iSize) {
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_Array)) return;
+
+    callfunc_push_array(rgValue, iSize, false);
+
     __cls_call_iParamsNum++;
 }
 
-stock ClassInstanceCallMethodPushParamFloatArray(const Float:rgValue[], iSize) {
-    if (__cls_call_iParamsNum >= __cls_call_iParamTypesNum) return;
-    WritePackFloatArray(__cls_call_dpParams, rgValue, iSize);
+stock ClassInstanceCallMethodPushParamStringRef(szValue[], iLen) {
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_StringRef)) return;
+
+    arrayset(szValue, 1, iLen);
+    callfunc_push_str(szValue, true);
+
+    __cls_call_iParamsNum++;
+}
+
+stock ClassInstanceCallMethodPushParamArrayRef(rgValue[], iSize) {
+    if (!__cls_ValidateParamPush(__cls_call_iParamsNum, CMP_ArrayRef)) return;
+
+    callfunc_push_array(rgValue, iSize, true);
+
     __cls_call_iParamsNum++;
 }
 
@@ -505,22 +544,19 @@ stock ClassInstanceCallMethodPushNativeParam(iParam) {
 
   switch (iType) {
     case CMP_Cell: {
-      WritePackCell(__cls_call_dpParams, get_param_byref(iParam));
+      // log_amx("Param%d: %d %f", iParam, any:get_param_byref(iParam), any:get_param_byref(iParam));
+      callfunc_push_int(any:get_param_byref(iParam));
     }
-    case CMP_Float: {
-      WritePackFloat(__cls_call_dpParams, Float:get_param_byref(iParam));
+    case CMP_Array, CMP_ArrayRef: {
+      get_array(iParam, __cls_rgBuffer[__cls_call_iBufferPos], iSize);
+      callfunc_push_array(__cls_rgBuffer[__cls_call_iBufferPos], iSize, iType == CMP_ArrayRef);
+      __cls_call_iBufferPos += iSize;
     }
-    case CMP_String: {
-      get_string(iParam, __cls_szBuffer, charsmax(__cls_szBuffer));
-      WritePackString(__cls_call_dpParams, __cls_szBuffer);
-    }
-    case CMP_Array: {
-      get_array(iParam, __cls_rgiBuffer, iSize);
-      WritePackArray(__cls_call_dpParams, __cls_rgiBuffer, iSize);
-    }
-    case CMP_FloatArray: {
-      get_array_f(iParam, __cls_rgflBuffer, iSize);
-      WritePackFloatArray(__cls_call_dpParams, __cls_rgflBuffer, iSize);
+    case CMP_String, CMP_StringRef: {
+      static iSize; iSize = get_string(iParam, __cls_rgBuffer[__cls_call_iBufferPos], charsmax(__cls_rgBuffer) - __cls_call_iBufferPos);
+      // log_amx("Param%d: ^"%s^"", iParam, __cls_rgBuffer);
+      callfunc_push_str(__cls_rgBuffer[__cls_call_iBufferPos], iType == CMP_StringRef);
+      __cls_call_iBufferPos += iSize;
     }
   }
 
@@ -548,7 +584,7 @@ stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[
   static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
 
   if (TrieKeyExists(itGetters, szMember)) {
-    return __cls_CallGetter(pInstance, szMember);
+    return __cls_CallCellGetter(pInstance, szMember);
   }
 
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
@@ -562,7 +598,7 @@ stock ClassInstanceSetMember(const &ClassInstance:pInstance, const szMember[], a
   static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
 
   if (TrieKeyExists(itSetters, szMember)) {
-    __cls_CallSetter(pInstance, szMember, value);
+    __cls_CallCellSetter(pInstance, szMember, value);
     return;
   }
 
@@ -576,7 +612,7 @@ stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const sz
   static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
 
   if (TrieKeyExists(itGetters, szMember)) {
-    return __cls_CallGetter(pInstance, szMember, szOut, iMaxLen);
+    return __cls_CallStringGetter(pInstance, szMember, szOut, iMaxLen);
   }
 
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
@@ -590,7 +626,7 @@ stock ClassInstanceSetMemberString(const &ClassInstance:pInstance, const szMembe
   static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
 
   if (TrieKeyExists(itSetters, szMember)) {
-    __cls_CallSetter(pInstance, szMember, szValue);
+    __cls_CallStringSetter(pInstance, szMember, szValue);
     return;
   }
 
@@ -604,7 +640,7 @@ stock bool:ClassInstanceGetMemberArray(const &ClassInstance:pInstance, const szM
   static Trie:itGetters; itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
 
   if (TrieKeyExists(itGetters, szMember)) {
-    return __cls_CallGetter(pInstance, szMember, rgOut, iLen);
+    return __cls_CallArrayGetter(pInstance, szMember, rgOut, iLen);
   }
 
   static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
@@ -617,7 +653,7 @@ stock ClassInstanceSetMemberArray(const &ClassInstance:pInstance, const szMember
   static Trie:itSetters; itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
 
   if (TrieKeyExists(itSetters, szMember)) {
-    __cls_CallSetter(pInstance, szMember, rgValue, iLen);
+    __cls_CallArraySetter(pInstance, szMember, rgValue, iLen);
     return;
   }
 
@@ -649,11 +685,11 @@ stock __cls_ParseParamTypes(Array:irgArgs, &Array:irgParamTypes) {
     rgParam[__cls_MethodParamData_Size] = 1;
 
     switch (rgParam[__cls_MethodParamData_Type]) {
-      case CMP_Array, CMP_FloatArray: {
+      case CMP_Array: {
         rgParam[__cls_MethodParamData_Size] = ArrayGetCell(irgArgs, iArg + 1);
         iArg++;
       }
-      case CMP_ReadFromCellArray: {
+      case CMP_ParamsCellArray: {
         rgParam[__cls_MethodParamData_Size] = 0;
 
         new Array:irgExtraParamTypes = ArrayGetCell(irgArgs, iArg + 1);
@@ -668,39 +704,13 @@ stock __cls_ParseParamTypes(Array:irgArgs, &Array:irgParamTypes) {
   }
 }
 
-stock __cls_ValidateParams() {
-  for (new iParam = __cls_call_iParamsNum; iParam < __cls_call_iParamTypesNum; ++iParam) {
-    static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iParam) + _:__cls_MethodParamData_Type);
-    static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iParam) + _:__cls_MethodParamData_Size);
-
-    switch (iType) {
-      case CMP_Cell: {
-        WritePackCell(__cls_call_dpParams, __cls_DefaultValue_Cell);
-      }
-      case CMP_Float: {
-        WritePackFloat(__cls_call_dpParams, __cls_DefaultValue_Float);
-      }
-      case CMP_String: {
-        WritePackString(__cls_call_dpParams, __cls_DefaultValue_String);
-      }
-      case CMP_Array: {
-        arrayset(__cls_rgiBuffer, __cls_DefaultValue_Cell, iSize);
-        WritePackArray(__cls_call_dpParams, __cls_rgiBuffer, iSize);
-      }
-      case CMP_FloatArray: {
-        arrayset(__cls_rgflBuffer, __cls_DefaultValue_Float, iSize);
-        WritePackFloatArray(__cls_call_dpParams, __cls_rgflBuffer, iSize);
-      }
-    }
-  }
-}
-
 stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], const &Class:class = Invalid_Class, __cls_MethodType:iMethodType) {
   static Class:callClass; callClass = class == Invalid_Class ? __cls_GetCallMethodClass(pInstance) : class;
 
   __cls_call_pInstance = pInstance;
   __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
+  __cls_call_iBufferPos = 0;
 
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
 
@@ -708,9 +718,6 @@ stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], con
     set_fail_state(__cls_err_MethodNotFoundInBaseClass, szMethod);
     return;
   }
-
-  static DataPack:dpParams; dpParams = __cls_GetDataPackParams();
-  ResetPack(dpParams);
 }
 
 stock __cls_FreeMethodCall() {
@@ -723,12 +730,13 @@ stock __cls_FreeMethodCall() {
 stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __cls_MethodType:iMethodType = __cls_MethodType_Method) {
   __cls_InitMethodCall(pInstance, szMethod, _, iMethodType);
 
+  static Class:sInstanceClass; sInstanceClass = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
+
   // Check for virtual method call
   // If we are already in the execution context and the method is virual jump to top level context
   // All Getters and Setter works like virtual methods
   if (!__cls_IsMethodCallStackEmpty()) {
     if (StructGetCell(__cls_call_sMethod, __cls_MethodData_Type) != __cls_MethodType_Method) {
-      static Class:sInstanceClass; sInstanceClass = StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
       if (sInstanceClass != StructGetCell(__cls_call_sMethod, __cls_MethodData_Class)) {
         __cls_call_sMethod = __cls_FindClassMethodInHierarchy(sInstanceClass, szMethod, iMethodType);
       }
@@ -739,109 +747,58 @@ stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __
     set_fail_state(__cls_err_MethodNotFound, szMethod, pInstance);
     return;
   }
+
+  if (callfunc_begin_i(StructGetCell(__cls_call_sMethod, __cls_MethodData_FunctionId), StructGetCell(__cls_call_sMethod, __cls_MethodData_PluginId)) != 1) {
+    static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
+    set_fail_state(__cls_err_FailedToCallMethodFunction, szMethod);
+    return;
+  }
 }
 
-stock any:__cls_CallGetter(const &ClassInstance:pInstance, const szMember[], any:...) {
-  static const any:rgEmpty[1];
-  static const iParam = 2;
-
+stock any:__cls_CallCellGetter(const &ClassInstance:pInstance, const szMember[]) {
   __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Getter);
 
-  // Cannot use "static" because of recursion
-  new iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Type);
-  new iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Size);
-
-  switch (iType) {
-      case CMP_String, __cls_CMP_StringRef: {
-        iSize = getarg(iParam + 1);
-        ClassInstanceCallMethodPushParamString(NULL_STRING);
-        ClassInstanceCallMethodPushParamCell(iSize);
-      }
-      case CMP_Array, __cls_CMP_ArrayRef: {
-        iSize = min(iSize, getarg(iParam + 1));
-        ClassInstanceCallMethodPushParamArray(rgEmpty, sizeof(rgEmpty));
-        ClassInstanceCallMethodPushParamCell(iSize);
-      }
-      case CMP_FloatArray, __cls_CMP_FloatArrayRef: {
-        iSize = min(iSize, getarg(iParam + 1));
-        ClassInstanceCallMethodPushParamFloatArray(rgEmpty, sizeof(rgEmpty));
-        ClassInstanceCallMethodPushParamCell(iSize);
-      }
-    }
-
-  new any:result = ClassInstanceCallMethodEnd();
-
-  #if defined _datapack_included
-    switch (iType) {
-      case __cls_CMP_StringRef: {
-        for (new i = 0; i < iSize; ++i) {
-            setarg(iParam, i, __cls_szBuffer[i]);
-            if (__cls_szBuffer[i]  == '^0') break;
-        }
-      }
-      case __cls_CMP_ArrayRef: {
-        for (new i = 0; i < iSize; ++i) {
-          setarg(iParam, i, __cls_rgiBuffer[i]);
-        }
-      }
-      case __cls_CMP_FloatArrayRef: {
-        for (new i = 0; i < iSize; ++i) {
-          setarg(iParam, i, any:__cls_rgflBuffer[i]);
-        }
-      }
-    }
-  #endif
-
-  return result;
+  return ClassInstanceCallMethodEnd();
 }
 
-stock __cls_CallSetter(const &ClassInstance:pInstance, const szMember[], any:...) {
-  static const iParam = 2;
+stock any:__cls_CallArrayGetter(const &ClassInstance:pInstance, const szMember[], any:rgOut[], iSize) {
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Getter);
 
+  ClassInstanceCallMethodPushParamArrayRef(rgOut, iSize);
+  ClassInstanceCallMethodPushParamCell(iSize);
+
+  return ClassInstanceCallMethodEnd();
+}
+
+stock any:__cls_CallStringGetter(const &ClassInstance:pInstance, const szMember[], any:rgOut[], iLen) {
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Getter);
+
+  ClassInstanceCallMethodPushParamStringRef(rgOut, iLen);
+  ClassInstanceCallMethodPushParamCell(iLen);
+
+  return ClassInstanceCallMethodEnd();
+}
+
+stock __cls_CallCellSetter(const &ClassInstance:pInstance, const szMember[], any:value) {
   __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Setter);
 
-  static iType; iType = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Type);
-  static iSize; iSize = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(0) + _:__cls_MethodParamData_Size);
+  ClassInstanceCallMethodPushParamCell(value);
 
-  if (iParam < numargs() - 2) {
-    iSize = min(iSize, getarg(iParam + 1));
-  }
+  return ClassInstanceCallMethodEnd();
+}
 
-  #if defined _datapack_included
-    switch (iType) {
-      case CMP_Cell: {
-        ClassInstanceCallMethodPushParamCell(getarg(iParam));
-      }
-      case CMP_Float: {
-        ClassInstanceCallMethodPushParamFloat(Float:getarg(iParam));
-      }
-      case CMP_String: {
-        for (new i = 0; i < charsmax(__cls_szBuffer); ++i) {
-            __cls_szBuffer[i] = getarg(iParam, i);
-            if (__cls_szBuffer[i]  == '^0') break;
-        }
+stock __cls_CallArraySetter(const &ClassInstance:pInstance, const szMember[], const any:rgValue[], iSize) {
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Setter);
 
-        ClassInstanceCallMethodPushParamString(__cls_szBuffer);
-        ClassInstanceCallMethodPushParamCell(iSize);
-      }
-      case CMP_Array: {
-        for (new i = 0; i < iSize; ++i) {
-            __cls_rgiBuffer[i] = getarg(iParam, i);
-        }
+  ClassInstanceCallMethodPushParamArray(rgValue, iSize);
 
-        ClassInstanceCallMethodPushParamArray(__cls_rgiBuffer, iSize);
-        ClassInstanceCallMethodPushParamCell(getarg(iParam + 1));
-      }
-      case CMP_FloatArray: {          
-        for (new i = 0; i < iSize; ++i) {
-            __cls_rgflBuffer[i] = Float:getarg(iParam, i);
-        }
+  return ClassInstanceCallMethodEnd();
+}
 
-        ClassInstanceCallMethodPushParamFloatArray(__cls_rgflBuffer, iSize);
-        ClassInstanceCallMethodPushParamCell(getarg(iParam + 1));
-      }
-    }
-  #endif
+stock __cls_CallStringSetter(const &ClassInstance:pInstance, const szMember[], const szValue[]) {
+  __cls_CallMethodBegin(pInstance, szMember, __cls_MethodType_Setter);
+
+  ClassInstanceCallMethodPushParamString(szValue);
 
   return ClassInstanceCallMethodEnd();
 }
@@ -894,7 +851,7 @@ stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const 
 
   ArrayPushArray(irgParamTypes, rgParam[any:0], _:__cls_MethodParamData);
 
-  if (iType == CMP_String || iType == CMP_Array || iType == CMP_FloatArray) {
+  if (iType == CMP_String || iType == CMP_Array) {
     new rgSizeParam[__cls_MethodParamData];
     rgSizeParam[__cls_MethodParamData_Type] = CMP_Cell;
     rgSizeParam[__cls_MethodParamData_Size] = 1;
@@ -912,9 +869,8 @@ stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const 
 stock __cls_ResolveAccessorParamType(iType, __cls_MethodType:iMethodType) {
   if (iMethodType == __cls_MethodType_Getter) {
     switch (iType) {
-      case CMP_String: return __cls_CMP_StringRef;
-      case CMP_Array: return __cls_CMP_ArrayRef;
-      case CMP_FloatArray: return __cls_CMP_FloatArrayRef;
+      case CMP_String: return CMP_StringRef;
+      case CMP_Array: return CMP_ArrayRef;
     }
   }
 
@@ -957,89 +913,16 @@ stock __cls_CompareParamTypes(const &Struct:sMethod, const &Array:irgParams) {
   return true;
 }
 
-stock __cls_ExecuteMethod(const &ClassInstance:pInstance, const &Struct:sMethod, const &DataPack:dpParams) {
-  new iResult = 0;
+stock any:__cls_ExecuteMethod() {
+  __cls_PushMethodCallToCallStack();
 
-  __cls_PushMethodToCallStack(sMethod, pInstance);
+  __cls_LogExecution();
 
-  __cls_LogExecution(pInstance, sMethod);
-
-  if (callfunc_begin_i(StructGetCell(sMethod, __cls_MethodData_FunctionId), StructGetCell(sMethod, __cls_MethodData_PluginId)) == 1) {
-    #if defined _datapack_included
-      if (dpParams != Invalid_DataPack) {
-        static iParamsNum; iParamsNum = StructGetCell(sMethod, __cls_MethodData_ParamTypesNum);
-
-        for (new iParam = 0; iParam < iParamsNum; ++iParam) {
-          static iType; iType = StructGetCell(sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iParam) + _:__cls_MethodParamData_Type);
-          static iSize; iSize = StructGetCell(sMethod, __cls_MethodData_ParamTypes, __cls_MethodParamOffset(iParam) + _:__cls_MethodParamData_Size);
-
-          switch (iType) {
-            case CMP_Cell: {
-              static iValue; iValue = ReadPackCell(dpParams);
-              callfunc_push_int(iValue);
-            }
-            case CMP_Float: {
-              static Float:flValue; flValue = ReadPackFloat(dpParams);
-              callfunc_push_float(flValue);
-            }
-            case CMP_String: {
-                ReadPackString(dpParams, __cls_szBuffer, charsmax(__cls_szBuffer));
-                callfunc_push_str(__cls_szBuffer, false);
-            }
-            case CMP_Array: {
-              iSize = ReadPackArray(dpParams, __cls_rgiBuffer, iSize);
-              callfunc_push_array(__cls_rgiBuffer, iSize, false);
-            }
-            case CMP_FloatArray: {
-              iSize = ReadPackFloatArray(dpParams, __cls_rgflBuffer, iSize);
-              callfunc_push_array(_:__cls_rgflBuffer, iSize, false);
-            }
-            case __cls_CMP_StringRef: {
-              ReadPackString(dpParams, __cls_szBuffer, 0);
-              /*
-                The "copyback" functionality seems to be broken or works in an odd way,
-                because it only copies the same number of characters that were in the string
-                before calling the function.
-
-                To fix it I decided to "prepare" a string using the max length from the required max length parameter (second)
-                and fill the string with some characters so AmxModX will calculate the correct string length for copyback.
-              */
-              iSize = ReadPackCell(dpParams);
-              arrayset(__cls_szBuffer, '^n', iSize);
-              iParam++; // Skip next parameter (length)
-
-              callfunc_push_str(__cls_szBuffer, true);
-              callfunc_push_int(iSize);
-            }
-            case __cls_CMP_ArrayRef: {
-              // If the second parameter is passed to the getter, use it as the size of the array
-              if (++iParam < iParamsNum - 1) {
-                iSize = min(iSize, ReadPackCell(dpParams));
-              }
-
-              callfunc_push_array(__cls_rgiBuffer, iSize, true);
-              callfunc_push_int(iSize);
-            }
-            case __cls_CMP_FloatArrayRef: {
-              // If the second parameter is passed to the getter, use it as the size of the array
-              if (++iParam < iParamsNum - 1) {
-                iSize = ReadPackCell(dpParams);
-              }
-
-              callfunc_push_array(_:__cls_rgflBuffer, iSize, true);
-              callfunc_push_int(iSize);
-            }
-          }
-        }
-      }
-    #endif
-
-    iResult = callfunc_end();
-  }
+  new any:result = callfunc_end();
 
   __cls_PopMethodFromCallStack();
 
-  return iResult;
+  return result;
 }
 
 stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod[], __cls_MethodType:iMethodType) {
@@ -1074,34 +957,31 @@ stock bool:__cls_IsMethodCallStackEmpty() {
   return !__cls_callstack_size;
 }
 
-stock __cls_PushMethodToCallStack(const Struct:sMethod, const &ClassInstance:pInstance) {
+stock __cls_PushMethodCallToCallStack() {
   if (__cls_callstack_size >= CLASS_METHOD_CALL_STACK_SIZE) {
     set_fail_state(__cls_err_MaxCallStackSizeExceeded);
   }
 
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Instance] = any:pInstance;
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Class] = any:StructGetCell(sMethod, __cls_MethodData_Class);
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Method] = any:sMethod;
+  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Instance] = any:__cls_call_pInstance;
+  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Class] = any:StructGetCell(__cls_call_sMethod, __cls_MethodData_Class);
+  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Method] = any:__cls_call_sMethod;
 
   __cls_callstack_size++;
 }
 
 stock __cls_PopMethodFromCallStack() {
   __cls_callstack_size--;
+
+  if (__cls_callstack_size) {
+    __cls_call_pInstance = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance];
+    __cls_call_sMethod = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Method];
+  }
 }
 
 stock __cls_GetCurrentMethodFromCallStack(rgCallStackItem[__cls_MethodCallStackItem]) {
   rgCallStackItem[__cls_MethodCallStackItem_Instance] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance];
   rgCallStackItem[__cls_MethodCallStackItem_Class] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Class];
   rgCallStackItem[__cls_MethodCallStackItem_Method] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Method];
-}
-
-stock DataPack:__cls_GetDataPackParams() {
-  if (__cls_call_dpParams == Invalid_DataPack) {
-    __cls_call_dpParams = CreateDataPack();
-  }
-
-  return __cls_call_dpParams;
 }
 
 stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
@@ -1116,17 +996,17 @@ stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
   return StructGetCell(Struct:pInstance, __cls_InstanceData_Class);
 }
 
-stock __cls_LogExecution(const &ClassInstance:pInstance, const &Struct:sMethod) {
+stock __cls_LogExecution() {
   #if defined __cls_DEBUG
-    static Struct:sClass; sClass = StructGetCell(sMethod, __cls_MethodData_Class);
+    static Struct:sClass; sClass = StructGetCell(__cls_call_sMethod, __cls_MethodData_Class);
     static szName[32]; ClassGetMetadataString(Class:sClass, "__NAME", szName, charsmax(szName));
-    static szMethodName[32]; StructGetString(sMethod, __cls_MethodData_Name, szMethodName, charsmax(szMethodName));
+    static szMethodName[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethodName, charsmax(szMethodName));
 
     if (equal(szName, NULL_STRING)) {
       format(szName, charsmax(szName), "CLASS_%d", sClass);
     }
 
-    __cls_DebugMessage("[%d] %s::%s(...)", pInstance, szName, szMethodName);
+    __cls_DebugMessage("[%d] %s::%s(...)", __cls_call_pInstance, szName, szMethodName);
   #endif
 }
 

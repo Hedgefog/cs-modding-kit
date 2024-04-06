@@ -2389,8 +2389,6 @@ bool:@Monster_ShouldAdvanceRoute(this, Float:flWaypointDist) {
     // Check if both waypoints are nodes and there is a link for a door
     static rgNextWaypoint[MONSTER_WAYPOINT]; ArrayGetArray(irgRoute, iRouteIndex + 1, rgNextWaypoint[any:0], _:MONSTER_WAYPOINT);
     if ((rgCurrentWaypoint[MONSTER_WAYPOINT_TYPE] & MF_TO_NODE) && (rgNextWaypoint[MONSTER_WAYPOINT_TYPE] & MF_TO_NODE)) {
-        UTIL_DrawLine(rgCurrentWaypoint[MONSTER_WAYPOINT_LOCATION], rgNextWaypoint[MONSTER_WAYPOINT_LOCATION]);
-
         engfunc(EngFunc_TraceLine, rgCurrentWaypoint[MONSTER_WAYPOINT_LOCATION], rgNextWaypoint[MONSTER_WAYPOINT_LOCATION], DONT_IGNORE_MONSTERS, this, g_pTrace);
 
         static pHit; pHit = get_tr2(g_pTrace, TR_pHit);

@@ -115,7 +115,6 @@ enum BuildPathTask {
   Struct:BuildPathTask_ClosestArea,
   BuildPathTask_CostCallback[Callback],
   BuildPathTask_FinishCallback[Callback],
-  bool:BuildPathTask_DestroyOnFinish,
   BuildPathTask_IgnoreEntity,
   BuildPathTask_UserToken,
   Struct:BuildPathTask_Path,
@@ -137,6 +136,7 @@ enum BuildPathJob {
   bool:BuildPathJob_Successed,
   bool:BuildPathJob_Finished,
   bool:BuildPathJob_Terminated,
+  bool:BuildPathJob_FinishHandled,
   BuildPathJob_MaxIterations,
   BuildPathJob_IgnoreEntity
 };
@@ -402,14 +402,9 @@ public Native_Area_GetCenter(iPluginId, iArgc) {
 public Native_Path_FindTask_Await(iPluginId, iArgc) {
   new Struct:sTask = Struct:get_param(1);
 
-  StructSetCell(sTask, BuildPathTask_DestroyOnFinish, false);
-  
-  new bool:bFinished = false;
-
-  do {
-    bFinished = StructGetCell(sTask, BuildPathTask_IsFinished);
+  while (!StructGetCell(sTask, BuildPathTask_IsFinished)) {
     NavAreaBuildPathFrame();
-  } while (!bFinished);
+  }
 }
 
 public bool:Native_Path_FindTask_IsFinished(iPluginId, iArgc) {
@@ -2529,7 +2524,6 @@ Struct:NavAreaBuildPath(const Float:vecStart[3], const Float:vecGoal[3], iCbFunc
   StructSetCell(sTask, BuildPathTask_IsFinished, false);
   StructSetCell(sTask, BuildPathTask_IsSuccessed, false);
   StructSetCell(sTask, BuildPathTask_IsTerminated, false);
-  StructSetCell(sTask, BuildPathTask_DestroyOnFinish, true);
 
   if (g_irgBuildPathTasks == Invalid_Array) {
     g_irgBuildPathTasks = ArrayCreate();
@@ -2547,8 +2541,8 @@ bool:NavAreaBuildPathAbortTask(Struct:sTask) {
     g_rgBuildPathJob[BuildPathJob_Terminated] = true;
     g_rgBuildPathJob[BuildPathJob_Successed] = false;
 
-    // terminate task in the same frame
-    NavAreaBuildPathFrame();
+    // finish task in the same frame
+    NavAreaBuildPathFinish();
 
     return true;
   }
@@ -2557,11 +2551,10 @@ bool:NavAreaBuildPathAbortTask(Struct:sTask) {
     return false;
   }
 
+  // remove task from the queue
   new iTask = ArrayFindValue(g_irgBuildPathTasks, sTask);
   if (iTask != -1) {
-    if (StructGetCell(sTask, BuildPathTask_DestroyOnFinish)) {
-      @BuildPathTask_Destroy(sTask);
-    }
+    @BuildPathTask_Destroy(sTask);
     ArrayDeleteItem(g_irgBuildPathTasks, iTask);
     return true;
   }
@@ -2576,6 +2569,7 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
   g_rgBuildPathJob[BuildPathJob_CostFuncId] = StructGetCell(sTask, BuildPathTask_CostCallback, Callback_FunctionId);
   g_rgBuildPathJob[BuildPathJob_CostFuncPluginId] = StructGetCell(sTask, BuildPathTask_CostCallback, Callback_PluginId);
   g_rgBuildPathJob[BuildPathJob_Finished] = false;
+  g_rgBuildPathJob[BuildPathJob_FinishHandled] = false;
   g_rgBuildPathJob[BuildPathJob_Terminated] = false;
   g_rgBuildPathJob[BuildPathJob_Successed] = false;
   g_rgBuildPathJob[BuildPathJob_MaxIterations] = get_pcvar_num(g_pCvarMaxIterationsPerFrame);
@@ -2661,6 +2655,8 @@ NavAreaBuildPathFinish() {
     callfunc_push_int(_:sTask);
     callfunc_end();
   }
+
+  g_rgBuildPathJob[BuildPathJob_FinishHandled] = true;
 }
 
 NavAreaBuildPathIteration() {
@@ -2824,6 +2820,13 @@ NavAreaBuildPathIteration() {
 }
 
 NavAreaBuildPathFrame() {
+  if (g_rgBuildPathJob[BuildPathJob_Task] != Invalid_Struct) {
+    if (g_rgBuildPathJob[BuildPathJob_Finished] && g_rgBuildPathJob[BuildPathJob_FinishHandled]) {
+      @BuildPathTask_Destroy(g_rgBuildPathJob[BuildPathJob_Task]);
+      g_rgBuildPathJob[BuildPathJob_Task] = Invalid_Struct;
+    }
+  }
+
   // if no job in progress then find new task to start
   if (g_rgBuildPathJob[BuildPathJob_Task] == Invalid_Struct) {
     if (g_irgBuildPathTasks != Invalid_Array && ArraySize(g_irgBuildPathTasks)) {
@@ -2838,12 +2841,6 @@ NavAreaBuildPathFrame() {
   // current job finished, process
   if (g_rgBuildPathJob[BuildPathJob_Finished]) {
     NavAreaBuildPathFinish();
-
-    if (StructGetCell(g_rgBuildPathJob[BuildPathJob_Task], BuildPathTask_DestroyOnFinish)) {
-      @BuildPathTask_Destroy(g_rgBuildPathJob[BuildPathJob_Task]);
-    }
-
-    g_rgBuildPathJob[BuildPathJob_Task] = Invalid_Struct;
     return;
   }
 

@@ -773,7 +773,6 @@ stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], con
   __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
-  __cls_call_iBufferPos = 0;
 
   if (__cls_call_sMethod == Invalid_Struct) {
     set_fail_state(__cls_err_MethodNotFoundInBaseClass, szMethod);
@@ -786,6 +785,7 @@ stock __cls_FreeMethodCall() {
   __cls_call_sMethod = Invalid_Struct;
   __cls_call_iParamsNum = 0;
   __cls_call_iParamTypesNum = 0;
+  __cls_call_iBufferPos = 0;
 }
 
 stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __cls_MethodType:iMethodType = __cls_MethodType_Method) {

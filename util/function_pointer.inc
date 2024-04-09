@@ -29,7 +29,7 @@ stock get_pfunc_plugin(const &Function:function) {
 }
 
 stock bool:is_pfunc_local(const &Function:function) {
-    return funcpointer_get_plugin_id(function) == -1;
+    return get_pfunc_plugin(function) == -1;
 }
 
 stock callfunc_begin_p(const &Function:function) {

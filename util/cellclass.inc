@@ -5,6 +5,7 @@
 
 #include <amxmodx>
 #include <cellstruct>
+#include <function_pointer>
 
 #if !defined CLASS_METHOD_CALL_STACK_SIZE
   #define CLASS_METHOD_CALL_STACK_SIZE 1024
@@ -101,8 +102,7 @@ enum __cls_MethodParamData {
 enum __cls_MethodData {
   __cls_MethodData_Name[CLASS_METHOD_MAX_NAME_LENGTH],
   Class:__cls_MethodData_Class,
-  __cls_MethodData_PluginId,
-  __cls_MethodData_FunctionId,
+  __cls_MethodData_Function,
   __cls_MethodType:__cls_MethodData_Type,
   __cls_MethodData_ParamTypesNum,
   __cls_MethodData_ParamTypes[__cls_MethodParamOffset(CLASS_METHOD_MAX_ARGUMENTS + 1)]
@@ -177,8 +177,8 @@ stock ClassDestroy(&Class:class) {
   class = Invalid_Class;
 }
 
-stock Class:ClassAddMethod(const &Class:class, const szMethod[], const szCallback[], iPluginId = -1, bool:bVirtual = false, any:...) {
-  static const iArgOffset = 5;
+stock Class:ClassAddMethod(const &Class:class, const szMethod[], const Function:func, bool:bVirtual = false, any:...) {
+  static const iArgOffset = 4;
 
   new iArgc = numargs();
 
@@ -213,19 +213,19 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const szCallbac
     }
   }
 
-  new Struct:sMethod = __cls_CreateMethod(class, szMethod, szCallback, iPluginId, irgParamTypes, bVirtual ? __cls_MethodType_Virtual : __cls_MethodType_Method);
+  new Struct:sMethod = __cls_CreateMethod(class, szMethod, func, irgParamTypes, bVirtual ? __cls_MethodType_Virtual : __cls_MethodType_Method);
 
   ArrayDestroy(irgParamTypes);
 
   TrieSetCell(itMethods, szMethod, sMethod);
 }
 
-stock ClassAddSetter(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, iType, iSize = 1) {
-  __cls_AddMemberAccessorMethod(class, szMember, szCallback, iPluginId, __cls_MethodType_Setter, iType, iSize);
+stock ClassAddSetter(const &Class:class, const szMember[], const Function:func, iType, iSize = 1) {
+  __cls_AddMemberAccessorMethod(class, szMember, func, __cls_MethodType_Setter, iType, iSize);
 }
 
-stock ClassAddGetter(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, iType, iSize = 1) {
-  __cls_AddMemberAccessorMethod(class, szMember, szCallback, iPluginId, __cls_MethodType_Getter, iType, iSize);
+stock ClassAddGetter(const &Class:class, const szMember[], const Function:func, iType, iSize = 1) {
+  __cls_AddMemberAccessorMethod(class, szMember, func, __cls_MethodType_Getter, iType, iSize);
 }
 
 stock Class:ClassGetBaseClass(const &Class:class) {
@@ -476,7 +476,9 @@ stock ClassInstanceCallMethodBeginBase(any:...) {
 
   __cls_InitMethodCall(rgCallStackItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
 
-  if (callfunc_begin_i(StructGetCell(__cls_call_sMethod, __cls_MethodData_FunctionId), StructGetCell(__cls_call_sMethod, __cls_MethodData_PluginId)) != 1) {
+  static Function:func; func = StructGetCell(__cls_call_sMethod, __cls_MethodData_Function);
+
+  if (callfunc_begin_p(func) != 1) {
     static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
     set_fail_state(__cls_err_FailedToCallMethodFunction, szMethod);
     return;
@@ -807,7 +809,9 @@ stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __
     return;
   }
 
-  if (callfunc_begin_i(StructGetCell(__cls_call_sMethod, __cls_MethodData_FunctionId), StructGetCell(__cls_call_sMethod, __cls_MethodData_PluginId)) != 1) {
+  static Function:func; func = StructGetCell(__cls_call_sMethod, __cls_MethodData_Function);
+
+  if (callfunc_begin_p(func) != 1) {
     static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
     set_fail_state(__cls_err_FailedToCallMethodFunction, szMethod);
     return;
@@ -886,7 +890,7 @@ stock __cls_DestroyMethodsTrie(&Trie:itMethods) {
   TrieDestroy(itMethods);
 }
 
-stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const szCallback[], iPluginId = -1, __cls_MethodType:iMethodType, iType, iSize) {
+stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const Function:func, __cls_MethodType:iMethodType, iType, iSize) {
   new iStructField = -1;
 
   switch (iMethodType) {
@@ -918,7 +922,7 @@ stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const 
     ArrayPushArray(irgParamTypes, rgSizeParam[any:0], _:__cls_MethodParamData);
   }
 
-  new Struct:sMethod = __cls_CreateMethod(class, szMember, szCallback, iPluginId, irgParamTypes, iMethodType);
+  new Struct:sMethod = __cls_CreateMethod(class, szMember, func, irgParamTypes, iMethodType);
 
   ArrayDestroy(irgParamTypes);
 
@@ -936,12 +940,11 @@ stock __cls_ResolveAccessorParamType(iType, __cls_MethodType:iMethodType) {
   return iType;
 }
 
-stock Struct:__cls_CreateMethod(Class:class, const szName[], const szCallback[], iPluginId, Array:irgParamTypes, __cls_MethodType:iType = __cls_MethodType_Method) {
+stock Struct:__cls_CreateMethod(Class:class, const szName[], const Function:func, Array:irgParamTypes, __cls_MethodType:iType = __cls_MethodType_Method) {
   new Struct:sMethod = StructCreate(__cls_MethodData);
   StructSetCell(sMethod, __cls_MethodData_Class, class);
   StructSetString(sMethod, __cls_MethodData_Name, szName);
-  StructSetCell(sMethod, __cls_MethodData_PluginId, iPluginId);
-  StructSetCell(sMethod, __cls_MethodData_FunctionId, get_func_id(szCallback, iPluginId));
+  StructSetCell(sMethod, __cls_MethodData_Function, func);
   StructSetCell(sMethod, __cls_MethodData_Type, iType);
 
   new iParamTypesNum = ArraySize(irgParamTypes);

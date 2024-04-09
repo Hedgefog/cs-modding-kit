@@ -4,10 +4,9 @@
 #include <amxmisc>
 #include <fakemeta>
 #include <hamsandwich>
-#tryinclude <datapack>
 
 #include <cellclass>
-#include <datapack_stocks>
+#include <function_pointer>
 
 #include <api_custom_entities_const>
 
@@ -16,11 +15,6 @@
 #define LOG_PREFIX "[CE]"
 
 enum _:GLOBALESTATE { GLOBAL_OFF = 0, GLOBAL_ON = 1, GLOBAL_DEAD = 2 };
-
-enum Callback {
-  Callback_PluginID,
-  Callback_FunctionId
-};
 
 enum EntityFlags (<<=1) {
   EntityFlag_None = 0,
@@ -75,10 +69,6 @@ public plugin_init() {
   register_plugin("[API] Custom Entities", "2.0.0", "Hedgehog Fog");
 
   register_concmd("ce_spawn", "Command_Spawn", ADMIN_CVAR);
-
-  #if !defined _datapack_included
-    log_amx("%s Warning! This version is compiled without ^"datapack^" support. Method arguments are not supported!", LOG_PREFIX);
-  #endif
 }
 
 public plugin_natives() {
@@ -188,7 +178,15 @@ public Native_RegisterHook(iPluginId, iArgc) {
   new CEFunction:iFunction = CEFunction:get_param(2);
   new szCallback[CE_MAX_CALLBACK_NAME_LENGTH]; get_string(3, szCallback, charsmax(szCallback));
 
-  RegisterEntityHook(iFunction, szClassname, szCallback, iPluginId);
+  new Function:fnCallback = get_func_pointer(szCallback, iPluginId);
+  if (fnCallback == Invalid_FunctionPointer) {
+    new szFilename[64];
+    get_plugin(iPluginId, szFilename, charsmax(szFilename));
+    log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
+    return;
+  }
+
+  RegisterEntityHook(iFunction, szClassname, fnCallback);
 }
 
 public Native_RegisterMethod(iPluginId, iArgc) {
@@ -200,7 +198,7 @@ public Native_RegisterMethod(iPluginId, iArgc) {
   new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
   new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, false, CMP_Cell, CMP_ParamsCellArray, irgParams);
+  ClassAddMethod(cEntity, szMethod, get_func_pointer(szCallback, iPluginId), false, CMP_Cell, CMP_ParamsCellArray, irgParams);
 
   ArrayDestroy(irgParams);
 }
@@ -214,7 +212,7 @@ public Native_RegisterVirtualMethod(iPluginId, iArgc) {
   new Class:cEntity = ArrayGetCell(g_rgEntities[Entity_Class], iId);
   new Array:irgParams = ReadMethodParamsFromNativeCall(4, iArgc);
 
-  ClassAddMethod(cEntity, szMethod, szCallback, iPluginId, true, CMP_Cell, CMP_ParamsCellArray, irgParams);
+  ClassAddMethod(cEntity, szMethod, get_func_pointer(szCallback, iPluginId), true, CMP_Cell, CMP_ParamsCellArray, irgParams);
 
   ArrayDestroy(irgParams);
 }
@@ -1085,7 +1083,7 @@ RegisterEntity(const szClassname[], CEPreset:iPreset = CEPreset_None, const Enti
   ArrayPushCell(g_rgEntities[Entity_KeyMemberBindings], TrieCreate());
 
   for (new CEFunction:iFunction = CEFunction:0; iFunction < CEFunction; ++iFunction) {
-    ArrayPushCell(g_rgEntities[Entity_Hooks][iFunction], ArrayCreate(_:Callback));
+    ArrayPushCell(g_rgEntities[Entity_Hooks][iFunction], ArrayCreate());
   }
 
   g_iEntitiesNum++;
@@ -1138,27 +1136,15 @@ GetIdByClassName(const szClassname[]) {
   return iId;
 }
 
-RegisterEntityHook(CEFunction:iFunction, const szClassname[], const szCallback[], iPluginId = -1) {
+RegisterEntityHook(CEFunction:iFunction, const szClassname[], const Function:fnCallback) {
   new iId = GetIdByClassName(szClassname);
   if (iId == -1) {
     log_error(AMX_ERR_NATIVE, "%s Entity ^"%s^" is not registered.", LOG_PREFIX, szClassname);
     return -1;
   }
 
-  new iFunctionId = get_func_id(szCallback, iPluginId);
-  if (iFunctionId < 0) {
-    new szFilename[64];
-    get_plugin(iPluginId, szFilename, charsmax(szFilename));
-    log_error(AMX_ERR_NATIVE, "%s Function ^"%s^" not found in plugin ^"%s^".", LOG_PREFIX, szCallback, szFilename);
-    return -1;
-  }
-
-  new rgHook[Callback];
-  rgHook[Callback_PluginID] = iPluginId;
-  rgHook[Callback_FunctionId] = iFunctionId;
-
   new Array:irgHooks = ArrayGetCell(g_rgEntities[Entity_Hooks][iFunction], iId);
-  new iHookId = ArrayPushArray(irgHooks, rgHook[Callback:0], _:Callback);
+  new iHookId = ArrayPushCell(irgHooks, fnCallback);
 
   return iHookId;
 }
@@ -1210,10 +1196,9 @@ ExecuteHookFunction(CEFunction:iFunction, pEntity, any:...) {
     new iHooksNum; iHooksNum = ArraySize(irgHooks);
 
     for (new iHookId = 0; iHookId < iHooksNum; ++iHookId) {
-      static iPluginId; iPluginId = ArrayGetCell(irgHooks, iHookId, _:Callback_PluginID);
-      static iFunctionId; iFunctionId = ArrayGetCell(irgHooks, iHookId, _:Callback_FunctionId);
+      static Function:fnCallback; fnCallback = ArrayGetCell(irgHooks, iHookId);
 
-      if (callfunc_begin_i(iFunctionId, iPluginId) == 1)  {
+      if (callfunc_begin_p(fnCallback) == 1)  {
         callfunc_push_int(pEntity);
 
         switch (iFunction) {

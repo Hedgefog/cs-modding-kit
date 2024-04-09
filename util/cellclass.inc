@@ -129,7 +129,11 @@ enum __cls_MethodCallStackItem {
 stock Array:__cls_callstack[CLASS_METHOD_CALL_STACK_SIZE][__cls_MethodCallStackItem];
 stock __cls_callstack_size = 0;
 
+#define __cls_callstack_lastItem __cls_callstack[__cls_callstack_size - 1]
+#define __cls_callstack_isEmpty !__cls_callstack_size
+
 // Variables to store info between Begin and End method calls
+stock Class:__cls_call_class = Invalid_Class;
 stock ClassInstance:__cls_call_pInstance = Invalid_ClassInstance;
 stock Struct:__cls_call_sMethod = Invalid_Struct;
 stock __cls_call_iParamTypesNum = 0;
@@ -318,25 +322,21 @@ stock ClassInstanceDestroy(&ClassInstance:pInstance) {
 }
 
 stock ClassInstance:ClassInstanceGetCurrent() {
-  if (__cls_IsMethodCallStackEmpty()) {
+  if (__cls_callstack_isEmpty) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return Invalid_ClassInstance;
   }
 
-  static rgCallStackItem[__cls_MethodCallStackItem]; __cls_GetCurrentMethodFromCallStack(rgCallStackItem);
-
-  return rgCallStackItem[__cls_MethodCallStackItem_Instance];
+  return __cls_callstack_lastItem[__cls_MethodCallStackItem_Instance];
 }
 
 stock Class:ClassInstanceGetCurrentClass() {
-  if (__cls_IsMethodCallStackEmpty()) {
+  if (__cls_callstack_isEmpty) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return Invalid_Class;
   }
 
-  static rgCallStackItem[__cls_MethodCallStackItem]; __cls_GetCurrentMethodFromCallStack(rgCallStackItem);
-
-  return rgCallStackItem[__cls_MethodCallStackItem_Class];
+  return __cls_callstack_lastItem[__cls_MethodCallStackItem_Class];
 }
 
 stock ClassInstanceCallMethod(const &ClassInstance:pInstance, const szMethod[], any:...) {
@@ -458,23 +458,21 @@ stock ClassInstanceCallMethodBegin(const &ClassInstance:pInstance, const szMetho
 }
 
 stock ClassInstanceCallMethodBeginBase(any:...) {
-  if (__cls_IsMethodCallStackEmpty()) {
+  if (__cls_callstack_isEmpty) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return;
   }
 
-  static rgCallStackItem[__cls_MethodCallStackItem]; __cls_GetCurrentMethodFromCallStack(rgCallStackItem);
-
-  static Class:class; class = StructGetCell(Struct:rgCallStackItem[__cls_MethodCallStackItem_Class], __cls_Data_Base);
+  static Class:class; class = StructGetCell(Struct:__cls_callstack_lastItem[__cls_MethodCallStackItem_Class], __cls_Data_Base);
   if (class == Invalid_Class) {
     set_fail_state(__cls_err_ClassHasNoBaseClass);
     return;
   }
 
-  static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(rgCallStackItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Name, szMethod, charsmax(szMethod));
-  static __cls_MethodType:iMethodType; iMethodType = StructGetCell(Struct:rgCallStackItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Type);
+  static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_callstack_lastItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Name, szMethod, charsmax(szMethod));
+  static __cls_MethodType:iMethodType; iMethodType = StructGetCell(Struct:__cls_callstack_lastItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Type);
 
-  __cls_InitMethodCall(rgCallStackItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
+  __cls_InitMethodCall(__cls_callstack_lastItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
 
   static Function:func; func = StructGetCell(__cls_call_sMethod, __cls_MethodData_Function);
 
@@ -493,7 +491,7 @@ stock any:ClassInstanceCallMethodEnd() {
 
   static any:result; result = __cls_ExecuteMethod();
 
-  if (__cls_IsMethodCallStackEmpty()) {
+  if (__cls_callstack_isEmpty) {
     __cls_FreeMethodCall();
   }
 
@@ -767,10 +765,9 @@ stock __cls_ParseParamTypes(Array:irgArgs, &Array:irgParamTypes) {
 }
 
 stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], const &Class:class = Invalid_Class, __cls_MethodType:iMethodType) {
-  static Class:callClass; callClass = class == Invalid_Class ? __cls_GetCallMethodClass(pInstance) : class;
-
+  __cls_call_class = class == Invalid_Class ? __cls_GetCallMethodClass(pInstance) : class;
   __cls_call_pInstance = pInstance;
-  __cls_call_sMethod = __cls_FindClassMethodInHierarchy(callClass, szMethod, iMethodType);
+  __cls_call_sMethod = __cls_FindClassMethodInHierarchy(__cls_call_class, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
 
@@ -781,6 +778,7 @@ stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], con
 }
 
 stock __cls_FreeMethodCall() {
+  __cls_call_class = Invalid_Class;
   __cls_call_pInstance = Invalid_ClassInstance;
   __cls_call_sMethod = Invalid_Struct;
   __cls_call_iParamsNum = 0;
@@ -791,13 +789,12 @@ stock __cls_FreeMethodCall() {
 stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __cls_MethodType:iMethodType = __cls_MethodType_Method) {
   __cls_InitMethodCall(pInstance, szMethod, _, iMethodType);
 
-  static Class:sInstanceClass; sInstanceClass = __cls_GetInstanceClass(pInstance);
-
   // Check for virtual method call
-  // If we are already in the execution context and the method is virual jump to top level context
+  // If we are already in the execution context and the method is virual then jump to top level context
   // All Getters and Setter works like virtual methods
-  if (!__cls_IsMethodCallStackEmpty()) {
+  if (!__cls_callstack_isEmpty) {
     if (StructGetCell(__cls_call_sMethod, __cls_MethodData_Type) != __cls_MethodType_Method) {
+      static Class:sInstanceClass; sInstanceClass = __cls_GetInstanceClass(pInstance);
       if (sInstanceClass != StructGetCell(__cls_call_sMethod, __cls_MethodData_Class)) {
         __cls_call_sMethod = __cls_FindClassMethodInHierarchy(sInstanceClass, szMethod, iMethodType);
       }
@@ -1015,10 +1012,6 @@ stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod
   return Invalid_Struct;
 }
 
-stock bool:__cls_IsMethodCallStackEmpty() {
-  return !__cls_callstack_size;
-}
-
 stock __cls_PushMethodCallToCallStack() {
   if (__cls_callstack_size >= CLASS_METHOD_CALL_STACK_SIZE) {
     set_fail_state(__cls_err_MaxCallStackSizeExceeded);
@@ -1035,21 +1028,15 @@ stock __cls_PopMethodFromCallStack() {
   __cls_callstack_size--;
 
   if (__cls_callstack_size) {
-    __cls_call_pInstance = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance];
-    __cls_call_sMethod = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Method];
+    __cls_call_pInstance = __cls_callstack_lastItem[__cls_MethodCallStackItem_Instance];
+    __cls_call_sMethod = __cls_callstack_lastItem[__cls_MethodCallStackItem_Method];
   }
-}
-
-stock __cls_GetCurrentMethodFromCallStack(rgCallStackItem[__cls_MethodCallStackItem]) {
-  rgCallStackItem[__cls_MethodCallStackItem_Instance] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance];
-  rgCallStackItem[__cls_MethodCallStackItem_Class] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Class];
-  rgCallStackItem[__cls_MethodCallStackItem_Method] = __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Method];
 }
 
 stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
   if (__cls_callstack_size) {
-      if (__cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Instance] == pInstance) {
-        return __cls_callstack[__cls_callstack_size - 1][__cls_MethodCallStackItem_Class];
+      if (__cls_callstack_lastItem[__cls_MethodCallStackItem_Instance] == pInstance) {
+        return __cls_callstack_lastItem[__cls_MethodCallStackItem_Class];
       }
   }
 

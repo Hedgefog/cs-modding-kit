@@ -14,7 +14,7 @@ stock Function:get_func_pointer(const szFunction[], iPluginId = -1) {
         iPluginId = get_plugin(-1);
     }
 
-    if (iPluginId > 0xFFFF) return Invalid_FunctionPointer;
+    if (iPluginId >= 0xFFFF) return Invalid_FunctionPointer;
     if (iFunctionId > 0xFFFF) return Invalid_FunctionPointer;
 
     return Function:(((iPluginId + 1) << 16) | iFunctionId);

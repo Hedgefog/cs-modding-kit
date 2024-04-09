@@ -33,5 +33,5 @@ stock bool:is_pfunc_local(const &Function:function) {
 }
 
 stock callfunc_begin_p(const &Function:function) {
-    callfunc_begin_i(get_pfunc_function(function), get_pfunc_plugin(function));
+    return callfunc_begin_i(get_pfunc_function(function), get_pfunc_plugin(function));
 }

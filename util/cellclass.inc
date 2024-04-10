@@ -64,9 +64,6 @@ enum _:__cls_ParamTypes {
   CMP_ParamsCellArray
 };
 
-// #define CMP_Float CMP_Cell
-// #define CMP_FloatArray CMP_Array
-
 stock const __cls_ParamTypeNames[__cls_ParamTypes][64] = {
   "Cell",
   "String",
@@ -118,19 +115,13 @@ enum __cls_InstanceCache {
   any:__cls_InstanceCache_Value
 };
 
-enum __cls_MethodCallStackItem {
-  __cls_MethodCallStackItem_Name[CLASS_METHOD_MAX_NAME_LENGTH],
-  ClassInstance:__cls_MethodCallStackItem_Instance,
-  Class:__cls_MethodCallStackItem_Class,
-  Struct:__cls_MethodCallStackItem_Method
-};
-
 // Fast pseudo-stack implementation
-stock Array:__cls_callstack[CLASS_METHOD_CALL_STACK_SIZE][__cls_MethodCallStackItem];
+stock ClassInstance:__cls_callstack_pInstance[CLASS_METHOD_CALL_STACK_SIZE];
+stock Class:__cls_callstack_class[CLASS_METHOD_CALL_STACK_SIZE];
+stock Struct:__cls_callstack_sMethod[CLASS_METHOD_CALL_STACK_SIZE];
 stock __cls_callstack_size = 0;
 
-#define __cls_callstack_lastItem __cls_callstack[__cls_callstack_size - 1]
-#define __cls_callstack_isEmpty !__cls_callstack_size
+#define __cls_callstack_iLastItem (__cls_callstack_size - 1)
 
 // Variables to store info between Begin and End method calls
 stock Class:__cls_call_class = Invalid_Class;
@@ -322,21 +313,21 @@ stock ClassInstanceDestroy(&ClassInstance:pInstance) {
 }
 
 stock ClassInstance:ClassInstanceGetCurrent() {
-  if (__cls_callstack_isEmpty) {
+  if (!__cls_callstack_size) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return Invalid_ClassInstance;
   }
 
-  return __cls_callstack_lastItem[__cls_MethodCallStackItem_Instance];
+  return __cls_callstack_pInstance[__cls_callstack_iLastItem];
 }
 
 stock Class:ClassInstanceGetCurrentClass() {
-  if (__cls_callstack_isEmpty) {
+  if (!__cls_callstack_size) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return Invalid_Class;
   }
 
-  return __cls_callstack_lastItem[__cls_MethodCallStackItem_Class];
+  return __cls_callstack_class[__cls_callstack_iLastItem];
 }
 
 stock ClassInstanceCallMethod(const &ClassInstance:pInstance, const szMethod[], any:...) {
@@ -458,21 +449,21 @@ stock ClassInstanceCallMethodBegin(const &ClassInstance:pInstance, const szMetho
 }
 
 stock ClassInstanceCallMethodBeginBase(any:...) {
-  if (__cls_callstack_isEmpty) {
+  if (!__cls_callstack_size) {
     set_fail_state(__cls_err_CallMethodOutsideContext);
     return;
   }
 
-  static Class:class; class = StructGetCell(Struct:__cls_callstack_lastItem[__cls_MethodCallStackItem_Class], __cls_Data_Base);
+  static Class:class; class = StructGetCell(Struct:__cls_callstack_class[__cls_callstack_iLastItem], __cls_Data_Base);
   if (class == Invalid_Class) {
     set_fail_state(__cls_err_ClassHasNoBaseClass);
     return;
   }
 
-  static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_callstack_lastItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Name, szMethod, charsmax(szMethod));
-  static __cls_MethodType:iMethodType; iMethodType = StructGetCell(Struct:__cls_callstack_lastItem[__cls_MethodCallStackItem_Method], __cls_MethodData_Type);
+  static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_callstack_sMethod[__cls_callstack_iLastItem], __cls_MethodData_Name, szMethod, charsmax(szMethod));
+  static __cls_MethodType:iMethodType; iMethodType = StructGetCell(__cls_callstack_sMethod[__cls_callstack_iLastItem], __cls_MethodData_Type);
 
-  __cls_InitMethodCall(__cls_callstack_lastItem[__cls_MethodCallStackItem_Instance], szMethod, class, iMethodType);
+  __cls_InitMethodCall(__cls_callstack_pInstance[__cls_callstack_iLastItem], szMethod, class, iMethodType);
 
   static Function:func; func = StructGetCell(__cls_call_sMethod, __cls_MethodData_Function);
 
@@ -491,7 +482,7 @@ stock any:ClassInstanceCallMethodEnd() {
 
   static any:result; result = __cls_ExecuteMethod();
 
-  if (__cls_callstack_isEmpty) {
+  if (!__cls_callstack_size) {
     __cls_FreeMethodCall();
   }
 
@@ -792,7 +783,7 @@ stock __cls_CallMethodBegin(const &ClassInstance:pInstance, const szMethod[], __
   // Check for virtual method call
   // If we are already in the execution context and the method is virual then jump to top level context
   // All Getters and Setter works like virtual methods
-  if (!__cls_callstack_isEmpty) {
+  if (__cls_callstack_size) {
     if (StructGetCell(__cls_call_sMethod, __cls_MethodData_Type) != __cls_MethodType_Method) {
       static Class:sInstanceClass; sInstanceClass = __cls_GetInstanceClass(pInstance);
       if (sInstanceClass != StructGetCell(__cls_call_sMethod, __cls_MethodData_Class)) {
@@ -1017,9 +1008,9 @@ stock __cls_PushMethodCallToCallStack() {
     set_fail_state(__cls_err_MaxCallStackSizeExceeded);
   }
 
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Instance] = any:__cls_call_pInstance;
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Class] = any:StructGetCell(__cls_call_sMethod, __cls_MethodData_Class);
-  __cls_callstack[__cls_callstack_size][__cls_MethodCallStackItem_Method] = any:__cls_call_sMethod;
+  __cls_callstack_pInstance[__cls_callstack_size] = any:__cls_call_pInstance;
+  __cls_callstack_class[__cls_callstack_size] = any:StructGetCell(__cls_call_sMethod, __cls_MethodData_Class);
+  __cls_callstack_sMethod[__cls_callstack_size] = any:__cls_call_sMethod;
 
   __cls_callstack_size++;
 }
@@ -1028,15 +1019,15 @@ stock __cls_PopMethodFromCallStack() {
   __cls_callstack_size--;
 
   if (__cls_callstack_size) {
-    __cls_call_pInstance = __cls_callstack_lastItem[__cls_MethodCallStackItem_Instance];
-    __cls_call_sMethod = __cls_callstack_lastItem[__cls_MethodCallStackItem_Method];
+    __cls_call_pInstance = __cls_callstack_pInstance[__cls_callstack_iLastItem];
+    __cls_call_sMethod = __cls_callstack_sMethod[__cls_callstack_iLastItem];
   }
 }
 
 stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
   if (__cls_callstack_size) {
-      if (__cls_callstack_lastItem[__cls_MethodCallStackItem_Instance] == pInstance) {
-        return __cls_callstack_lastItem[__cls_MethodCallStackItem_Class];
+      if (__cls_callstack_pInstance[__cls_callstack_iLastItem] == pInstance) {
+        return __cls_callstack_class[__cls_callstack_iLastItem];
       }
   }
 

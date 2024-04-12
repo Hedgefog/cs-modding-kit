@@ -613,10 +613,10 @@ bool:@Entity_ProcessPath(this) {
         static Array:irgPath; irgPath = CE_GetMember(this, m_irgPath);
         ArrayClear(irgPath);
 
-        static Array:irgSegments; irgSegments = Nav_Path_GetSegments(pPath);
-        for (new i = 0; i < ArraySize(irgSegments); ++i) {
-            static NavPathSegment:pSegment; pSegment = ArrayGetCell(irgSegments, i);
-            static Float:vecPos[3]; Nav_Path_Segment_GetPos(pSegment, vecPos);
+        static iSegmentsNum; iSegmentsNum = Nav_Path_GetSegmentCount(pPath);
+
+        for (new iSegment = 0; iSegment < iSegmentsNum; ++iSegment) {
+            static Float:vecPos[3]; Nav_Path_GetSegmentPos(pPath, iSegment, vecPos);
 
             ArrayPushArray(irgPath, vecPos, sizeof(vecPos));
         }

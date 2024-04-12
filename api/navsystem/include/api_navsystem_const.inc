@@ -10,6 +10,9 @@
 #define nullptr -1
 #define HASH_TABLE_SIZE 256
 #define MAX_PATH_SEGMENTS 256
+#define MAX_NAV_AREAS 4096
+#define MAX_NAV_PATH_TASKS 1024
+#define MAX_NAV_GROUND_LAYERS 16
 
 #define UNDEFINED_PLACE 0
 #define ANY_PLACE 0xFFFF

@@ -24,6 +24,9 @@
 
 #include <api_navsystem_const>
 
+#define INVALID_NAV_AREA -1
+#define INVALID_BUILD_PATH_TASK -1
+
 enum _:LADDER_TOP_DIR {
   LADDER_TOP_DIR_AHEAD = 0,
   LADDER_TOP_DIR_LEFT,
@@ -34,9 +37,9 @@ enum _:LADDER_TOP_DIR {
 
 enum Extent { Float:Extent_Lo[3], Float:Extent_Hi[3] };
 enum Ray { Float:Ray_From[3], Float:Ray_To[3]};
-enum NavConnect { NavConnect_Id, Struct:NavConnect_Area };
+enum NavConnect { NavConnect_Id, NavConnect_Area };
 enum SpotOrder { SpotOrder_Id, Float:SpotOrder_T, Struct:SpotOrder_Spot };
-enum PathSegment { Struct:PathSegment_Area, NavTraverseType:PathSegment_How, Float:PathSegment_Pos[3] };
+enum PathSegment { PathSegment_Area, NavTraverseType:PathSegment_How, Float:PathSegment_Pos[3] };
 enum NavPath { Array:NavPath_Segments, NavPath_SegmentCount };
 
 enum ApproachInfo {
@@ -64,10 +67,11 @@ enum NavAreaGrid {
   Float:NavAreaGrid_MinX,
   Float:NavAreaGrid_MinY,
   NavAreaGrid_AreaCount,
-  Struct:NavAreaGrid_HashTable[HASH_TABLE_SIZE]
+  NavAreaGrid_HashTable[HASH_TABLE_SIZE]
 };
 
 enum NavArea {
+  NavArea_Index,
   NavArea_Id, // unique area ID
   NavArea_Extent[Extent], // extents of area in world coords (NOTE: lo[2] is not necessarily the minimum Z, but corresponds to Z at point (lo[0], lo[1]), etc
   Float:NavArea_Center[3], // centroid of area
@@ -90,16 +94,16 @@ enum NavArea {
   Array:NavArea_OverlapList, // list of areas that overlap this area
 
   // connections for grid hash table
-  Struct:NavArea_PrevHash,
-  Struct:NavArea_NextHash,
+  NavArea_PrevHash,
+  NavArea_NextHash,
 
-  Struct:NavArea_NextOpen, // only valid if m_openMarker == m_masterMarker
-  Struct:NavArea_PrevOpen,
+  NavArea_NextOpen, // only valid if m_openMarker == m_masterMarker
+  NavArea_PrevOpen,
   NavArea_OpenMarker, // if this equals the current marker value, we are on the open list
 
   // A* pathfinding algorithm
   NavArea_Marker, // used to flag the area as visited
-  Struct:NavArea_Parent, // the area just prior to this on in the search path
+  NavArea_Parent, // the area just prior to this on in the search path
   NavTraverseType:NavArea_ParentHow, // how we get from parent to us
   Float:NavArea_TotalCost, // the distance so far plus an estimate of the distance left
   Float:NavArea_CostSoFar, // distance travelled so far
@@ -108,11 +112,13 @@ enum NavArea {
 enum Callback { Callback_PluginId, Callback_FunctionId };
 
 enum BuildPathTask {
+  BuildPathTask_Index,
+  bool:BuildPathTask_IsFree,
   Float:BuildPathTask_StartPos[3],
   Float:BuildPathTask_GoalPos[3],
-  Struct:BuildPathTask_StartArea,
-  Struct:BuildPathTask_GoalArea, 
-  Struct:BuildPathTask_ClosestArea,
+  Float:BuildPathTask_ActualGoalPos[3],
+  BuildPathTask_StartArea,
+  BuildPathTask_GoalArea,
   BuildPathTask_CostCallback[Callback],
   BuildPathTask_FinishCallback[Callback],
   BuildPathTask_IgnoreEntity,
@@ -120,25 +126,17 @@ enum BuildPathTask {
   Struct:BuildPathTask_Path,
   bool:BuildPathTask_IsFinished,
   bool:BuildPathTask_IsSuccessed,
-  bool:BuildPathTask_IsTerminated
+  bool:BuildPathTask_IsTerminated,
+  BuildPathTask_IterationsNum
 };
 
 enum BuildPathJob {
-  Struct:BuildPathJob_Task,
-  Struct:BuildPathJob_StartArea,
-  Struct:BuildPathJob_GoalArea, 
-  Float:BuildPathJob_ActualGoalPos[3],
-  Float:BuildPathJob_GoalPos[3],
+  BuildPathJob_Task,
   Float:BuildPathJob_ClosestAreaDist,
-  Struct:BuildPathJob_ClosestArea,
-  BuildPathJob_CostFuncId,
-  BuildPathJob_CostFuncPluginId,
-  bool:BuildPathJob_Successed,
+  BuildPathJob_ClosestArea,
   bool:BuildPathJob_Finished,
-  bool:BuildPathJob_Terminated,
-  bool:BuildPathJob_FinishHandled,
-  BuildPathJob_MaxIterations,
-  BuildPathJob_IgnoreEntity
+  bool:BuildPathJob_Released,
+  BuildPathJob_MaxIterations
 };
 
 enum NavLadder {
@@ -148,11 +146,11 @@ enum NavLadder {
   NavDirType:NavLadder_Dir,
   Float:NavLadder_DirVector[2],
   NavLadder_Entity,
-  Struct:NavLadder_TopForwardArea,
-  Struct:NavLadder_TopLeftArea,
-  Struct:NavLadder_TopRightArea,
-  Struct:NavLadder_TopBehindArea,
-  Struct:NavLadder_BottomArea,
+  NavLadder_TopForwardArea,
+  NavLadder_TopLeftArea,
+  NavLadder_TopRightArea,
+  NavLadder_TopBehindArea,
+  NavLadder_BottomArea,
   bool:NavLadder_IsDangling
 };
 
@@ -165,65 +163,73 @@ const Float:HumanHeight = 72.0;
 new g_rgGrid[NavAreaGrid];
 
 new g_iNavAreaNextId = 0;
-new g_iNavAreaMasterMarker;
-new Array:g_irgNavAreaList = Invalid_Array;
-// new Array:g_irgNavLadderList = Invalid_Array;
-new Struct:g_sNavAreaOpenList = Invalid_Struct;
+new g_iNavAreaMasterMarker = 1;
+new g_iNavAreaOpenList = INVALID_NAV_AREA;
 
 new g_rgBuildPathJob[BuildPathJob];
-new Array:g_irgBuildPathTasks = Invalid_Array;
+new Array:g_irgBuildPathTasksQueue = Invalid_Array;
 
 new g_pTrace;
-
-new g_pCvarMaxIterationsPerFrame;
-new g_pCvarDebug;
 
 new bool:b_bInitStage = false;
 new bool:g_bPrecached = false;
 new g_iArrowModelIndex;
 
+new g_rgNavAreas[MAX_NAV_AREAS][NavArea];
+new g_iNavAreasNum = 0;
+
+new g_rgBuildPathTasks[MAX_NAV_PATH_TASKS][BuildPathTask];
+
+new g_iMaxIterationsPerFrame = 0;
+new bool:g_bDebug = false;
+
+#define NAVAREA_PTR(%1) g_rgNavAreas[%1]
+#define NAVAREA_INDEX(%1) %1[NavArea_Index]
+#define TASK_PTR(%1) g_rgBuildPathTasks[%1]
+
 public plugin_precache() {
   g_pTrace = create_tr2();
   g_iArrowModelIndex = precache_model("sprites/arrow1.spr");
+
+  for (new i = 0; i < sizeof(g_rgNavAreas); ++i) {
+    NAVAREA_PTR(i)[NavArea_Index] = i;
+  }
+  
+  for (new i = 0; i < sizeof(g_rgBuildPathTasks); ++i) {
+    g_rgBuildPathTasks[i][BuildPathTask_Index] = i;
+    g_rgBuildPathTasks[i][BuildPathTask_IsFree] = true;
+  }
+
+  g_rgBuildPathJob[BuildPathJob_Task] = INVALID_BUILD_PATH_TASK;
 }
 
 public plugin_init() {
   register_plugin("Nav System", "0.1.0", "Hedgehog Fog");
 
   b_bInitStage = true;
-  g_pCvarMaxIterationsPerFrame = register_cvar("nav_max_iterations_per_frame", "100");
-  g_pCvarDebug = register_cvar("nav_debug", "0");
 
   if (g_bPrecached) BuildLadders();
+
+  bind_pcvar_num(register_cvar("nav_max_iterations_per_frame", "100"), g_iMaxIterationsPerFrame);
+  bind_pcvar_num(register_cvar("nav_debug", "0"), g_bDebug);
 }
 
 public plugin_end() {
-  if (g_irgNavAreaList != Invalid_Array) {
-    new iNavAreaListSize = ArraySize(g_irgNavAreaList);
-
-    for (new i = 0; i < iNavAreaListSize; ++i) {
-      new Struct:sNavArea = ArrayGetCell(g_irgNavAreaList, i);
-      @NavArea_Destroy(sNavArea);
+  for (new i = 0; i < sizeof(g_rgBuildPathTasks); ++i) {
+    if (g_rgBuildPathTasks[i][BuildPathTask_Path] != Invalid_Struct) {
+      @NavPath_Destroy(g_rgBuildPathTasks[i][BuildPathTask_Path]);
     }
-
-    ArrayDestroy(g_irgNavAreaList);
   }
 
-  // if (g_irgNavLadderList != Invalid_Array) {
-  //   new iNavirgLadderListSize = ArraySize(g_irgNavLadderList);
-
-  //   for (new i = 0; i < iNavirgLadderListSize; ++i) {
-  //     new Struct:sNavLader = ArrayGetCell(g_irgNavLadderList, i);
-  //     @NavLadder_Destroy(sNavLader);
-  //   }
-
-  //   ArrayDestroy(g_irgNavLadderList);
-  // }
+  for (new iArea = 0; iArea < g_iNavAreasNum; ++iArea) {
+    if (iArea == INVALID_NAV_AREA) continue;
+    @NavArea_Free(NAVAREA_PTR(iArea));
+  }
 
   NavAreaGrid_Free();
 
-  if (g_irgBuildPathTasks != Invalid_Array) {
-    ArrayDestroy(g_irgBuildPathTasks);
+  if (g_irgBuildPathTasksQueue != Invalid_Array) {
+    ArrayDestroy(g_irgBuildPathTasksQueue);
   }
 
   free_tr2(g_pTrace);
@@ -261,12 +267,14 @@ public plugin_natives() {
   register_native("Nav_Area_ComputePortal", "Native_Area_ComputePortal");
   register_native("Nav_Area_IsOverlapping", "Native_Area_IsOverlapping");
   register_native("Nav_Area_IsOverlappingPoint", "Native_Area_IsOverlappingPoint");
+  register_native("Nav_Area_GetCostSoFar", "Native_Area_GetCostSoFar");
 
   register_native("Nav_Path_IsValid", "Native_Path_IsValid");
-  register_native("Nav_Path_GetSegments", "Native_Path_GetSegments");
-  register_native("Nav_Path_Segment_GetPos", "Native_Path_Segment_GetPos");
-  register_native("Nav_Path_Segment_GetHow", "Native_Path_Segment_GetHow");
-  register_native("Nav_Path_Segment_GetArea", "Native_Path_Segment_GetArea");
+  register_native("Nav_Path_GetSegmentCount", "Native_Path_GetSegmentCount");
+  register_native("Nav_Path_GetSegmentPos", "Native_Path_GetSegmentPos");
+  register_native("Nav_Path_GetSegmentHow", "Native_Path_GetSegmentHow");
+  register_native("Nav_Path_GetSegmentArea", "Native_Path_GetSegmentArea");
+  register_native("Nav_Path_FindClosestPoint", "Native_Path_FindClosestPoint");
 
   register_native("Nav_Path_Find", "Native_Path_Find");
   register_native("Nav_Path_FindTask_Await", "Native_Path_FindTask_Await");
@@ -276,6 +284,7 @@ public plugin_natives() {
   register_native("Nav_Path_FindTask_IsFinished", "Native_Path_FindTask_IsFinished");
   register_native("Nav_Path_FindTask_IsSuccessed", "Native_Path_FindTask_IsSuccessed");
   register_native("Nav_Path_FindTask_IsTerminated", "Native_Path_FindTask_IsTerminated");
+  register_native("Nav_Path_FindTask_GetIterationsNum", "Native_Path_FindTask_GetIterationsNum");
 }
 
 public server_frame() {
@@ -293,29 +302,22 @@ public Native_Precache(iPluginId, iArgc) {
 }
 
 public Native_GetAreaCount(iPluginId, iArgc) {
-  return g_irgNavAreaList != Invalid_Array ? ArraySize(g_irgNavAreaList) : 0;
+  return g_iNavAreasNum;
 }
 
-public Struct:Native_GetArea(iPluginId, iArgc) {
-  if (g_irgNavAreaList == Invalid_Array) {
-    return Invalid_Struct;
-  }
+public Native_GetArea(iPluginId, iArgc) {
+  new iArea = get_param(1);
 
-  new iIndex = get_param(1);
-  if (iIndex >= ArraySize(g_irgNavAreaList)) {
-    return Invalid_Struct;
-  }
-
-  return ArrayGetCell(g_irgNavAreaList, iIndex);
+  return iArea;
 }
 
-public Struct:Native_GetAreaById(iPluginId, iArgc) {
+public Native_GetAreaById(iPluginId, iArgc) {
   new iId = get_param(1);
 
   return NavAreaGrid_GetNavAreaById(iId);
 }
 
-public Struct:Native_GetAreaFromGrid(iPluginId, iArgc) {
+public Native_GetAreaFromGrid(iPluginId, iArgc) {
   static Float:vecPos[3]; get_array_f(1, vecPos, sizeof(vecPos));
   new Float:flBeneathLimit = get_param_f(2);
 
@@ -333,9 +335,8 @@ public Native_WorldToGridY(iPluginId, iArgc) {
 
   return NavAreaGrid_WorldToGridY(flValue);
 }
-public Struct:Native_FindFirstAreaInDirection(iPluginId, iArgc) {
-  static Float:vecStart[3];
-  get_array_f(1, vecStart, sizeof(vecStart));
+public Native_FindFirstAreaInDirection(iPluginId, iArgc) {
+  static Float:vecStart[3]; get_array_f(1, vecStart, sizeof(vecStart));
 
   new NavDirType:iDir = NavDirType:get_param(2);
   new Float:flRange = get_param_f(3);
@@ -343,269 +344,316 @@ public Struct:Native_FindFirstAreaInDirection(iPluginId, iArgc) {
   new pIgnoreEnt = get_param(5);
 
   static Float:vecClosePos[3];
-  new Struct:sArea = FindFirstAreaInDirection(vecStart, iDir, flRange, flBeneathLimit, pIgnoreEnt, vecClosePos);
+  new iArea = FindFirstAreaInDirection(vecStart, iDir, flRange, flBeneathLimit, pIgnoreEnt, vecClosePos);
   set_array_f(6, vecClosePos, sizeof(vecClosePos));
 
-  return sArea;
+  return iArea;
 }
 
 public bool:Native_IsAreaVisible(iPluginId, iArgc) {
   static Float:vecPos[3]; get_array_f(1, vecPos, sizeof(vecPos));
 
-  new Struct:sArea = Struct:get_param(2);
+  new iArea = get_param(2);
 
-  return IsAreaVisible(vecPos, sArea);
+  return IsAreaVisible(vecPos, NAVAREA_PTR(iArea));
 }
 
-public Struct:Native_GetNearestNavArea(iPluginId, iArgc) {
+public Native_GetNearestNavArea(iPluginId, iArgc) {
   static Float:vecPos[3]; get_array_f(1, vecPos, sizeof(vecPos));
   static bool:bAnyZ; bAnyZ = bool:get_param(2);
   static pIgnoreEnt; pIgnoreEnt = get_param(3);
-  static Struct:sIgnoreArea; sIgnoreArea = Struct:get_param(4);
+  static iIgnoreArea; iIgnoreArea = get_param(4);
 
-  return NavAreaGrid_GetNearestNavArea(vecPos, bAnyZ, pIgnoreEnt, sIgnoreArea);
+  return NavAreaGrid_GetNearestNavArea(vecPos, bAnyZ, pIgnoreEnt, iIgnoreArea);
 }
 
-public Struct:Native_Path_Find(iPluginId, iArgc) {
+public Native_Path_Find(iPluginId, iArgc) {
   static Float:vecStart[3]; get_array_f(1, vecStart, sizeof(vecStart));
   static Float:vecGoal[3]; get_array_f(2, vecGoal, sizeof(vecGoal));
   static szCbFunction[32]; get_string(3, szCbFunction, charsmax(szCbFunction));
-  new pIgnoreEnt = get_param(4);
-  new iUserToken = get_param(5);
+  static pIgnoreEnt; pIgnoreEnt = get_param(4);
+  static iUserToken; iUserToken = get_param(5);
   static szCostFunction[32]; get_string(6, szCostFunction, charsmax(szCostFunction));
 
-  new iCostFuncId = equal(szCostFunction, NULL_STRING) ? -1 : get_func_id(szCostFunction, iPluginId);
-  new iCbFuncId = equal(szCbFunction, NULL_STRING) ? -1 : get_func_id(szCbFunction, iPluginId);
+  static iCostFuncId; iCostFuncId = equal(szCostFunction, NULL_STRING) ? -1 : get_func_id(szCostFunction, iPluginId);
+  static iCbFuncId; iCbFuncId = equal(szCbFunction, NULL_STRING) ? -1 : get_func_id(szCbFunction, iPluginId);
 
   return NavAreaBuildPath(vecStart, vecGoal, iCbFuncId, iPluginId, pIgnoreEnt, iUserToken, iCostFuncId, iPluginId);
 }
 
 public NavAttributeType:Native_Area_GetAttributes(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
 
-  return @NavArea_GetAttributes(sArea);
+  return @NavArea_GetAttributes(NAVAREA_PTR(iArea));
 }
 
 public NavTraverseType:Native_Area_GetParentHow(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
 
-  return @NavArea_GetParentHow(sArea);
+  return @NavArea_GetParentHow(NAVAREA_PTR(iArea));
 }
 
 public Native_Area_GetCenter(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
-  static Float:vecCenter[3]; @NavArea_GetCenter(sArea, vecCenter);
+  new iArea = get_param(1);
+  static Float:vecCenter[3]; @NavArea_GetCenter(NAVAREA_PTR(iArea), vecCenter);
 
   set_array_f(2, vecCenter, sizeof(vecCenter));
 }
 
 public Native_Path_FindTask_Await(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  static iTask; iTask = get_param(1);
 
-  while (!StructGetCell(sTask, BuildPathTask_IsFinished)) {
+  if (g_rgBuildPathTasks[iTask][BuildPathTask_IsFree]) {
+    return;
+  }
+
+  while (
+    g_rgBuildPathJob[BuildPathJob_Task] != iTask ||
+    !g_rgBuildPathJob[BuildPathJob_Finished]
+  ) {
     NavAreaBuildPathFrame();
   }
+
+  // g_rgBuildPathTasks[iTask][BuildPathTask_IsFree] = true;
 }
 
 public bool:Native_Path_FindTask_IsFinished(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return StructGetCell(sTask, BuildPathTask_IsFinished);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_IsFinished];
 }
 
 public Native_Path_FindTask_GetUserToken(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return StructGetCell(sTask, BuildPathTask_UserToken);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_UserToken];
 }
 
 public bool:Native_Path_FindTask_Abort(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return NavAreaBuildPathAbortTask(sTask);
+  return NavAreaBuildPathAbortTask(TASK_PTR(iTask));
 }
 
 public Struct:Native_Path_FindTask_GetPath(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return StructGetCell(sTask, BuildPathTask_Path);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_Path];
 }
 
 public bool:Native_Path_FindTask_IsSuccessed(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return StructGetCell(sTask, BuildPathTask_IsSuccessed);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_IsSuccessed];
 }
 
 public bool:Native_Path_FindTask_IsTerminated(iPluginId, iArgc) {
-  new Struct:sTask = Struct:get_param(1);
+  new iTask = get_param(1);
 
-  return StructGetCell(sTask, BuildPathTask_IsTerminated);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_IsTerminated];
 }
 
-public Array:Native_Path_GetSegments(iPluginId, iArgc) {
-  new Struct:sNavPath = Struct:get_param(1);
+public Native_Path_FindTask_GetIterationsNum(iPluginId, iArgc) {
+  new iTask = get_param(1);
 
-  return StructGetCell(sNavPath, NavPath_Segments);
+  return g_rgBuildPathTasks[iTask][BuildPathTask_IterationsNum];
 }
 
 public bool:Native_Path_IsValid(iPluginId, iArgc) {
-  new Struct:sNavPath = Struct:get_param(1);
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
 
   return @NavPath_IsValid(sNavPath);
 }
 
-public Native_Path_Segment_GetPos(iPluginId, iArgc) {
-  new Struct:sSegment = Struct:get_param(1);
+public Array:Native_Path_GetSegmentCount(iPluginId, iArgc) {
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
 
-  static Float:vecPos[3]; StructGetArray(sSegment, PathSegment_Pos, vecPos, sizeof(vecPos));
-
-  set_array_f(2, vecPos, sizeof(vecPos));
+  return StructGetCell(sNavPath, NavPath_SegmentCount);
 }
 
-public NavTraverseType:Native_Path_Segment_GetHow(iPluginId, iArgc) {
-  new Struct:sSegment = Struct:get_param(1);
+public Native_Path_GetSegmentPos(iPluginId, iArgc) {
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
+  static iSegment; iSegment = get_param(2);
 
-  return StructGetCell(sSegment, PathSegment_How);
+  static Array:irgSegments; irgSegments = StructGetCell(sNavPath, NavPath_Segments);
+
+  static Float:vecPos[3]; ArrayGetArray2(irgSegments, iSegment, vecPos, 3, PathSegment_Pos);
+
+  set_array_f(3, vecPos, sizeof(vecPos));
 }
 
-public NavTraverseType:Native_Path_Segment_GetArea(iPluginId, iArgc) {
-  new Struct:sSegment = Struct:get_param(1);
+public NavTraverseType:Native_Path_GetSegmentHow(iPluginId, iArgc) {
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
+  static iSegment; iSegment = get_param(2);
 
-  return StructGetCell(sSegment, PathSegment_Area);
+  static Array:irgSegments; irgSegments = StructGetCell(sNavPath, NavPath_Segments);
+
+  return ArrayGetCell(irgSegments, iSegment, _:PathSegment_How);
+}
+
+public NavTraverseType:Native_Path_GetSegmentArea(iPluginId, iArgc) {
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
+  static iSegment; iSegment = get_param(2);
+
+  static Array:irgSegments; irgSegments = StructGetCell(sNavPath, NavPath_Segments);
+
+  return ArrayGetCell(irgSegments, iSegment, _:PathSegment_Area);
+}
+
+public Native_Path_FindClosestPoint(iPluginId, iArgc) {
+  static Struct:sNavPath; sNavPath = Struct:get_param(1);
+  static Float:vecWorldPos[3]; get_array_f(2, vecWorldPos, sizeof(vecWorldPos));
+  static iStartIndex; iStartIndex = get_param(3);
+  static iEndIndex; iEndIndex = get_param(4);
+
+  static Float:vecClose[3];
+  if (!@NavPath_FindClosestPointOnPath(sNavPath, vecWorldPos, iStartIndex, iEndIndex, vecClose)) {
+    return false;
+  }
+
+  set_array_f(5, vecClose, sizeof(vecClose));
+
+  return true;
 }
 
 public Native_Area_GetId(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
 
-  return @NavArea_GetId(sArea);
+  return @NavArea_GetId(NAVAREA_PTR(iArea));
 }
 
 public bool:Native_Area_Contains(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPoint[3]; get_array_f(2, vecPoint, sizeof(vecPoint));
 
-  return @NavArea_Contains(sArea, vecPoint);
+  return @NavArea_Contains(NAVAREA_PTR(iArea), vecPoint);
 }
 
 public bool:Native_Area_IsCoplanar(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
-  new Struct:sOtherArea = Struct:get_param(2);
+  new iArea = get_param(1);
+  new iOtherArea = get_param(2);
 
-  return @NavArea_IsCoplanar(sArea, sOtherArea);
+  return @NavArea_IsCoplanar(NAVAREA_PTR(iArea), iOtherArea);
 }
 
 public Float:Native_Area_GetZ(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPos[3]; get_array_f(2, vecPos, sizeof(vecPos));
 
-  return @NavArea_GetZ(sArea, vecPos);
+  return @NavArea_GetZ(NAVAREA_PTR(iArea), vecPos);
 }
 
 public Native_Area_GetClosestPointOnArea(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPos[3]; get_array_f(2, vecPos, sizeof(vecPos));
 
   static Float:vecClose[3];
-  @NavArea_GetClosestPointOnArea(sArea, vecPos, vecClose);
+  @NavArea_GetClosestPointOnArea(NAVAREA_PTR(iArea), vecPos, vecClose);
 
   set_array_f(3, vecClose, sizeof(vecClose));
 }
 
 public Float:Native_Area_GetDistanceSquaredToPoint(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPoint[3]; get_array_f(2, vecPoint, sizeof(vecPoint));
 
-  return @NavArea_GetDistanceSquaredToPoint(sArea, vecPoint);
+  return @NavArea_GetDistanceSquaredToPoint(NAVAREA_PTR(iArea), vecPoint);
 }
 
-public Struct:Native_Area_GetRandomAdjacentArea(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+public Native_Area_GetRandomAdjacentArea(iPluginId, iArgc) {
+  new iArea = get_param(1);
   new NavDirType:iDir = NavDirType:get_param(2);
 
-  return @NavArea_GetRandomAdjacentArea(sArea, iDir);
+  return @NavArea_GetRandomAdjacentArea(NAVAREA_PTR(iArea), iDir);
 }
 
 public bool:Native_Area_IsEdge(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   new NavDirType:iDir = NavDirType:get_param(2);
 
-  return @NavArea_IsEdge(sArea, iDir);
+  return @NavArea_IsEdge(NAVAREA_PTR(iArea), iDir);
 }
 
 public bool:Native_Area_IsConnected(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
-  new Struct:sOtherArea = Struct:get_param(2);
+  new iArea = get_param(1);
+  new iOtherArea = get_param(2);
   new NavDirType:iDir = NavDirType:get_param(3);
 
-  return @NavArea_IsConnected(sArea, sOtherArea, iDir);
+  return @NavArea_IsConnected(NAVAREA_PTR(iArea), NAVAREA_PTR(iOtherArea), iDir);
 }
 
 public Native_Area_GetCorner(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   new NavCornerType:iCorner = NavCornerType:get_param(2);
   static Float:vecPos[3]; get_array_f(3, vecPos, sizeof(vecPos));
 
-  @NavArea_GetCorner(sArea, iCorner, vecPos);
+  @NavArea_GetCorner(NAVAREA_PTR(iArea), iCorner, vecPos);
 
   set_array_f(3, vecPos, sizeof(vecPos));
 }
 
 public NavDirType:Native_Area_ComputeDirection(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPoint[3]; get_array_f(2, vecPoint, sizeof(vecPoint));
 
-  return @NavArea_ComputeDirection(sArea, vecPoint);
+  return @NavArea_ComputeDirection(NAVAREA_PTR(iArea), vecPoint);
 }
 
 public Native_Area_ComputePortal(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
-  new Struct:sOtherArea = Struct:get_param(2);
+  new iArea = get_param(1);
+  new iOtherArea = get_param(2);
   new NavDirType:iDir = NavDirType:get_param(3);
 
   static Float:vecCenter[3];
   static Float:flHalfWidth;
 
-  @NavArea_ComputePortal(sArea, sOtherArea, iDir, vecCenter, flHalfWidth);
+  @NavArea_ComputePortal(NAVAREA_PTR(iArea), NAVAREA_PTR(iOtherArea), iDir, vecCenter, flHalfWidth);
 
   set_array_f(4, vecCenter, sizeof(vecCenter));
   set_float_byref(5, flHalfWidth);
 }
 
 public bool:Native_Area_IsOverlapping(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
-  new Struct:sOtherArea = Struct:get_param(2);
+  new iArea = get_param(1);
+  new iOtherArea = get_param(2);
 
-  return @NavArea_IsOverlapping(sArea, sOtherArea);
+  return @NavArea_IsOverlapping(NAVAREA_PTR(iArea), iOtherArea);
 }
 
 public bool:Native_Area_IsOverlappingPoint(iPluginId, iArgc) {
-  new Struct:sArea = Struct:get_param(1);
+  new iArea = get_param(1);
   static Float:vecPoint[3]; get_array_f(3, vecPoint, sizeof(vecPoint));
 
-  return @NavArea_IsOverlappingPoint(sArea, vecPoint);
+  return @NavArea_IsOverlappingPoint(NAVAREA_PTR(iArea), vecPoint);
 }
 
-Struct:@NavArea_Create() {
-  new Struct:this = StructCreate(NavArea);
+public Float:Native_Area_GetCostSoFar(iPluginId, iArgc) {
+  new iArea = get_param(1);
 
-  StructSetCell(this, NavArea_SpotEncounterList, ArrayCreate(_:SpotEncounter));
-  StructSetCell(this, NavArea_Approach, ArrayCreate(_:ApproachInfo));
-  StructSetCell(this, NavArea_OverlapList, ArrayCreate());
+  return @NavArea_GetCostSoFar(NAVAREA_PTR(iArea));
+}
+
+@NavArea_Allocate(this[NavArea]) {
+  this[NavArea_PrevHash] = INVALID_NAV_AREA;
+  this[NavArea_NextHash] = INVALID_NAV_AREA;
+  this[NavArea_PrevOpen] = INVALID_NAV_AREA;
+  this[NavArea_NextOpen] = INVALID_NAV_AREA;
+  this[NavArea_Parent] = INVALID_NAV_AREA;
+  this[NavArea_SpotEncounterList] = ArrayCreate(_:SpotEncounter);
+  this[NavArea_Approach] = ArrayCreate(_:ApproachInfo);
+  this[NavArea_OverlapList] = ArrayCreate();
 
   for (new NavDirType:d = NORTH; d < NUM_DIRECTIONS; d++) {
-    StructSetCell(this, NavArea_Connect, ArrayCreate(_:NavConnect), d);
+    this[NavArea_Connect][d] = ArrayCreate(_:NavConnect);
   }
 
   for (new LadderDirectionType:d = LADDER_UP; d < NUM_LADDER_DIRECTIONS; d++) {
-    StructSetCell(this, NavArea_Ladder, ArrayCreate(_:NavLadder), d);
+    this[NavArea_Ladder][d] = ArrayCreate(_:NavLadder);
   }
-
-  return this;
 }
 
-@NavArea_Destroy(&Struct:this) {
-  new Array:irgSpotEncounterList = StructGetCell(this, NavArea_SpotEncounterList);
+@NavArea_Free(this[NavArea]) {
+  new Array:irgSpotEncounterList = this[NavArea_SpotEncounterList];
 
   new iSpotEncounterListSize = ArraySize(irgSpotEncounterList);
   for (new i = 0; i < iSpotEncounterListSize; ++i) {
@@ -615,33 +663,26 @@ Struct:@NavArea_Create() {
 
   ArrayDestroy(irgSpotEncounterList);
 
-  new Array:irgApproachList = StructGetCell(this, NavArea_Approach);
-  ArrayDestroy(irgApproachList);
-
-  new Array:irgOverlapList = StructGetCell(this, NavArea_OverlapList);
-  ArrayDestroy(irgOverlapList);
+  ArrayDestroy(this[NavArea_Approach]);
+  ArrayDestroy(this[NavArea_OverlapList]);
 
   for (new NavDirType:d = NORTH; d < NUM_DIRECTIONS; d++) {
-    new Array:irgConnectList = StructGetCell(this, NavArea_Connect, d);
-    ArrayDestroy(irgConnectList);
+    ArrayDestroy(this[NavArea_Connect][d]);
   }
 
   for (new LadderDirectionType:d = LADDER_UP; d < NUM_LADDER_DIRECTIONS; d++) {
-    new Array:irgLadderList = StructGetCell(this, NavArea_Ladder, d);
-    ArrayDestroy(irgLadderList);
+    ArrayDestroy(this[NavArea_Ladder][d]);
   }
-
-  StructDestroy(this);
 }
 
-@NavArea_Load(const &Struct:this, iFile, iVersion, bool:bDebug) {
-  new Array:irgSpotEncounterList = StructGetCell(this, NavArea_SpotEncounterList);
-  new Array:irgApproachList = StructGetCell(this, NavArea_Approach);
+@NavArea_Load(this[NavArea], iFile, iVersion, bool:bDebug) {
+  new Array:irgSpotEncounterList = this[NavArea_SpotEncounterList];
+  new Array:irgApproachList = this[NavArea_Approach];
 
   // load ID
   new iId;
   FileReadInt32(iFile, iId);
-  StructSetCell(this, NavArea_Id, iId);
+  this[NavArea_Id] = iId;
 
   // update nextID to avoid collisions
   if (iId >= g_iNavAreaNextId) {
@@ -649,46 +690,33 @@ Struct:@NavArea_Create() {
   }
 
   // load attribute flags
-  new iAttributeFlags;
-  FileReadUint8(iFile, iAttributeFlags);
-  StructSetCell(this, NavArea_AttributeFlags, iAttributeFlags);
+  FileReadUint8(iFile, this[NavArea_AttributeFlags]);
 
   // load extent of area
-  new Float:rgExtent[Extent];
-  fread_blocks(iFile, rgExtent[Extent_Lo], 3, BLOCK_INT);
-  fread_blocks(iFile, rgExtent[Extent_Hi], 3, BLOCK_INT);
+  fread_blocks(iFile, this[NavArea_Extent][Extent_Lo], 3, BLOCK_INT);
+  fread_blocks(iFile, this[NavArea_Extent][Extent_Hi], 3, BLOCK_INT);
 
-  StructSetArray(this, NavArea_Extent, rgExtent, Extent);
-
-  new Float:vecCenter[3];
   for (new i = 0; i < 3; ++i) {
-    vecCenter[i] = (rgExtent[Extent_Lo][i] + rgExtent[Extent_Hi][i]) / 2.0;
+    this[NavArea_Center][i] = (this[NavArea_Extent][Extent_Lo][i] + this[NavArea_Extent][Extent_Hi][i]) / 2.0;
   }
 
-  StructSetArray(this, NavArea_Center, vecCenter, sizeof(vecCenter));
 
   // load heights of implicit corners
-  new Float:flNeZ;
-  FileReadInt32(iFile, flNeZ);
-  StructSetCell(this, NavArea_NeZ, flNeZ);
 
-  new Float:flSwZ;
-  FileReadInt32(iFile, flSwZ);
-  StructSetCell(this, NavArea_SwZ, flSwZ);
+  FileReadInt32(iFile, this[NavArea_NeZ]);
+
+  FileReadInt32(iFile, this[NavArea_SwZ]);
 
   // load connections (IDs) to adjacent areas
   // in the enum order NORTH, EAST, SOUTH, WEST
-  for (new d = 0; d < _:NUM_DIRECTIONS; d++) {
-    new Array:irgConnectList = StructGetCell(this, NavArea_Connect, d);
-
+  for (new NavDirType:d = NORTH; d < NUM_DIRECTIONS; d++) {
     // load number of connections for this direction
-    new iConnectionCount;
-    FileReadInt32(iFile, iConnectionCount);
+    new iConnectionCount; FileReadInt32(iFile, iConnectionCount);
 
     for (new i = 0; i < iConnectionCount; i++) {
       new rgConnect[NavConnect];
       FileReadInt32(iFile, rgConnect[NavConnect_Id]);
-      ArrayPushArray(irgConnectList, rgConnect[any:0]);
+      ArrayPushArray(Array:this[NavArea_Connect][d], rgConnect[any:0]);
     }
   }
 
@@ -772,20 +800,20 @@ Struct:@NavArea_Create() {
   fseek(iFile, BLOCK_SHORT, SEEK_CUR);
 }
 
-NavErrorType:@NavArea_PostLoadArea(const &Struct:this) {
+NavErrorType:@NavArea_PostLoadArea(const this[NavArea]) {
   new NavErrorType:error = NAV_OK;
 
   // connect areas together
-  for (new d = 0; d < _:NUM_DIRECTIONS; d++) {
-    new Array:irgConnections = StructGetCell(this, NavArea_Connect, d);
+  for (new NavDirType:d = NORTH; d < NUM_DIRECTIONS; d++) {
+    new Array:irgConnections = Array:this[NavArea_Connect][d];
     new iConnectionCount = ArraySize(irgConnections);
 
     for (new i = 0; i < iConnectionCount; ++i) {
       new iConnectId = ArrayGetCell(irgConnections, i, _:NavConnect_Id);
-      new Struct:sArea = NavAreaGrid_GetNavAreaById(iConnectId);
-      ArraySetCell(irgConnections, i, sArea, _:NavConnect_Area);
+      new iArea = NavAreaGrid_GetNavAreaById(iConnectId);
+      ArraySetCell(irgConnections, i, iArea, _:NavConnect_Area);
 
-      if (iConnectId && sArea == Invalid_Struct) {
+      if (iConnectId && iArea == INVALID_NAV_AREA) {
         log_amx("ERROR: Corrupt navigation data. Cannot connect Navigation Areas.^n");
         error = NAV_CORRUPT_DATA;
       }
@@ -793,257 +821,263 @@ NavErrorType:@NavArea_PostLoadArea(const &Struct:this) {
   }
 
   // resolve approach area IDs
-  new Array:irgApproachList = StructGetCell(this, NavArea_Approach);
+  new Array:irgApproachList = this[NavArea_Approach];
   new iApproachCount = ArraySize(irgApproachList);
   for (new a = 0; a < iApproachCount; a++) {
     new iApproachHereId = ArrayGetCell(irgApproachList, a, _:ApproachInfo_Here + _:NavConnect_Id);
-    new Struct:sApproachHereArea = NavAreaGrid_GetNavAreaById(iApproachHereId);
-    ArraySetCell(irgApproachList, a, sApproachHereArea, _:ApproachInfo_Here + _:NavConnect_Area);
-    if (iApproachHereId && sApproachHereArea == Invalid_Struct) {
+    new iApproachHereArea = NavAreaGrid_GetNavAreaById(iApproachHereId);
+    ArraySetCell(irgApproachList, a, iApproachHereArea, _:ApproachInfo_Here + _:NavConnect_Area);
+    if (iApproachHereId && iApproachHereArea == INVALID_NAV_AREA) {
       log_amx("ERROR: Corrupt navigation data. Missing Approach Area (here).^n");
       error = NAV_CORRUPT_DATA;
     }
 
     new iApproachPrevId = ArrayGetCell(irgApproachList, a, _:ApproachInfo_Prev + _:NavConnect_Id);
-    new Struct:sApproachPrevArea = NavAreaGrid_GetNavAreaById(iApproachPrevId);
-    ArraySetCell(irgApproachList, a, sApproachPrevArea, _:ApproachInfo_Prev + _:NavConnect_Area);
-    if (iApproachPrevId && sApproachPrevArea == Invalid_Struct) {
+    new iApproachPrevArea = NavAreaGrid_GetNavAreaById(iApproachPrevId);
+    ArraySetCell(irgApproachList, a, iApproachPrevArea, _:ApproachInfo_Prev + _:NavConnect_Area);
+    if (iApproachPrevId && iApproachPrevArea == INVALID_NAV_AREA) {
       log_amx("ERROR: Corrupt navigation data. Missing Approach Area (prev).^n");
       error = NAV_CORRUPT_DATA;
     }
 
     new iApproachNextId = ArrayGetCell(irgApproachList, a, _:ApproachInfo_Next + _:NavConnect_Id);
-    new Struct:sApproachNextArea = NavAreaGrid_GetNavAreaById(iApproachNextId);
-    ArraySetCell(irgApproachList, a, sApproachNextArea, _:ApproachInfo_Next + _:NavConnect_Area);
-    if (iApproachNextId && sApproachNextArea == Invalid_Struct) {
+    new iApproachNextArea = NavAreaGrid_GetNavAreaById(iApproachNextId);
+    ArraySetCell(irgApproachList, a, iApproachNextArea, _:ApproachInfo_Next + _:NavConnect_Area);
+    if (iApproachNextId && iApproachNextArea == INVALID_NAV_AREA) {
       log_amx("ERROR: Corrupt navigation data. Missing Approach Area (next).^n");
       error = NAV_CORRUPT_DATA;
     }
   }
 
   // resolve spot encounter IDs
-  new Array:irgSpotEncounterList = StructGetCell(this, NavArea_SpotEncounterList);
+  new Array:irgSpotEncounterList = this[NavArea_SpotEncounterList];
   new iSpotEncounterCount = ArraySize(irgSpotEncounterList);
   for (new e = 0; e < iSpotEncounterCount; e++) {
-    new rgSpot[SpotEncounter];
-    ArrayGetArray(irgSpotEncounterList, e, rgSpot[any:0]);
+    new rgSpot[SpotEncounter]; ArrayGetArray(irgSpotEncounterList, e, rgSpot[any:0]);
 
     rgSpot[SpotEncounter_From][NavConnect_Area] = NavAreaGrid_GetNavAreaById(rgSpot[SpotEncounter_From][NavConnect_Id]);
-    if (rgSpot[SpotEncounter_From][NavConnect_Area] == Invalid_Struct) {
+    if (rgSpot[SpotEncounter_From][NavConnect_Area] == INVALID_NAV_AREA) {
       log_amx("ERROR: Corrupt navigation data. Missing ^"from^" Navigation Area for Encounter Spot.^n");
       error = NAV_CORRUPT_DATA;
     }
 
     rgSpot[SpotEncounter_To][NavConnect_Area] = NavAreaGrid_GetNavAreaById(rgSpot[SpotEncounter_To][NavConnect_Id]);
-    if (rgSpot[SpotEncounter_To][NavConnect_Area] == Invalid_Struct) {
+    if (rgSpot[SpotEncounter_To][NavConnect_Area] == INVALID_NAV_AREA) {
       log_amx("ERROR: Corrupt navigation data. Missing ^"to^" Navigation Area for Encounter Spot.^n");
       error = NAV_CORRUPT_DATA;
     }
 
-    if (rgSpot[SpotEncounter_From][NavConnect_Area] != Invalid_Struct && rgSpot[SpotEncounter_To][NavConnect_Area] != Invalid_Struct) {
+    if (rgSpot[SpotEncounter_From][NavConnect_Area] != INVALID_NAV_AREA && rgSpot[SpotEncounter_To][NavConnect_Area] != INVALID_NAV_AREA) {
       // compute path
       new Float:flHalfWidth;
-      @NavArea_ComputePortal(this, rgSpot[SpotEncounter_To][NavConnect_Area], rgSpot[SpotEncounter_ToDir], rgSpot[SpotEncounter_Path][Ray_To], flHalfWidth);
-      @NavArea_ComputePortal(this, rgSpot[SpotEncounter_From][NavConnect_Area], rgSpot[SpotEncounter_FromDir], rgSpot[SpotEncounter_Path][Ray_From], flHalfWidth);
+      @NavArea_ComputePortal(this, NAVAREA_PTR(rgSpot[SpotEncounter_To][NavConnect_Area]), rgSpot[SpotEncounter_ToDir], rgSpot[SpotEncounter_Path][Ray_To], flHalfWidth);
+      @NavArea_ComputePortal(this, NAVAREA_PTR(rgSpot[SpotEncounter_From][NavConnect_Area]), rgSpot[SpotEncounter_FromDir], rgSpot[SpotEncounter_Path][Ray_From], flHalfWidth);
 
       new Float:eyeHeight = HalfHumanHeight;
-      rgSpot[SpotEncounter_Path][Ray_From][2] = @NavArea_GetZ(rgSpot[SpotEncounter_From][NavConnect_Area], rgSpot[SpotEncounter_Path][Ray_From]) + eyeHeight;
-      rgSpot[SpotEncounter_Path][Ray_To][2] = @NavArea_GetZ(rgSpot[SpotEncounter_To][NavConnect_Area], rgSpot[SpotEncounter_Path][Ray_To]) + eyeHeight;
+      rgSpot[SpotEncounter_Path][Ray_From][2] = @NavArea_GetZ(
+        g_rgNavAreas[rgSpot[SpotEncounter_From][NavConnect_Area]],
+        rgSpot[SpotEncounter_Path][Ray_From]
+      ) + eyeHeight;
+
+      rgSpot[SpotEncounter_Path][Ray_To][2] = @NavArea_GetZ(
+        g_rgNavAreas[rgSpot[SpotEncounter_To][NavConnect_Area]],
+        rgSpot[SpotEncounter_Path][Ray_To]
+      ) + eyeHeight;
     }
 
     ArraySetArray(irgSpotEncounterList, e, rgSpot[any:0]);
   }
 
   // build overlap list
-  new Array:irgOverlapList = StructGetCell(this, NavArea_OverlapList);
+  new Array:irgOverlapList = this[NavArea_OverlapList];
 
-  new iNavAreaListSize = ArraySize(g_irgNavAreaList);
-  for (new i = 0; i < iNavAreaListSize; ++i) {
-    new Struct:sArea = ArrayGetCell(g_irgNavAreaList, i);
-    if (sArea == this) {
-      continue;
-    }
+  for (new iArea = 0; iArea < g_iNavAreasNum; ++iArea) {
+    if (iArea == NAVAREA_INDEX(this)) continue;
 
-    if (@NavArea_IsOverlapping(this, sArea)) {
-      ArrayPushCell(irgOverlapList, sArea);
+    if (@NavArea_IsOverlapping(this, iArea)) {
+      ArrayPushCell(irgOverlapList, iArea);
     }
   }
 
   return error;
 }
 
-@NavArea_GetId(const &Struct:this) {
-  return StructGetCell(this, NavArea_Id);
+@NavArea_GetId(const this[NavArea]) {
+  return this[NavArea_Id];
 }
 
-NavAttributeType:@NavArea_GetAttributes(const &Struct:this) {
-  return StructGetCell(this, NavArea_AttributeFlags);
+NavAttributeType:@NavArea_GetAttributes(const this[NavArea]) {
+  return this[NavArea_AttributeFlags];
 }
 
-NavTraverseType:@NavArea_GetParentHow(const &Struct:this) {
-  return StructGetCell(this, NavArea_ParentHow);
+@NavArea_GetParent(const this[NavArea]) {
+  return this[NavArea_Parent];
 }
 
-bool:@NavArea_IsClosed(const &Struct:this) {
+NavTraverseType:@NavArea_GetParentHow(const this[NavArea]) {
+  return this[NavArea_ParentHow];
+}
+
+bool:@NavArea_IsClosed(const this[NavArea]) {
   return @NavArea_IsMarked(this) && !@NavArea_IsOpen(this);
 }
 
-bool:@NavArea_IsOpen(const &Struct:this) {
-  return StructGetCell(this, NavArea_OpenMarker) == g_iNavAreaMasterMarker;
+bool:@NavArea_IsOpen(const this[NavArea]) {
+  return this[NavArea_OpenMarker] == g_iNavAreaMasterMarker;
 }
 
-@NavArea_Mark(const &Struct:this) {
-  StructSetCell(this, NavArea_Marker, g_iNavAreaMasterMarker);
+@NavArea_Mark(this[NavArea]) {
+  this[NavArea_Marker] = g_iNavAreaMasterMarker;
 }
 
-bool:@NavArea_IsMarked(const &Struct:this) {
-  return StructGetCell(this, NavArea_Marker) == g_iNavAreaMasterMarker;
+bool:@NavArea_IsMarked(const this[NavArea]) {
+  return this[NavArea_Marker] == g_iNavAreaMasterMarker;
 }
 
-@NavArea_GetCenter(const &Struct:this, Float:vecCenter[]) {
-  StructGetArray(this, NavArea_Center, vecCenter, 3);
+@NavArea_GetCenter(const this[NavArea], Float:vecCenter[]) {
+  xs_vec_copy(this[NavArea_Center], vecCenter);
 }
 
-@NavArea_SetTotalCost(const &Struct:this, Float:flTotalCost) {
-  StructSetCell(this, NavArea_TotalCost, flTotalCost);
+@NavArea_SetTotalCost(this[NavArea], Float:flTotalCost) {
+  this[NavArea_TotalCost] = flTotalCost;
 }
 
-Float:@NavArea_GetTotalCost(const &Struct:this) {
-  return StructGetCell(this, NavArea_TotalCost);
+Float:@NavArea_GetTotalCost(const this[NavArea]) {
+  return this[NavArea_TotalCost];
 }
 
-@NavArea_SetCostSoFar(const &Struct:this, Float:flTotalCost) {
-  StructSetCell(this, NavArea_CostSoFar, flTotalCost);
+@NavArea_SetCostSoFar(this[NavArea], Float:flTotalCost) {
+  this[NavArea_CostSoFar] = flTotalCost;
 }
 
-Float:@NavArea_GetCostSoFar(const &Struct:this) {
-  return StructGetCell(this, NavArea_CostSoFar);
+Float:@NavArea_GetCostSoFar(const this[NavArea]) {
+  return this[NavArea_CostSoFar];
 }
 
-@NavArea_AddToClosedList(const &Struct:this) {
+@NavArea_AddToClosedList(this[NavArea]) {
   @NavArea_Mark(this);
 }
 
-@NavArea_RemoveFromClosedList(const &Struct:this) {
+@NavArea_RemoveFromClosedList(const this[NavArea]) {
   // since "closed" is defined as visited (marked) and not on open list, do nothing
 }
 
-@NavArea_AddLadderUp(const &Struct:this, const rgNavLadder[NavLadder]) {
-  new Array:irgLadderList = StructGetCell(this, NavArea_Ladder, LADDER_UP);
-  ArrayPushArray(irgLadderList, rgNavLadder[any:0]);
+@NavArea_AddLadderUp(const this[NavArea], const rgNavLadder[NavLadder]) {
+  ArrayPushArray(Array:this[NavArea_Ladder][LADDER_UP], rgNavLadder[any:0]);
 }
 
-@NavArea_AddLadderDown(const &Struct:this, const rgNavLadder[NavLadder]) {
-  new Array:irgLadderList = StructGetCell(this, NavArea_Ladder, LADDER_DOWN);
-  ArrayPushArray(irgLadderList, rgNavLadder[any:0]);
+@NavArea_AddLadderDown(const this[NavArea], const rgNavLadder[NavLadder]) {
+  ArrayPushArray(Array:this[NavArea_Ladder][LADDER_DOWN], rgNavLadder[any:0]);
 }
 
-@NavArea_SetParent(const &Struct:this, Struct:parent, NavTraverseType:how) {
-  StructSetCell(this, NavArea_Parent, parent);
-  StructSetCell(this, NavArea_ParentHow, how);
+@NavArea_SetParent(this[NavArea], iParentArea, NavTraverseType:how) {
+  this[NavArea_Parent] = iParentArea;
+  this[NavArea_ParentHow] = how;
 }
 
-Array:@NavArea_GetAdjacentList(const &Struct:this, NavDirType:iDir) {
-  return StructGetCell(this, NavArea_Connect, iDir);
+Array:@NavArea_GetAdjacentList(const this[NavArea], NavDirType:iDir) {
+  return this[NavArea_Connect][iDir];
 }
 
-@NavArea_AddToOpenList(const &Struct:this) {
+@NavArea_AddToOpenList(this[NavArea]) {
   // mark as being on open list for quick check
-  StructSetCell(this, NavArea_OpenMarker, g_iNavAreaMasterMarker);
+  this[NavArea_OpenMarker] = g_iNavAreaMasterMarker;
 
   // if list is empty, add and return
-  if (g_sNavAreaOpenList == Invalid_Struct) {
-    g_sNavAreaOpenList = this;
-    StructSetCell(this, NavArea_PrevOpen, Invalid_Struct);
-    StructSetCell(this, NavArea_NextOpen, Invalid_Struct);
+  if (g_iNavAreaOpenList == INVALID_NAV_AREA) {
+    g_iNavAreaOpenList = NAVAREA_INDEX(this);
+    this[NavArea_PrevOpen] = INVALID_NAV_AREA;
+    this[NavArea_NextOpen] = INVALID_NAV_AREA;
     return;
   }
 
   // insert self in ascending cost order
-  static Struct:sArea; sArea = Invalid_Struct;
-  static Struct:last; last = Invalid_Struct;
+  static iArea; iArea = INVALID_NAV_AREA;
+  static iLastArea; iLastArea = INVALID_NAV_AREA;
 
-  for (sArea = g_sNavAreaOpenList; sArea != Invalid_Struct; sArea = StructGetCell(sArea, NavArea_NextOpen)) {
-    if (@NavArea_GetTotalCost(this) < @NavArea_GetTotalCost(sArea)) {
+  for (iArea = g_iNavAreaOpenList; iArea != INVALID_NAV_AREA; iArea = NAVAREA_PTR(iArea)[NavArea_NextOpen]) {
+    if (@NavArea_GetTotalCost(this) < @NavArea_GetTotalCost(NAVAREA_PTR(iArea))) {
       break;
     }
 
-    last = sArea;
+    iLastArea = iArea;
   }
 
-  if (sArea) {
+  if (iArea != INVALID_NAV_AREA) {
     // insert before this area
-    static Struct:sPrevOpenArea; sPrevOpenArea = StructGetCell(sArea, NavArea_PrevOpen);
-    StructSetCell(this, NavArea_PrevOpen, sPrevOpenArea);
-    if (sPrevOpenArea != Invalid_Struct) {
-      StructSetCell(sPrevOpenArea, NavArea_NextOpen, this);
+    static iPrevOpenArea; iPrevOpenArea = NAVAREA_PTR(iArea)[NavArea_PrevOpen];
+    this[NavArea_PrevOpen] = iPrevOpenArea;
+
+    if (iPrevOpenArea != INVALID_NAV_AREA) {
+      NAVAREA_PTR(iPrevOpenArea)[NavArea_NextOpen] = NAVAREA_INDEX(this);
     } else {
-      g_sNavAreaOpenList = this;
+      g_iNavAreaOpenList = NAVAREA_INDEX(this);
     }
 
-    StructSetCell(this, NavArea_NextOpen, sArea);
-    StructSetCell(sArea, NavArea_PrevOpen, this);
+    this[NavArea_NextOpen] = iArea;
+    NAVAREA_PTR(iArea)[NavArea_PrevOpen] = NAVAREA_INDEX(this);
   } else {
     // append to end of list
-    StructSetCell(last, NavArea_NextOpen, this);
-    StructSetCell(this, NavArea_PrevOpen, last);
-    StructSetCell(this, NavArea_NextOpen, Invalid_Struct);
+    NAVAREA_PTR(iLastArea)[NavArea_NextOpen] = NAVAREA_INDEX(this);
+    this[NavArea_PrevOpen] = iLastArea;
+    this[NavArea_NextOpen] = INVALID_NAV_AREA;
   }
 }
 
-@NavArea_UpdateOnOpenList(const &Struct:this) {
+@NavArea_UpdateOnOpenList(this[NavArea]) {
   // since value can only decrease, bubble this area up from current spot
-  static Struct:sPrevOpenArea; sPrevOpenArea = StructGetCell(this, NavArea_PrevOpen);
-  static Float:flPrevTotalCost; flPrevTotalCost = @NavArea_GetTotalCost(sPrevOpenArea);
+  static iPrevOpenArea; iPrevOpenArea = this[NavArea_PrevOpen];
 
-  while (StructGetCell(this, NavArea_PrevOpen) != Invalid_Struct && @NavArea_GetTotalCost(this) < flPrevTotalCost) {
+  while (this[NavArea_PrevOpen] != INVALID_NAV_AREA) {
+    if (@NavArea_GetTotalCost(this) >= @NavArea_GetTotalCost(NAVAREA_PTR(iPrevOpenArea))) break;
+
     // swap position with predecessor
-    static Struct:other; other = StructGetCell(this, NavArea_PrevOpen);
-    static Struct:before; before = StructGetCell(other, NavArea_PrevOpen);
-    static Struct:after; after = StructGetCell(this, NavArea_NextOpen);
+    static iOtherArea; iOtherArea = this[NavArea_PrevOpen];
+    static iBeforeArea; iBeforeArea = NAVAREA_PTR(iOtherArea)[NavArea_PrevOpen];
+    static iAfterArea; iAfterArea = this[NavArea_NextOpen];
 
-    StructSetCell(this, NavArea_NextOpen, other);
-    StructSetCell(this, NavArea_PrevOpen, before);
+    this[NavArea_NextOpen] = iOtherArea;
+    this[NavArea_PrevOpen] = iBeforeArea;
 
-    StructSetCell(other, NavArea_PrevOpen, this);
-    StructSetCell(other, NavArea_NextOpen, after);
+    NAVAREA_PTR(iOtherArea)[NavArea_PrevOpen] = NAVAREA_INDEX(this);
+    NAVAREA_PTR(iOtherArea)[NavArea_NextOpen] = iAfterArea;
 
-    if (before != Invalid_Struct) {
-      StructSetCell(before, NavArea_NextOpen, this);
+    if (iBeforeArea != INVALID_NAV_AREA) {
+      NAVAREA_PTR(iBeforeArea)[NavArea_NextOpen] = NAVAREA_INDEX(this);
     } else {
-      g_sNavAreaOpenList = this;
+      g_iNavAreaOpenList = NAVAREA_INDEX(this);
     }
 
-    if (after != Invalid_Struct) {
-      StructSetCell(after, NavArea_PrevOpen, other);
+    if (iAfterArea != INVALID_NAV_AREA) {
+      NAVAREA_PTR(iAfterArea)[NavArea_PrevOpen] = iOtherArea;
     }
   }
 }
 
-@NavArea_RemoveFromOpenList(const &Struct:this) {
-  static Struct:sPrevOpenArea; sPrevOpenArea = StructGetCell(this, NavArea_PrevOpen);
-  static Struct:sNextOpenArea; sNextOpenArea = StructGetCell(this, NavArea_NextOpen);
+@NavArea_RemoveFromOpenList(this[NavArea]) {
+  static iPrevOpenArea; iPrevOpenArea = this[NavArea_PrevOpen];
+  static iNextOpenArea; iNextOpenArea = this[NavArea_NextOpen];
 
-  if (sPrevOpenArea != Invalid_Struct) {
-    StructSetCell(sPrevOpenArea, NavArea_NextOpen, sNextOpenArea);
+  if (iPrevOpenArea != INVALID_NAV_AREA) {
+    NAVAREA_PTR(iPrevOpenArea)[NavArea_NextOpen] = iNextOpenArea;
   } else {
-    g_sNavAreaOpenList = sNextOpenArea;
+    g_iNavAreaOpenList = iNextOpenArea;
   }
 
-  if (sNextOpenArea != Invalid_Struct) {
-    StructSetCell(sNextOpenArea, NavArea_PrevOpen, sPrevOpenArea);
+  if (iNextOpenArea != INVALID_NAV_AREA) {
+    NAVAREA_PTR(iNextOpenArea)[NavArea_PrevOpen] = iPrevOpenArea;
   }
 
   // zero is an invalid marker
-  StructSetCell(this, NavArea_OpenMarker, 0);
+  this[NavArea_OpenMarker] = 0;
 }
 
-bool:@NavArea_IsOverlappingPoint(const &Struct:this, const Float:vecPoint[3]) {
+bool:@NavArea_IsOverlappingPoint(const this[NavArea], const Float:vecPoint[]) {
   if (
-    vecPoint[0] >= Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0) &&
-    vecPoint[0] <= Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0) &&
-    vecPoint[1] >= Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1) &&
-    vecPoint[1] <= Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)
+    vecPoint[0] >= this[NavArea_Extent][Extent_Lo][0] &&
+    vecPoint[0] <= this[NavArea_Extent][Extent_Hi][0] &&
+    vecPoint[1] >= this[NavArea_Extent][Extent_Lo][1] &&
+    vecPoint[1] <= this[NavArea_Extent][Extent_Hi][1]
   ) {
     return true;
   }
@@ -1052,12 +1086,12 @@ bool:@NavArea_IsOverlappingPoint(const &Struct:this, const Float:vecPoint[3]) {
 }
 
 // Return true if 'area' overlaps our 2D extents
-bool:@NavArea_IsOverlapping(const &Struct:this, Struct:sArea) {
+bool:@NavArea_IsOverlapping(const this[NavArea], iArea) {
   if (
-    Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0) < Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0) &&
-    Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0) > Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0) &&
-    Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1) < Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1) &&
-    Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1) > Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)
+    NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][0] < this[NavArea_Extent][Extent_Hi][0] &&
+    NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Hi][0] > this[NavArea_Extent][Extent_Lo][0] &&
+    NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][1] < this[NavArea_Extent][Extent_Hi][1] &&
+    NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Hi][1] > this[NavArea_Extent][Extent_Lo][1]
   ) {
     return true;
   }
@@ -1066,87 +1100,71 @@ bool:@NavArea_IsOverlapping(const &Struct:this, Struct:sArea) {
 }
 
 // Return true if given point is on or above this area, but no others
-bool:@NavArea_Contains(const &Struct:this, const Float:vecPos[3]) {
+bool:@NavArea_Contains(const this[NavArea], const Float:vecPos[]) {
   // check 2D overlap
-  if (!@NavArea_IsOverlappingPoint(this, vecPos)) {
-    return false;
-  }
+  if (!@NavArea_IsOverlappingPoint(this, vecPos)) return false;
 
   // the point overlaps us, check that it is above us, but not above any areas that overlap us
   new Float:flOurZ = @NavArea_GetZ(this, vecPos);
 
   // if we are above this point, fail
-  if (flOurZ > vecPos[2]) {
-    return false;
-  }
+  if (flOurZ > vecPos[2]) return false;
 
-  new Array:irgOverlapList = StructGetCell(this, NavArea_OverlapList);
+  new Array:irgOverlapList = this[NavArea_OverlapList];
   new iOverlapListSize = ArraySize(irgOverlapList);
 
   for (new i = 0; i < iOverlapListSize; ++i) {
-    new Struct:sOtherArea = ArrayGetCell(irgOverlapList, i);
+    new iOtherArea = ArrayGetCell(irgOverlapList, i);
 
     // skip self
-    if (sOtherArea == this) {
-      continue;
-    }
+    if (iOtherArea == NAVAREA_INDEX(this)) continue;
 
     // check 2D overlap
-    if (!@NavArea_IsOverlappingPoint(sOtherArea, vecPos)) {
-      continue;
-    }
+    if (!@NavArea_IsOverlappingPoint(NAVAREA_PTR(iOtherArea), vecPos)) continue;
 
-    new Float:flTheirZ = @NavArea_GetZ(sOtherArea, vecPos);
-    if (flTheirZ > vecPos[2]) {
-      // they are above the point
-      continue;
-    }
+    new Float:flTheirZ = @NavArea_GetZ(NAVAREA_PTR(iOtherArea), vecPos);
+    if (flTheirZ > vecPos[2]) continue;
 
-    if (flTheirZ > flOurZ) {
-      // we are below an area that is closer underneath the point
-      return false;
-    }
+    if (flTheirZ > flOurZ) return false;
   }
 
   return true;
 }
 
 // Return true if this area and given area are approximately co-planar
-bool:@NavArea_IsCoplanar(const &Struct:this, Struct:sArea) {
+bool:@NavArea_IsCoplanar(const this[NavArea], iArea) {
   static Float:u[3];
   static Float:v[3];
 
   // compute our unit surface normal
-  u[0] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
+  u[0] = this[NavArea_Extent][Extent_Hi][0] - this[NavArea_Extent][Extent_Lo][0];
   u[1] = 0.0;
-  u[2] = Float:StructGetCell(this, NavArea_NeZ) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 2);
+  u[2] = this[NavArea_NeZ] - this[NavArea_Extent][Extent_Lo][2];
 
   v[0] = 0.0;
-  v[1] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
-  v[2] = Float:StructGetCell(this, NavArea_SwZ) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 2);
+  v[1] = this[NavArea_Extent][Extent_Hi][1] - this[NavArea_Extent][Extent_Lo][1];
+  v[2] = this[NavArea_SwZ] - this[NavArea_Extent][Extent_Lo][2];
 
   static Float:vecNormal[3];
   xs_vec_cross(u, v, vecNormal);
   NormalizeInPlace(vecNormal, vecNormal);
 
   // compute their unit surface normal
-  u[0] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0) - Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0);
+  u[0] = NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Hi][0] - NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][0];
   u[1] = 0.0;
-  u[2] = Float:StructGetCell(sArea, NavArea_NeZ) - StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 2);
+  u[2] = NAVAREA_PTR(iArea)[NavArea_NeZ] - NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][2];
 
   v[0] = 0.0;
-  v[1] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1) - Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1);
-  v[2] = Float:StructGetCell(sArea, NavArea_SwZ) - Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 2);
+  v[1] = NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Hi][1] - NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][1];
+  v[2] = NAVAREA_PTR(iArea)[NavArea_SwZ] - NAVAREA_PTR(iArea)[NavArea_Extent][Extent_Lo][2];
 
   static Float:vecOtherNormal[3];
   xs_vec_cross(u, v, vecOtherNormal);
   NormalizeInPlace(vecOtherNormal, vecOtherNormal);
 
   // can only merge areas that are nearly planar, to ensure areas do not differ from underlying geometry much
-  new Float:flTolerance = 0.99;
-  if (xs_vec_dot(vecNormal, vecOtherNormal) > flTolerance) {
-    return true;
-  }
+  static const Float:flTolerance = 0.99;
+  if (xs_vec_dot(vecNormal, vecOtherNormal) > flTolerance) return true;
 
   return false;
 }
@@ -1154,71 +1172,67 @@ bool:@NavArea_IsCoplanar(const &Struct:this, Struct:sArea) {
 // Return Z of area at (x,y) of 'vecPos'
 // Trilinear interpolation of Z values at quad edges.
 // NOTE: vecPos[2] is not used.
-Float:@NavArea_GetZ(const &Struct:this, const Float:vecPos[]) {
-  static Float:dx; dx = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
-  static Float:dy; dy = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1) - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
+Float:@NavArea_GetZ(const this[NavArea], const Float:vecPos[]) {
+  static Float:dx; dx = this[NavArea_Extent][Extent_Hi][0] - this[NavArea_Extent][Extent_Lo][0];
+  static Float:dy; dy = this[NavArea_Extent][Extent_Hi][1] - this[NavArea_Extent][Extent_Lo][1];
 
-  static Float:flNeZ; flNeZ = StructGetCell(this, NavArea_NeZ);
-  static Float:flSwZ; flSwZ = StructGetCell(this, NavArea_SwZ);
+  static Float:flNeZ; flNeZ = this[NavArea_NeZ];
+  static Float:flSwZ; flSwZ = this[NavArea_SwZ];
 
   // guard against division by zero due to degenerate areas
-  if (dx == 0.0 || dy == 0.0) {
-    return flNeZ;
-  }
+  if (dx == 0.0 || dy == 0.0) return flNeZ;
 
-  static Float:u; u = floatclamp((vecPos[0] - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) / dx, 0.0, 1.0);
-  static Float:v; v = floatclamp((vecPos[1] - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) / dy, 0.0, 1.0);
+  static Float:u; u = floatclamp((vecPos[0] - this[NavArea_Extent][Extent_Lo][0]) / dx, 0.0, 1.0);
+  static Float:v; v = floatclamp((vecPos[1] - this[NavArea_Extent][Extent_Lo][1]) / dy, 0.0, 1.0);
 
-  static Float:northZ; northZ = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 2) + u * (flNeZ - Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 2));
-  static Float:southZ; southZ = flSwZ + u * (Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 2) - flSwZ);
+  static Float:northZ; northZ = this[NavArea_Extent][Extent_Lo][2] + u * (flNeZ - this[NavArea_Extent][Extent_Lo][2]);
+  static Float:southZ; southZ = flSwZ + u * (this[NavArea_Extent][Extent_Hi][2] - flSwZ);
 
   return northZ + v * (southZ - northZ);
 }
 
-// new Float:@NavArea_GetZ(const &Struct:this, new Float:x, new Float:y) {
+// new Float:@NavArea_GetZ(const this[NavArea], new Float:x, new Float:y) {
 //   static Float:vecPos[3](x, y, 0.0);
 //   return GetZ(&vecPos);
 // }
 
 // Return closest point to 'vecPos' on 'area'.
 // Returned point is in 'vecClose'.
-@NavArea_GetClosestPointOnArea(const &Struct:this, const Float:vecPos[], Float:vecClose[]) {
-  static rgExtent[Extent]; StructGetArray(this, NavArea_Extent, rgExtent, sizeof(rgExtent));
-
-  if (vecPos[0] < rgExtent[Extent_Lo][0]) {
-    if (vecPos[1] < rgExtent[Extent_Lo][1]) {
+@NavArea_GetClosestPointOnArea(const this[NavArea], const Float:vecPos[], Float:vecClose[]) {
+  if (vecPos[0] < this[NavArea_Extent][Extent_Lo][0]) {
+    if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
       // position is north-west of area
-      xs_vec_copy(rgExtent[Extent_Lo], vecClose);
-    } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
+      xs_vec_copy(this[NavArea_Extent][Extent_Lo], vecClose);
+    } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
       // position is south-west of area
-      vecClose[0] = rgExtent[Extent_Lo][0];
-      vecClose[1] = rgExtent[Extent_Hi][1];
+      vecClose[0] = this[NavArea_Extent][Extent_Lo][0];
+      vecClose[1] = this[NavArea_Extent][Extent_Hi][1];
     } else {
       // position is west of area
-      vecClose[0] = rgExtent[Extent_Lo][0];
+      vecClose[0] = this[NavArea_Extent][Extent_Lo][0];
       vecClose[1] = vecPos[1];
     }
-  } else if (vecPos[0] > rgExtent[Extent_Hi][0]) {
-    if (vecPos[1] < rgExtent[Extent_Lo][1]) {
+  } else if (vecPos[0] > this[NavArea_Extent][Extent_Hi][0]) {
+    if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
       // position is north-east of area
-      vecClose[0] = rgExtent[Extent_Hi][0];
-      vecClose[1] = rgExtent[Extent_Lo][1];
-    } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
+      vecClose[0] = this[NavArea_Extent][Extent_Hi][0];
+      vecClose[1] = this[NavArea_Extent][Extent_Lo][1];
+    } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
       // position is south-east of area
-      xs_vec_copy(rgExtent[Extent_Hi], vecClose);
+      xs_vec_copy(this[NavArea_Extent][Extent_Hi], vecClose);
     } else {
       // position is east of area
-      vecClose[0] = rgExtent[Extent_Hi][0];
+      vecClose[0] = this[NavArea_Extent][Extent_Hi][0];
       vecClose[1] = vecPos[1];
     }
-  } else if (vecPos[1] < rgExtent[Extent_Lo][1]) {
+  } else if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
     // position is north of area
     vecClose[0] = vecPos[0];
-    vecClose[1] = rgExtent[Extent_Lo][1];
-  } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
+    vecClose[1] = this[NavArea_Extent][Extent_Lo][1];
+  } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
     // position is south of area
     vecClose[0] = vecPos[0];
-    vecClose[1] = rgExtent[Extent_Hi][1];
+    vecClose[1] = this[NavArea_Extent][Extent_Hi][1];
   } else {
     // position is inside of area - it is the 'closest point' to itself
     xs_vec_copy(vecPos, vecClose);
@@ -1228,57 +1242,55 @@ Float:@NavArea_GetZ(const &Struct:this, const Float:vecPos[]) {
 }
 
 // Return shortest distance squared between point and this area
-Float:@NavArea_GetDistanceSquaredToPoint(const &Struct:this, const Float:vecPos[3]) {
-  static rgExtent[Extent]; StructGetArray(this, NavArea_Extent, rgExtent, sizeof(rgExtent));
-
-  if (vecPos[0] < rgExtent[Extent_Lo][0]) {
-    if (vecPos[1] < rgExtent[Extent_Lo][1]) {
+Float:@NavArea_GetDistanceSquaredToPoint(const this[NavArea], const Float:vecPos[]) {
+  if (vecPos[0] < this[NavArea_Extent][Extent_Lo][0]) {
+    if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
       // position is north-west of area
-      return floatpower(xs_vec_distance(rgExtent[Extent_Lo], vecPos), 2.0);
-    } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
-      new Float:flSwZ = StructGetCell(this, NavArea_SwZ);
+      return floatpower(xs_vec_distance(this[NavArea_Extent][Extent_Lo], vecPos), 2.0);
+    } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
+      new Float:flSwZ = this[NavArea_SwZ];
 
       // position is south-west of area
       static Float:d[3];
-      d[0] = rgExtent[Extent_Lo][0] - vecPos[0];
-      d[1] = rgExtent[Extent_Hi][1] - vecPos[1];
+      d[0] = this[NavArea_Extent][Extent_Lo][0] - vecPos[0];
+      d[1] = this[NavArea_Extent][Extent_Hi][1] - vecPos[1];
       d[2] = flSwZ - vecPos[2];
 
       return floatpower(xs_vec_len(d), 2.0);
     } else {
       // position is west of area
-      new Float:d = rgExtent[Extent_Lo][0] - vecPos[0];
+      new Float:d = this[NavArea_Extent][Extent_Lo][0] - vecPos[0];
 
       return d * d;
     }
-  } else if (vecPos[0] > rgExtent[Extent_Hi][0]) {
-    if (vecPos[1] < rgExtent[Extent_Lo][1]) {
-      new Float:flNeZ = StructGetCell(this, NavArea_NeZ);
+  } else if (vecPos[0] > this[NavArea_Extent][Extent_Hi][0]) {
+    if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
+      new Float:flNeZ = this[NavArea_NeZ];
 
       // position is north-east of area
       static Float:d[3];
-      d[0] = rgExtent[Extent_Hi][0] - vecPos[0];
-      d[1] = rgExtent[Extent_Lo][1] - vecPos[1];
+      d[0] = this[NavArea_Extent][Extent_Hi][0] - vecPos[0];
+      d[1] = this[NavArea_Extent][Extent_Lo][1] - vecPos[1];
       d[2] = flNeZ - vecPos[2];
 
       return floatpower(xs_vec_len(d), 2.0);
-    } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
+    } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
       // position is south-east of area
-      return floatpower(xs_vec_distance(rgExtent[Extent_Hi], vecPos), 2.0);
+      return floatpower(xs_vec_distance(this[NavArea_Extent][Extent_Hi], vecPos), 2.0);
     } else {
       // position is east of area
-      new Float:d = vecPos[2] - rgExtent[Extent_Hi][0];
+      new Float:d = vecPos[2] - this[NavArea_Extent][Extent_Hi][0];
 
       return d * d;
     }
-  } else if (vecPos[1] < rgExtent[Extent_Lo][1]) {
+  } else if (vecPos[1] < this[NavArea_Extent][Extent_Lo][1]) {
     // position is north of area
-    new Float:d = rgExtent[Extent_Lo][1] - vecPos[1];
+    new Float:d = this[NavArea_Extent][Extent_Lo][1] - vecPos[1];
 
     return d * d;
-  } else if (vecPos[1] > rgExtent[Extent_Hi][1]) {
+  } else if (vecPos[1] > this[NavArea_Extent][Extent_Hi][1]) {
     // position is south of area
-    new Float:d = vecPos[1] - rgExtent[Extent_Hi][1];
+    new Float:d = vecPos[1] - this[NavArea_Extent][Extent_Hi][1];
 
     return d * d;
   } else { // position is inside of 2D extent of area - find delta Z
@@ -1289,15 +1301,13 @@ Float:@NavArea_GetDistanceSquaredToPoint(const &Struct:this, const Float:vecPos[
   }
 }
 
-Struct:@NavArea_GetRandomAdjacentArea(const &Struct:this, NavDirType:iDir) {
-  new Array:irgConnections = StructGetCell(this, NavArea_Connect, iDir);
+@NavArea_GetRandomAdjacentArea(const this[NavArea], NavDirType:iDir) {
+  static Array:irgConnections; irgConnections = this[NavArea_Connect][iDir];
 
-  new iConnectionCount = ArraySize(irgConnections);
-  if (!iConnectionCount) {
-    return Invalid_Struct;
-  }
+  static iConnectionCount; iConnectionCount = ArraySize(irgConnections);
+  if (!iConnectionCount) return INVALID_NAV_AREA;
 
-  new iWhich = random(iConnectionCount);
+  static iWhich; iWhich = random(iConnectionCount);
 
   return ArrayGetCell(irgConnections, iWhich, _:NavConnect_Area);
 }
@@ -1305,67 +1315,67 @@ Struct:@NavArea_GetRandomAdjacentArea(const &Struct:this, NavDirType:iDir) {
 // Compute "portal" between to adjacent areas.
 // Return center of portal opening, and half-width defining sides of portal from center.
 // NOTE: center[2] is unset.
-@NavArea_ComputePortal(const &Struct:this, Struct:sArea, NavDirType:iDir, Float:vecCenter[], &Float:flHalfWidth) {
+@NavArea_ComputePortal(const this[NavArea], const other[NavArea], NavDirType:iDir, Float:vecCenter[], &Float:flHalfWidth) {
   if (iDir == NORTH || iDir == SOUTH) {
     if (iDir == NORTH) {
-      vecCenter[1] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
+      vecCenter[1] = this[NavArea_Extent][Extent_Lo][1];
     } else {
-      vecCenter[1] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+      vecCenter[1] = this[NavArea_Extent][Extent_Hi][1];
     }
 
     new Float:flLeft = floatmax(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0)
+      this[NavArea_Extent][Extent_Lo][0],
+      other[NavArea_Extent][Extent_Lo][0]
     );
 
     new Float:flRight = floatmin(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0)
+      this[NavArea_Extent][Extent_Hi][0],
+      other[NavArea_Extent][Extent_Hi][0]
     );
 
     // clamp to our extent in case areas are disjoint
-    if (flLeft < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) {
-      flLeft = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
-    } else if (flLeft > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
-      flLeft = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+    if (flLeft < this[NavArea_Extent][Extent_Lo][0]) {
+      flLeft = this[NavArea_Extent][Extent_Lo][0];
+    } else if (flLeft > this[NavArea_Extent][Extent_Hi][0]) {
+      flLeft = this[NavArea_Extent][Extent_Hi][0];
     }
 
-    if (flRight < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) {
-      flRight = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
-    } else if (flRight > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
-      flRight = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+    if (flRight < this[NavArea_Extent][Extent_Lo][0]) {
+      flRight = this[NavArea_Extent][Extent_Lo][0];
+    } else if (flRight > this[NavArea_Extent][Extent_Hi][0]) {
+      flRight = this[NavArea_Extent][Extent_Hi][0];
     }
 
     vecCenter[0] = (flLeft + flRight) / 2.0;
     flHalfWidth = (flRight - flLeft) / 2.0;
   } else { // EAST or WEST
     if (iDir == WEST) {
-      vecCenter[0] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
+      vecCenter[0] = this[NavArea_Extent][Extent_Lo][0];
     } else {
-      vecCenter[0] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+      vecCenter[0] = this[NavArea_Extent][Extent_Hi][0];
     }
 
     new Float:flTop = floatmax(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1)
+      this[NavArea_Extent][Extent_Lo][1],
+      other[NavArea_Extent][Extent_Lo][1]
     );
 
     new Float:flBottom = floatmin(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1)
+      this[NavArea_Extent][Extent_Hi][1],
+      other[NavArea_Extent][Extent_Hi][1]
     );
 
     // clamp to our extent in case areas are disjoint
-    if (flTop < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) {
-      flTop = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
-    } else if (flTop > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
-      flTop = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+    if (flTop < this[NavArea_Extent][Extent_Lo][1]) {
+      flTop = this[NavArea_Extent][Extent_Lo][1];
+    } else if (flTop > this[NavArea_Extent][Extent_Hi][1]) {
+      flTop = this[NavArea_Extent][Extent_Hi][1];
     }
 
-    if (flBottom < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) {
-      flBottom = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
-    } else if (flBottom > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
-      flBottom = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+    if (flBottom < this[NavArea_Extent][Extent_Lo][1]) {
+      flBottom = this[NavArea_Extent][Extent_Lo][1];
+    } else if (flBottom > this[NavArea_Extent][Extent_Hi][1]) {
+      flBottom = this[NavArea_Extent][Extent_Hi][1];
     }
 
     vecCenter[1] = (flTop + flBottom) / 2.0;
@@ -1374,42 +1384,42 @@ Struct:@NavArea_GetRandomAdjacentArea(const &Struct:this, NavDirType:iDir) {
 }
 
 // Compute closest point within the "portal" between to adjacent areas.
-@NavArea_ComputeClosestPointInPortal(const &Struct:this, Struct:sArea, NavDirType:iDir, const Float:vecFromPos[3], Float:vecClosePos[3]) {
+@NavArea_ComputeClosestPointInPortal(const this[NavArea], const area[NavArea], NavDirType:iDir, const Float:vecFromPos[], Float:vecClosePos[]) {
   static Float:flMargin; flMargin = GenerationStepSize / 2.0;
 
   if (iDir == NORTH || iDir == SOUTH) {
     if (iDir == NORTH) {
-      vecClosePos[1] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
+      vecClosePos[1] = this[NavArea_Extent][Extent_Lo][1];
      } else {
-      vecClosePos[1] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+      vecClosePos[1] = this[NavArea_Extent][Extent_Hi][1];
     }
 
     static Float:flLeft; flLeft = floatmax(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0)
+      this[NavArea_Extent][Extent_Lo][0],
+      area[NavArea_Extent][Extent_Lo][0]
     );
 
     static Float:flRight; flRight = floatmin(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0)
+      this[NavArea_Extent][Extent_Hi][0],
+      area[NavArea_Extent][Extent_Hi][0]
     );
 
     // clamp to our extent in case areas are disjoint
-    if (flLeft < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) {
-      flLeft = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
-    } else if (flLeft > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
-      flLeft = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+    if (flLeft < this[NavArea_Extent][Extent_Lo][0]) {
+      flLeft = this[NavArea_Extent][Extent_Lo][0];
+    } else if (flLeft > this[NavArea_Extent][Extent_Hi][0]) {
+      flLeft = this[NavArea_Extent][Extent_Hi][0];
     }
 
-    if (flRight < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) {
-      flRight = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
-    } else if (flRight > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
-      flRight = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+    if (flRight < this[NavArea_Extent][Extent_Lo][0]) {
+      flRight = this[NavArea_Extent][Extent_Lo][0];
+    } else if (flRight > this[NavArea_Extent][Extent_Hi][0]) {
+      flRight = this[NavArea_Extent][Extent_Hi][0];
     }
 
     // keep margin if against edge
-    static Float:flLeftMargin; flLeftMargin = (@NavArea_IsEdge(sArea, WEST)) ? (flLeft + flMargin) : flLeft;
-    static Float:flRightMargin; flRightMargin = (@NavArea_IsEdge(sArea, EAST)) ? (flRight - flMargin) : flRight;
+    static Float:flLeftMargin; flLeftMargin = (@NavArea_IsEdge(area, WEST)) ? (flLeft + flMargin) : flLeft;
+    static Float:flRightMargin; flRightMargin = (@NavArea_IsEdge(area, EAST)) ? (flRight - flMargin) : flRight;
 
     // limit x to within portal
     if (vecFromPos[0] < flLeftMargin) {
@@ -1422,37 +1432,37 @@ Struct:@NavArea_GetRandomAdjacentArea(const &Struct:this, NavDirType:iDir) {
 
   } else {  // EAST or WEST
     if (iDir == WEST) {
-      vecClosePos[0] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0);
+      vecClosePos[0] = this[NavArea_Extent][Extent_Lo][0];
     } else {
-      vecClosePos[0] = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0);
+      vecClosePos[0] = this[NavArea_Extent][Extent_Hi][0];
     }
 
     static Float:flTop; flTop = floatmax(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1)
+      this[NavArea_Extent][Extent_Lo][1],
+      area[NavArea_Extent][Extent_Lo][1]
     );
 
     static Float:flBottom; flBottom = floatmin(
-      Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1),
-      Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1)
+      this[NavArea_Extent][Extent_Hi][1],
+      area[NavArea_Extent][Extent_Hi][1]
     );
 
     // clamp to our extent in case areas are disjoint
-    if (flTop < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) {
-      flTop = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
-    } else if (flTop > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
-      flTop = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+    if (flTop < this[NavArea_Extent][Extent_Lo][1]) {
+      flTop = this[NavArea_Extent][Extent_Lo][1];
+    } else if (flTop > this[NavArea_Extent][Extent_Hi][1]) {
+      flTop = this[NavArea_Extent][Extent_Hi][1];
     }
 
-    if (flBottom < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) {
-      flBottom = Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1);
-    } else if (flBottom > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
-      flBottom = Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1);
+    if (flBottom < this[NavArea_Extent][Extent_Lo][1]) {
+      flBottom = this[NavArea_Extent][Extent_Lo][1];
+    } else if (flBottom > this[NavArea_Extent][Extent_Hi][1]) {
+      flBottom = this[NavArea_Extent][Extent_Hi][1];
     }
 
     // keep margin if against edge
-    static Float:flTopMargin; flTopMargin = (@NavArea_IsEdge(sArea, NORTH)) ? (flTop + flMargin) : flTop;
-    static Float:flBottomMargin; flBottomMargin = (@NavArea_IsEdge(sArea, SOUTH)) ? (flBottom - flMargin) : flBottom;
+    static Float:flTopMargin; flTopMargin = (@NavArea_IsEdge(area, NORTH)) ? (flTop + flMargin) : flTop;
+    static Float:flBottomMargin; flBottomMargin = (@NavArea_IsEdge(area, SOUTH)) ? (flBottom - flMargin) : flBottom;
 
     // limit y to within portal
     if (vecFromPos[1] < flTopMargin) {
@@ -1466,13 +1476,13 @@ Struct:@NavArea_GetRandomAdjacentArea(const &Struct:this, NavDirType:iDir) {
 }
 
 // Return true if there are no bi-directional links on the given side
-bool:@NavArea_IsEdge(const &Struct:this, NavDirType:iDir) {
-  static Array:irgConnections; irgConnections = StructGetCell(this, NavArea_Connect, iDir);
+bool:@NavArea_IsEdge(const this[NavArea], NavDirType:iDir) {
+  static Array:irgConnections; irgConnections = this[NavArea_Connect][iDir];
   static iConnectionCount; iConnectionCount = ArraySize(irgConnections);
 
   for (new i = 0; i < iConnectionCount; ++i) {
-    static Struct:sConnectArea; sConnectArea = ArrayGetCell(irgConnections, i, _:NavConnect_Area);
-    if (@NavArea_IsConnected(sConnectArea, this, OppositeDirection(iDir))) {
+    static iConnectArea; iConnectArea = ArrayGetCell(irgConnections, i, _:NavConnect_Area);
+    if (@NavArea_IsConnected(NAVAREA_PTR(iConnectArea), this, OppositeDirection(iDir))) {
       return false;
     }
   }
@@ -1480,49 +1490,54 @@ bool:@NavArea_IsEdge(const &Struct:this, NavDirType:iDir) {
   return true;
 }
 
-bool:@NavArea_IsConnected(const &Struct:this, Struct:sArea, NavDirType:iDir) {
+bool:@NavArea_IsConnected(const this[NavArea], const area[NavArea], NavDirType:iDir) {
   // we are connected to ourself
-  if (sArea == this) return true;
+  if (NAVAREA_INDEX(area) == NAVAREA_INDEX(this)) return true;
+
+  static iArea; iArea = NAVAREA_INDEX(area);
 
   if (iDir == NUM_DIRECTIONS) {
     // search all directions
-    for (new iDir = 0; iDir < _:NUM_DIRECTIONS; iDir++) {
-      if (@NavArea_IsConnected(this, sArea, NavDirType:iDir)) {
+    for (new NavDirType:iDir = NORTH; iDir < NUM_DIRECTIONS; ++iDir) {
+      if (@NavArea_IsConnected(this, area, iDir)) {
         return true;
       }
     }
     
     // check ladder connections
     {
-      static Array:irgLadderList; irgLadderList = StructGetCell(this, NavArea_Ladder, LADDER_UP);
+      static Array:irgLadderList; irgLadderList = @NavArea_GetLadder(this, LADDER_UP);
       static iListSize; iListSize = ArraySize(irgLadderList);
-      for (new i = 0; i < iListSize; ++i) {
-        static rgNavLadder[NavLadder]; ArrayGetArray(irgLadderList, i, rgNavLadder[any:0]);
 
-        if (rgNavLadder[NavLadder_TopBehindArea] == sArea || rgNavLadder[NavLadder_TopForwardArea] == sArea || rgNavLadder[NavLadder_TopLeftArea] == sArea || rgNavLadder[NavLadder_TopRightArea] == sArea) {
+      for (new iLadder = 0; iLadder < iListSize; ++iLadder) {
+        if (
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopBehindArea) == iArea ||
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopForwardArea) == iArea ||
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopLeftArea) == iArea ||
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopRightArea) == iArea
+        ) {
           return true;
         }
       }
     }
 
     {
-      static Array:irgLadderList; irgLadderList = StructGetCell(this, NavArea_Ladder, LADDER_DOWN);
+      static Array:irgLadderList; irgLadderList = @NavArea_GetLadder(this, LADDER_DOWN);
       static iListSize; iListSize = ArraySize(irgLadderList);
-      for (new i = 0; i < iListSize; ++i) {
-        static rgNavLadder[NavLadder]; ArrayGetArray(irgLadderList, i, rgNavLadder[any:0]);
 
-        if (rgNavLadder[NavLadder_BottomArea] == sArea) {
+      for (new iLadder = 0; iLadder < iListSize; ++iLadder) {
+        if (ArrayGetCell(irgLadderList, iLadder, _:NavLadder_BottomArea) == iArea) {
           return true;
         }
       }
     }
   } else {
     // check specific direction
-    static Array:irgConnections; irgConnections = StructGetCell(this, NavArea_Connect, iDir);
+    static Array:irgConnections; irgConnections = this[NavArea_Connect][iDir];
     static iConnectionCount; iConnectionCount = ArraySize(irgConnections);
 
-    for (new i = 0; i < iConnectionCount; ++i) {
-      if (sArea == ArrayGetCell(irgConnections, i, _:NavConnect_Area)) {
+    for (new iConnection = 0; iConnection < iConnectionCount; ++iConnection) {
+      if (NAVAREA_INDEX(area) == ArrayGetCell(irgConnections, iConnection, _:NavConnect_Area)) {
         return true;
       }
     }
@@ -1532,17 +1547,17 @@ bool:@NavArea_IsConnected(const &Struct:this, Struct:sArea, NavDirType:iDir) {
 }
 
 // Return direction from this area to the given point
-NavDirType:@NavArea_ComputeDirection(const &Struct:this, const Float:vecPoint[3]) {
-  if (vecPoint[0] >= Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0) && vecPoint[0] <= Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
-    if (vecPoint[1] < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1)) {
+NavDirType:@NavArea_ComputeDirection(const this[NavArea], const Float:vecPoint[]) {
+  if (vecPoint[0] >= this[NavArea_Extent][Extent_Lo][0] && vecPoint[0] <= this[NavArea_Extent][Extent_Hi][0]) {
+    if (vecPoint[1] < this[NavArea_Extent][Extent_Lo][1]) {
       return NORTH;
-    } else if (vecPoint[1] > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
+    } else if (vecPoint[1] > this[NavArea_Extent][Extent_Hi][1]) {
       return SOUTH;
     }
-  } else if (vecPoint[1] >= Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 1) && vecPoint[1] <= Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 1)) {
-    if (vecPoint[0] < Float:StructGetCell(this, NavArea_Extent, _:Extent_Lo + 0)) {
+  } else if (vecPoint[1] >= this[NavArea_Extent][Extent_Lo][1] && vecPoint[1] <= this[NavArea_Extent][Extent_Hi][1]) {
+    if (vecPoint[0] < this[NavArea_Extent][Extent_Lo][0]) {
       return WEST;
-    } else if (vecPoint[0] > Float:StructGetCell(this, NavArea_Extent, _:Extent_Hi + 0)) {
+    } else if (vecPoint[0] > this[NavArea_Extent][Extent_Hi][0]) {
       return EAST;
     }
   }
@@ -1559,121 +1574,98 @@ NavDirType:@NavArea_ComputeDirection(const &Struct:this, const Float:vecPoint[3]
   }
 }
 
-@NavArea_GetCorner(const &Struct:this, NavCornerType:corner, Float:vecOut[3]) {
-  static rgExtent[Extent]; StructGetArray(this, NavArea_Extent, rgExtent, sizeof(rgExtent));
-
+@NavArea_GetCorner(const this[NavArea], NavCornerType:corner, Float:vecOut[]) {
   switch (corner) {
     case NORTH_WEST: {
-      xs_vec_copy(rgExtent[Extent_Lo], vecOut);
+      xs_vec_copy(this[NavArea_Extent][Extent_Lo], vecOut);
     }
     case NORTH_EAST: {
-      vecOut[0] = rgExtent[Extent_Hi][0];
-      vecOut[1] = rgExtent[Extent_Lo][1];
-      vecOut[2] = StructGetCell(this, NavArea_NeZ);
+      vecOut[0] = this[NavArea_Extent][Extent_Hi][0];
+      vecOut[1] = this[NavArea_Extent][Extent_Lo][1];
+      vecOut[2] = this[NavArea_NeZ];
     }
     case SOUTH_WEST: {
-      vecOut[0] = rgExtent[Extent_Lo][0];
-      vecOut[1] = rgExtent[Extent_Hi][1];
-      vecOut[2] = StructGetCell(this, NavArea_SwZ);
+      vecOut[0] = this[NavArea_Extent][Extent_Lo][0];
+      vecOut[1] = this[NavArea_Extent][Extent_Hi][1];
+      vecOut[2] = this[NavArea_SwZ];
     }
     case SOUTH_EAST: {
-      xs_vec_copy(rgExtent[Extent_Hi], vecOut);
+      xs_vec_copy(this[NavArea_Extent][Extent_Hi], vecOut);
     }
   }
 }
 
-Struct:@NavLadder_Create() {
-  new Struct:this = StructCreate(NavLadder);
-
-  return this;
-}
-
-@NavLadder_Destroy(&Struct:this) {
-  StructDestroy(this);
+Array:@NavArea_GetLadder(const this[NavArea], LadderDirectionType:iDir) {
+  return Array:this[NavArea_Ladder][iDir];
 }
 
 Struct:@NavPath_Create() {
-  new Struct:this = StructCreate(NavPath);
-  StructSetCell(this, NavPath_Segments, ArrayCreate());
+  static Struct:this; this = StructCreate(NavPath);
+  StructSetCell(this, NavPath_Segments, ArrayCreate(_:PathSegment));
 
   return this;
 }
 
 @NavPath_Destroy(&Struct:this) {
-  new Array:irgSegments = StructGetCell(this, NavPath_Segments);
-  new iPathSize = ArraySize(irgSegments);
-
-  for (new i = 0; i < iPathSize; ++i) {
-    new Struct:sSegment = ArrayGetCell(irgSegments, i);
-    StructDestroy(sSegment);
-  }
-
-  ArrayDestroy(irgSegments);
   StructDestroy(this);
 }
 
 // Build trivial path when start and goal are in the same nav area
-bool:@NavPath_BuildTrivialPath(const &Struct:this, const Float:vecStart[3], const Float:vecGoal[3]) {
-  new Array:irgSegments = StructGetCell(this, NavPath_Segments);
+bool:@NavPath_BuildTrivialPath(const &Struct:this, const Float:vecStart[], const Float:vecGoal[]) {
+  static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
   ArrayClear(irgSegments);
 
   StructSetCell(this, NavPath_SegmentCount, 0);
 
-  new Struct:sStartArea = NavAreaGrid_GetNearestNavArea(vecStart, false, nullptr);
-  if (sStartArea == Invalid_Struct) return false;
+  static iStartArea; iStartArea = NavAreaGrid_GetNearestNavArea(vecStart, false, nullptr);
+  if (iStartArea == INVALID_NAV_AREA) return false;
 
-  new Struct:sGoalArea = NavAreaGrid_GetNearestNavArea(vecGoal, false, nullptr);
-  if (sGoalArea == Invalid_Struct) return false;
+  static iGoalArea; iGoalArea = NavAreaGrid_GetNearestNavArea(vecGoal, false, nullptr);
+  if (iGoalArea == INVALID_NAV_AREA) return false;
 
-  new Struct:sStartSegment = @PathSegment_Create();
-  StructSetCell(sStartSegment, PathSegment_Area, sStartArea);
-  StructSetArray(sStartSegment, PathSegment_Pos, vecStart, sizeof(vecStart));
-  StructSetCell(sStartSegment, PathSegment_Pos, @NavArea_GetZ(sStartArea, vecStart), 2);
-  StructSetCell(sStartSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
-  @NavPath_PushSegment(this, sStartSegment);
+  static rgStartSegment[PathSegment];
+  rgStartSegment[PathSegment_Area] = iStartArea;
+  rgStartSegment[PathSegment_How] = NUM_TRAVERSE_TYPES;
+  xs_vec_set(rgStartSegment[PathSegment_Pos], vecStart[0], vecStart[1], @NavArea_GetZ(NAVAREA_PTR(iStartArea), vecStart));
+  @NavPath_PushSegment(this, rgStartSegment);
 
-  new Struct:sGoalSegment = @PathSegment_Create();
-  StructSetCell(sGoalSegment, PathSegment_Area, sGoalArea);
-  StructSetArray(sGoalSegment, PathSegment_Pos, vecGoal, sizeof(vecGoal));
-  StructSetCell(sGoalSegment, PathSegment_Pos, @NavArea_GetZ(sGoalArea, vecGoal), 2);
-  StructSetCell(sGoalSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
-  @NavPath_PushSegment(this, sGoalSegment);
+  static rgGoalSegment[PathSegment];
+  rgGoalSegment[PathSegment_Area] = iGoalArea;
+  rgGoalSegment[PathSegment_How] = NUM_TRAVERSE_TYPES;
+  xs_vec_set(rgGoalSegment[PathSegment_Pos], vecGoal[0], vecGoal[1], @NavArea_GetZ(NAVAREA_PTR(iGoalArea), vecGoal));
+  @NavPath_PushSegment(this, rgGoalSegment);
 
   return true;
 }
 
-@NavPath_PushSegment(const &Struct:this, Struct:sSegment) {
-  ArrayPushCell(StructGetCell(this, NavPath_Segments), sSegment);
+@NavPath_PushSegment(const &Struct:this, const segment[PathSegment]) {
+  ArrayPushArray(StructGetCell(this, NavPath_Segments), segment[any:0]);
   StructSetCell(this, NavPath_SegmentCount, StructGetCell(this, NavPath_SegmentCount) + 1);
 }
 
 @NavPath_ComputePathPositions(const &Struct:this) {
-  if (!StructGetCell(this, NavPath_SegmentCount)) return false;
+  static iSegmentsNum; iSegmentsNum = StructGetCell(this, NavPath_SegmentCount);
+  if (!iSegmentsNum) return false;
 
   static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
-  static Struct:sStartSegment; sStartSegment = ArrayGetCell(irgSegments, 0);
-  static Struct:sStartArea; sStartArea = StructGetCell(sStartSegment, PathSegment_Area);
+  static iStartArea; iStartArea = ArrayGetCell(irgSegments, 0, _:PathSegment_Area);
 
   // start in first area's center
-  static Float:vecStart[3]; @NavArea_GetCenter(sStartArea, vecStart);
+  ArraySetArray2(irgSegments, 0, NAVAREA_PTR(iStartArea)[NavArea_Center], 3, PathSegment_Pos);
+  ArraySetCell(irgSegments, 0, NUM_TRAVERSE_TYPES, _:PathSegment_How);
 
-  StructSetArray(sStartSegment, PathSegment_Pos, vecStart, sizeof(vecStart));
-  StructSetCell(sStartSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
-
-  for (new i = 1; i < StructGetCell(this, NavPath_SegmentCount); i++) {
-    static Struct:sFromSegment; sFromSegment = ArrayGetCell(irgSegments, i - 1);
-    static Struct:sFromArea; sFromArea = StructGetCell(sFromSegment, PathSegment_Area);
-    static Struct:sToSegment; sToSegment = ArrayGetCell(irgSegments, i);
-    static Struct:sToArea; sToArea = StructGetCell(sToSegment, PathSegment_Area);
-
-    static Float:vecFromPos[3]; StructGetArray(sFromSegment, PathSegment_Pos, vecFromPos, sizeof(vecFromPos));
-    static Float:vecToPos[3]; StructGetArray(sToSegment, PathSegment_Pos, vecToPos, sizeof(vecToPos));
+  for (new iSegment = 1; iSegment < iSegmentsNum; iSegment++) {
+    static iFromArea; iFromArea = ArrayGetCell(irgSegments, iSegment - 1, _:PathSegment_Area);
+    static iToArea; iToArea = ArrayGetCell(irgSegments, iSegment, _:PathSegment_Area);
 
     // walk along the floor to the next area
-    static NavTraverseType:toHow; toHow = StructGetCell(sToSegment, PathSegment_How);
+    static NavTraverseType:toHow; toHow = ArrayGetCell(irgSegments, iSegment, _:PathSegment_How);
     if (toHow <= GO_WEST) {
+      static Float:vecFromPos[3]; ArrayGetArray2(irgSegments, iSegment - 1, vecFromPos, 3, PathSegment_Pos);
+      static Float:vecToPos[3]; ArrayGetArray2(irgSegments, iSegment, vecToPos, 3, PathSegment_Pos);
+      
       // compute next point, keeping path as straight as possible
-      @NavArea_ComputeClosestPointInPortal(sFromArea, sToArea, NavDirType:toHow, vecFromPos, vecToPos);
+      @NavArea_ComputeClosestPointInPortal(NAVAREA_PTR(iFromArea), NAVAREA_PTR(iToArea), NavDirType:toHow, vecFromPos, vecToPos);
 
       // move goal position into the goal area a bit
       // how far to "step into" an area - must be less than min area size
@@ -1681,57 +1673,57 @@ bool:@NavPath_BuildTrivialPath(const &Struct:this, const Float:vecStart[3], cons
       AddDirectionVector(vecToPos, NavDirType:toHow, flStepInDist);
 
       // we need to walk out of "from" area, so keep Z where we can reach it
-      vecToPos[2] = @NavArea_GetZ(sFromArea, vecToPos);
+      vecToPos[2] = @NavArea_GetZ(NAVAREA_PTR(iFromArea), vecToPos);
 
-      StructSetArray(sToSegment, PathSegment_Pos, vecToPos, sizeof(vecToPos));
+      ArraySetArray2(irgSegments, iSegment, vecToPos, 3, PathSegment_Pos);
 
       // if this is a "jump down" connection, we must insert an additional point on the path
-      if (!@NavArea_IsConnected(sToArea, sFromArea, NUM_DIRECTIONS)) {
+      if (!@NavArea_IsConnected(NAVAREA_PTR(iToArea), NAVAREA_PTR(iFromArea), NUM_DIRECTIONS)) {
         // this is a "jump down" link
         // compute direction of path just prior to "jump down"
         static Float:flDir[2]; DirectionToVector2D(NavDirType:toHow, flDir);
 
         // shift top of "jump down" out a bit to "get over the ledge"
         static const Float:flPushDist = 25.0;
-        StructSetCell(sToSegment, PathSegment_Pos, Float:StructGetCell(sToSegment, PathSegment_Pos, 0) + (flPushDist * flDir[0]), 0);
-        StructSetCell(sToSegment, PathSegment_Pos, Float:StructGetCell(sToSegment, PathSegment_Pos, 1) + (flPushDist * flDir[1]), 1);
+        ArraySetCell(irgSegments, iSegment, Float:ArrayGetCell(irgSegments, iSegment, _:PathSegment_Pos + 0) + (flPushDist * flDir[0]), _:PathSegment_Pos + 0);
+        ArraySetCell(irgSegments, iSegment, Float:ArrayGetCell(irgSegments, iSegment, _:PathSegment_Pos + 1) + (flPushDist * flDir[1]), _:PathSegment_Pos + 1);
 
         // insert a duplicate node to represent the bottom of the fall
-        if (StructGetCell(this, NavPath_SegmentCount) < MAX_PATH_SEGMENTS - 1) {
-          static Struct:sOldSegment; sOldSegment = ArrayGetCell(irgSegments, i);
-          static Struct:sSegment; sSegment = StructClone(sOldSegment);
-          StructSetCell(sSegment, PathSegment_Pos, vecToPos[0] + flPushDist * flDir[0], 0);
-          StructSetCell(sSegment, PathSegment_Pos, vecToPos[1] + flPushDist * flDir[1], 1);
+        if (iSegmentsNum < MAX_PATH_SEGMENTS - 1) {
+          static rgSegment[PathSegment];
+          rgSegment[PathSegment_Area] = ArrayGetCell(irgSegments, iSegment, _:PathSegment_Area);
+          rgSegment[PathSegment_How] = ArrayGetCell(irgSegments, iSegment, _:PathSegment_How);
+          rgSegment[PathSegment_Pos][0] = vecToPos[0] + flPushDist * flDir[0];
+          rgSegment[PathSegment_Pos][1] = vecToPos[1] + flPushDist * flDir[1];
+          rgSegment[PathSegment_Pos][2] = ArrayGetCell(irgSegments, iSegment, _:PathSegment_Pos + 2);
+          rgSegment[PathSegment_Pos][2] = @NavArea_GetZ(NAVAREA_PTR(iToArea), rgSegment[PathSegment_Pos]);
 
-          // put this one at the bottom of the fall
-          static Float:vecPos[3];
-          StructGetArray(sSegment, PathSegment_Pos, vecPos, sizeof(vecPos));
-          StructSetCell(sSegment, PathSegment_Pos, @NavArea_GetZ(sToArea, vecPos), 2);
-
-          ArrayInsertCellAfter(irgSegments, i, sSegment);
+          ArrayInsertArrayAfter(irgSegments, iSegment, rgSegment[any:0]);
 
           // path is one node longer
-          StructSetCell(this, NavPath_SegmentCount, StructGetCell(this, NavPath_SegmentCount) + 1);
+          StructSetCell(this, NavPath_SegmentCount, ++iSegmentsNum);
 
           // move index ahead into the new node we just duplicated
-          i++;
+          iSegment++;
         }
       }
     } else if (toHow == GO_LADDER_UP) { // to get to next area, must go up a ladder
       // find our ladder
-      new bool:bFound = false;
-      new Array:irgLadderList = StructGetCell(sFromArea, NavArea_Ladder, LADDER_UP);
+      static bool:bFound; bFound = false;
+      static Array:irgLadderList; irgLadderList = @NavArea_GetLadder(NAVAREA_PTR(iFromArea), LADDER_UP);
       
-      new iListSize = ArraySize(irgLadderList);
-      for (new i = 0; i < iListSize; ++i) {
-        static rgNavLadder[NavLadder]; ArrayGetArray(irgLadderList, i, rgNavLadder[any:0]);
-
+      static iListSize; iListSize = ArraySize(irgLadderList);
+      for (new iLadder = 0; iLadder < iListSize; ++iLadder) {
         // can't use "behind" area when ascending...
-        if (rgNavLadder[NavLadder_TopForwardArea] == sToArea || rgNavLadder[NavLadder_TopLeftArea] == sToArea || rgNavLadder[NavLadder_TopRightArea] == sToArea) {
+        if (
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopForwardArea) == iToArea ||
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopLeftArea) == iToArea ||
+          ArrayGetCell(irgLadderList, iLadder, _:NavLadder_TopRightArea) == iToArea
+        ) {
           // to->ladder = ladder;
-          static Float:vecPos[3]; xs_vec_copy(rgNavLadder[NavLadder_Bottom], vecPos);
-          AddDirectionVector(vecPos, rgNavLadder[NavLadder_Dir], 2.0 * HalfHumanWidth);
-          StructSetArray(sToSegment, PathSegment_Pos, vecPos, 3);
+          static Float:vecPos[3]; ArrayGetArray2(irgLadderList, iLadder, vecPos, 3, NavLadder_Bottom);
+          AddDirectionVector(vecPos, ArrayGetCell(irgLadderList, iLadder, _:NavLadder_Dir), 2.0 * HalfHumanWidth);
+          ArraySetArray2(irgSegments, iSegment, vecPos, 3, PathSegment_Pos);
           bFound = true;
           break;
         }
@@ -1740,18 +1732,16 @@ bool:@NavPath_BuildTrivialPath(const &Struct:this, const Float:vecStart[3], cons
       if (!bFound) return false;
     } else if (toHow == GO_LADDER_DOWN) { // to get to next area, must go down a ladder
       // find our ladder
-      new bool:bFound = false;
-      new Array:irgLadderList = StructGetCell(sFromArea, NavArea_Ladder, LADDER_DOWN);
+      static bool:bFound; bFound = false;
+      static Array:irgLadderList; irgLadderList = @NavArea_GetLadder(NAVAREA_PTR(iFromArea), LADDER_DOWN);
       
-      new iListSize = ArraySize(irgLadderList);
-      for (new i = 0; i < iListSize; ++i) {
-        static rgNavLadder[NavLadder]; ArrayGetArray(irgLadderList, i, rgNavLadder[any:0]);
-
-        if (rgNavLadder[NavLadder_BottomArea] == sToArea) {
+      static iListSize; iListSize = ArraySize(irgLadderList);
+      for (new iLadder = 0; iLadder < iListSize; ++iLadder) {
+        if (ArrayGetCell(irgLadderList, iLadder, _:NavLadder_BottomArea) == iToArea) {
           // to->ladder = ladder;
-          static Float:vecPos[3]; xs_vec_copy(rgNavLadder[NavLadder_Top], vecPos);
-          AddDirectionVector(vecPos, OppositeDirection(rgNavLadder[NavLadder_Dir]), 2.0 * HalfHumanWidth);
-          StructSetArray(sToSegment, PathSegment_Pos, vecPos, 3);
+          static Float:vecPos[3]; ArrayGetArray2(irgLadderList, iLadder, vecPos, 3, NavLadder_Top);
+          AddDirectionVector(vecPos, OppositeDirection(ArrayGetCell(irgLadderList, iLadder, _:NavLadder_Dir)), 2.0 * HalfHumanWidth);
+          ArraySetArray2(irgSegments, iSegment, vecPos, 3, PathSegment_Pos);
           bFound = true;
           break;
         }
@@ -1776,15 +1766,22 @@ bool:@NavPath_IsValid(const &Struct:this) {
   StructSetCell(this, NavPath_SegmentCount, 0);
 }
 
+@NavPath_Clear(const &Struct:this) {
+  static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
+  ArrayClear(irgSegments);
+
+  StructSetCell(this, NavPath_SegmentCount, 0);
+}
+
 @NavPath_GetEndpoint(const &Struct:this, Float:vecEndpoint[]) {
   static iSegmentCount; iSegmentCount = StructGetCell(this, NavPath_SegmentCount);
   static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
-  static Struct:sSegment; sSegment = ArrayGetCell(irgSegments, iSegmentCount - 1);
-  StructGetArray(sSegment, PathSegment_Pos, vecEndpoint, 3);
+
+  ArrayGetArray2(irgSegments, iSegmentCount - 1, vecEndpoint, 3, PathSegment_Pos);
 }
 
 // Return true if position is at the end of the path
-bool:@NavPath_IsAtEnd(const &Struct:this, const Float:vecPos[3]) {
+bool:@NavPath_IsAtEnd(const &Struct:this, const Float:vecPos[]) {
   if (!@NavPath_IsValid(this)) return false;
 
   static Float:vecEndpoint[3]; @NavPath_GetEndpoint(this, vecEndpoint);
@@ -1794,27 +1791,25 @@ bool:@NavPath_IsAtEnd(const &Struct:this, const Float:vecPos[3]) {
 
 // Return point a given distance along the path - if distance is out of path bounds, point is clamped to start/end
 // TODO: Be careful of returning "positions" along one-way drops, ladders, etc.
-bool:@NavPath_GetPointAlongPath(const &Struct:this, Float:flDistAlong, Float:vecPointOnPath[3]) {
-  if (!@NavPath_IsValid(this) || !xs_vec_len(vecPointOnPath)) {
+bool:@NavPath_GetPointAlongPath(const &Struct:this, Float:flDistAlong, Float:vecPointOnPath[]) {
+  if (!@NavPath_IsValid(this)) {
     return false;
   }
 
   static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
 
   if (flDistAlong <= 0.0) {
-    static Struct:sFirstSegment; sFirstSegment = ArrayGetCell(irgSegments, 0);
-    StructGetArray(sFirstSegment, PathSegment_Pos, vecPointOnPath, 3);
+    ArrayGetArray2(irgSegments, 0, vecPointOnPath, 3, PathSegment_Pos);
     return true;
   }
 
   static Float:flLengthSoFar; flLengthSoFar = 0.0;
 
-  for (new i = 1; i < @NavPath_GetSegmentCount(this); i++) {
-    static Struct:sFromSegment; sFromSegment = ArrayGetCell(irgSegments, i - 1);
-    static Struct:sToSegment; sToSegment = ArrayGetCell(irgSegments, i);
+  static iSegmentsNum; iSegmentsNum = @NavPath_GetSegmentCount(this);
 
-    static Float:vecFrom[3]; StructGetArray(sFromSegment, PathSegment_Pos, vecFrom, 3);
-    static Float:vecTo[3]; StructGetArray(sToSegment, PathSegment_Pos, vecTo, 3);
+  for (new i = 1; i < iSegmentsNum; i++) {
+    static Float:vecFrom[3]; ArrayGetArray2(irgSegments, i - 1, vecFrom, 3, PathSegment_Pos);
+    static Float:vecTo[3]; ArrayGetArray2(irgSegments, i, vecTo, 3, PathSegment_Pos);
     static Float:vecDir[3]; xs_vec_sub(vecTo, vecFrom, vecDir);
     static Float:flSegmentLength; flSegmentLength = xs_vec_len(vecDir);
 
@@ -1837,26 +1832,19 @@ bool:@NavPath_GetPointAlongPath(const &Struct:this, Float:flDistAlong, Float:vec
 
 // Compute closest point on path to given point
 // NOTE: This does not do line-of-sight tests, so closest point may be thru the floor, etc
-bool:@NavPath_FindClosestPointOnPath(const &Struct:this, const Float:vecWorldPos[3], iStartIndex, iEndIndex, Float:vecClose[3]) {
-  if (!@NavPath_IsValid(this) || !vecClose) {
-    return false;
-  }
+bool:@NavPath_FindClosestPointOnPath(const &Struct:this, const Float:vecWorldPos[], iStartIndex, iEndIndex, Float:vecClose[]) {
+  if (!@NavPath_IsValid(this)) return false;
 
   static Array:irgSegments; irgSegments = StructGetCell(this, NavPath_Segments);
   
-  static Float:flCloseDistSq = 9999999999.9;
+  static Float:flCloseDistSq = 8192.0;
 
-  for (new i = iStartIndex; i <= iEndIndex; i++) {
-    static Struct:sFromSegment; sFromSegment = ArrayGetCell(irgSegments, i - 1);
-    static Struct:sToSegment; sToSegment = ArrayGetCell(irgSegments, i);
-
-    static Float:vecFrom[3]; StructGetArray(sFromSegment, PathSegment_Pos, vecFrom, 3);
-    static Float:vecTo[3]; StructGetArray(sToSegment, PathSegment_Pos, vecTo, 3);
-
+  for (new iSegment = iStartIndex; iSegment <= iEndIndex; iSegment++) {
+    static Float:vecFrom[3]; ArrayGetArray2(irgSegments, iSegment - 1, vecFrom, 3, PathSegment_Pos);
+    static Float:vecTo[3]; ArrayGetArray2(irgSegments, iSegment, vecTo, 3, PathSegment_Pos);
     static Float:vecAlong[3]; xs_vec_sub(vecTo, vecFrom, vecAlong);
     static Float:flLength; flLength = NormalizeInPlace(vecAlong, vecAlong);
     static Float:vecToWorldPos[3]; xs_vec_sub(vecWorldPos, vecFrom, vecToWorldPos);
-
     static Float:flCloseLength; flCloseLength = xs_vec_dot(vecToWorldPos, vecAlong);
 
     // constrain point to be on path segment
@@ -1881,32 +1869,43 @@ bool:@NavPath_FindClosestPointOnPath(const &Struct:this, const Float:vecWorldPos
   return true;
 }
 
-Struct:@BuildPathTask_Create() {
-  new Struct:this = StructCreate(BuildPathTask);
-  StructSetCell(this, BuildPathTask_Path, @NavPath_Create());
+@BuildPathTask_Allocate(this[BuildPathTask], iUserToken, const &iStartArea, const &iGoalArea, const Float:vecStart[], const Float:vecGoal[], pIgnoreEnt, iCbFuncPluginId, iCbFuncId, iCostFuncPluginId, iCostFuncId) {
+  if (this[BuildPathTask_Path] == Invalid_Struct) {
+    this[BuildPathTask_Path] = @NavPath_Create();
+  } else {
+    @NavPath_Clear(this[BuildPathTask_Path]);
+  }
 
-  return this;
+  this[BuildPathTask_StartArea] = iStartArea;
+  this[BuildPathTask_GoalArea] = iGoalArea;
+  this[BuildPathTask_FinishCallback][Callback_PluginId] = iCbFuncPluginId;
+  this[BuildPathTask_FinishCallback][Callback_FunctionId] = iCbFuncId;
+  this[BuildPathTask_CostCallback][Callback_PluginId] = iCostFuncPluginId;
+  this[BuildPathTask_CostCallback][Callback_FunctionId] = iCostFuncId;
+  this[BuildPathTask_IgnoreEntity] = pIgnoreEnt;
+  this[BuildPathTask_UserToken] = iUserToken;
+  this[BuildPathTask_IsFinished] = false;
+  this[BuildPathTask_IsSuccessed] = false;
+  this[BuildPathTask_IsTerminated] = false;
+  this[BuildPathTask_IsFree] = false;
+  this[BuildPathTask_IterationsNum] = 0;
+  xs_vec_copy(vecStart, this[BuildPathTask_StartPos]);
+  xs_vec_copy(vecGoal, this[BuildPathTask_GoalPos]);
 }
 
-@BuildPathTask_Destroy(&Struct:this) {
-  new Struct:sNavPath = StructGetCell(this, BuildPathTask_Path);
-  @NavPath_Destroy(sNavPath);
-  StructDestroy(this);
+@BuildPathTask_Free(this[BuildPathTask]) {
+  this[BuildPathTask_IsFree] = true;
 }
 
-Struct:@PathSegment_Create() {
-  new Struct:this = StructCreate(PathSegment);
+// Struct:@PathSegment_Create() {
+//   new Struct:this = StructCreate(PathSegment);
 
-  return this;
-}
+//   return this;
+// }
 
-@PathSegment_Destroy(&Struct:this) {
-  StructDestroy(this);
-}
-
-NavAreaGrid_ComputeHashKey(iId) {
-  return iId & 0xFF;
-}
+// @PathSegment_Destroy(&Struct:this) {
+//   StructDestroy(this);
+// }
 
 NavAreaGrid_Init(Float:flMinX, Float:flMaxX, Float:flMinY, Float:flMaxY) {
   g_rgGrid[NavAreaGrid_CellSize] = 300.0;
@@ -1915,6 +1914,10 @@ NavAreaGrid_Init(Float:flMinX, Float:flMaxX, Float:flMinY, Float:flMaxY) {
   g_rgGrid[NavAreaGrid_GridSizeX] = floatround((flMaxX - flMinX) / g_rgGrid[NavAreaGrid_CellSize] + 1);
   g_rgGrid[NavAreaGrid_GridSizeY] = floatround((flMaxY - flMinY) / g_rgGrid[NavAreaGrid_CellSize] + 1);
   g_rgGrid[NavAreaGrid_AreaCount] = 0;
+
+  for (new i = 0; i < HASH_TABLE_SIZE; ++i) {
+    g_rgGrid[NavAreaGrid_HashTable][i] = INVALID_NAV_AREA;
+  }
 
   new iGridSize = g_rgGrid[NavAreaGrid_GridSizeX] * g_rgGrid[NavAreaGrid_GridSizeY];
 
@@ -1938,56 +1941,56 @@ NavAreaGrid_Free() {
   }
 }
 
-Struct:NavAreaGrid_GetNavAreaById(iAreaId) {
-  if (iAreaId == 0) return Invalid_Struct;
+NavAreaGrid_GetNavAreaById(iAreaId) {
+  if (iAreaId == 0) return INVALID_NAV_AREA;
 
-  new iKey = NavAreaGrid_ComputeHashKey(iAreaId);
+  static iKey; iKey = NavAreaGrid_ComputeHashKey(iAreaId);
 
-  for (new Struct:sArea = g_rgGrid[NavAreaGrid_HashTable][iKey]; sArea != Invalid_Struct; sArea = StructGetCell(sArea, NavArea_NextHash)) {
-    if (@NavArea_GetId(sArea) == iAreaId) return sArea;
+  for (new iArea = g_rgGrid[NavAreaGrid_HashTable][iKey]; iArea != INVALID_NAV_AREA; iArea = NAVAREA_PTR(iArea)[NavArea_NextHash]) {
+    if (@NavArea_GetId(NAVAREA_PTR(iArea)) == iAreaId) return iArea;
   }
 
-  return Invalid_Struct;
+  return INVALID_NAV_AREA;
 }
 
-NavAreaGrid_AddNavArea(Struct:sArea) {
+NavAreaGrid_AddNavArea(area[NavArea]) {
   // add to grid
-  new iLoX = NavAreaGrid_WorldToGridX(Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0));
-  new iLoY = NavAreaGrid_WorldToGridY(Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1));
-  new iHiX = NavAreaGrid_WorldToGridX(Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0));
-  new iHiY = NavAreaGrid_WorldToGridY(Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1));
+  new iLoX = NavAreaGrid_WorldToGridX(area[NavArea_Extent][Extent_Lo][0]);
+  new iLoY = NavAreaGrid_WorldToGridY(area[NavArea_Extent][Extent_Lo][1]);
+  new iHiX = NavAreaGrid_WorldToGridX(area[NavArea_Extent][Extent_Hi][0]);
+  new iHiY = NavAreaGrid_WorldToGridY(area[NavArea_Extent][Extent_Hi][1]);
 
   for (new y = iLoY; y <= iHiY; y++) {
     for (new x = iLoX; x <= iHiX; x++) {
       new Array:irgAreas = ArrayGetCell(g_rgGrid[NavAreaGrid_Grid], x + y * g_rgGrid[NavAreaGrid_GridSizeX]);
-      ArrayPushCell(irgAreas, sArea);
+      ArrayPushCell(irgAreas, NAVAREA_INDEX(area));
     }
   }
 
-  new iAreaId = StructGetCell(sArea, NavArea_Id);
+  new iAreaId = area[NavArea_Id];
 
   // add to hash table
   new iKey = NavAreaGrid_ComputeHashKey(iAreaId);
 
-  if (g_rgGrid[NavAreaGrid_HashTable][iKey] != Invalid_Struct) {
+  if (g_rgGrid[NavAreaGrid_HashTable][iKey] != INVALID_NAV_AREA) {
     // add to head of list in this slot
-    StructSetCell(sArea, NavArea_PrevHash, Invalid_Struct);
-    StructSetCell(sArea, NavArea_NextHash, g_rgGrid[NavAreaGrid_HashTable][iKey]);
-    StructSetCell(g_rgGrid[NavAreaGrid_HashTable][iKey], NavArea_PrevHash, sArea);
-    g_rgGrid[NavAreaGrid_HashTable][iKey] = sArea;
+    area[NavArea_PrevHash] = INVALID_NAV_AREA;
+    area[NavArea_NextHash] = g_rgGrid[NavAreaGrid_HashTable][iKey];
+    g_rgNavAreas[g_rgGrid[NavAreaGrid_HashTable][iKey]][NavArea_PrevHash] = NAVAREA_INDEX(area);
+    g_rgGrid[NavAreaGrid_HashTable][iKey] = NAVAREA_INDEX(area);
   } else {
     // first entry in this slot
-    g_rgGrid[NavAreaGrid_HashTable][iKey] = sArea;
-    StructSetCell(sArea, NavArea_NextHash, Invalid_Struct);
-    StructSetCell(sArea, NavArea_PrevHash, Invalid_Struct);
+    g_rgGrid[NavAreaGrid_HashTable][iKey] = NAVAREA_INDEX(area);
+    area[NavArea_NextHash] = INVALID_NAV_AREA;
+    area[NavArea_PrevHash] = INVALID_NAV_AREA;
   }
 
   g_rgGrid[NavAreaGrid_AreaCount]++;
 }
 
 // Given a position, return the nav area that IsOverlapping and is *immediately* beneath it
-Struct:NavAreaGrid_GetNavArea(const Float:vecPos[3], Float:flBeneathLimit) {
-  if (g_rgGrid[NavAreaGrid_Grid] == Invalid_Array) return Invalid_Struct;
+NavAreaGrid_GetNavArea(const Float:vecPos[], Float:flBeneathLimit) {
+  if (g_rgGrid[NavAreaGrid_Grid] == Invalid_Array) return INVALID_NAV_AREA;
 
   // get list in cell that contains position
   static x; x = NavAreaGrid_WorldToGridX(vecPos[0]);
@@ -1999,16 +2002,16 @@ Struct:NavAreaGrid_GetNavArea(const Float:vecPos[3], Float:flBeneathLimit) {
   // search cell list to find correct area
 
   static iListSize; iListSize = ArraySize(irgList);
-  static Struct:sUseArea; sUseArea = Invalid_Struct;
+  static iUseArea; iUseArea = INVALID_NAV_AREA;
   static Float:useZ; useZ = -99999999.9;
 
   for (new i = 0; i < iListSize; ++i) {
-    static Struct:sArea; sArea = ArrayGetCell(irgList, i);
+    static iArea; iArea = ArrayGetCell(irgList, i);
 
     // check if position is within 2D boundaries of this area
-    if (@NavArea_IsOverlappingPoint(sArea, vecTestPos)) {
+    if (@NavArea_IsOverlappingPoint(NAVAREA_PTR(iArea), vecTestPos)) {
       // project position onto area to get Z
-      static Float:z; z = @NavArea_GetZ(sArea, vecTestPos);
+      static Float:z; z = @NavArea_GetZ(NAVAREA_PTR(iArea), vecTestPos);
 
       // if area is above us, skip it
       if (z > vecTestPos[2]) continue;
@@ -2018,13 +2021,13 @@ Struct:NavAreaGrid_GetNavArea(const Float:vecPos[3], Float:flBeneathLimit) {
 
       // if area is higher than the one we have, use this instead
       if (z > useZ) {
-        sUseArea = sArea;
+        iUseArea = iArea;
         useZ = z;
       }
     }
   }
 
-  return sUseArea;
+  return iUseArea;
 }
 
 NavAreaGrid_WorldToGridX(Float:wx) {
@@ -2046,29 +2049,27 @@ NavAreaGrid_WorldToGridY(Float:wy) {
 // Given a position in the world, return the nav area that is closest
 // and at the same height, or beneath it.
 // Used to find initial area if we start off of the mesh.
-Struct:NavAreaGrid_GetNearestNavArea(const Float:vecPos[3], bool:bAnyZ = false, pIgnoreEnt = nullptr, Struct:sIgnoreArea = Invalid_Struct) {
-  if (g_rgGrid[NavAreaGrid_Grid] == Invalid_Array) return Invalid_Struct;
+NavAreaGrid_GetNearestNavArea(const Float:vecPos[], bool:bAnyZ = false, pIgnoreEnt = nullptr, iIgnoreArea = INVALID_NAV_AREA) {
+  if (g_rgGrid[NavAreaGrid_Grid] == Invalid_Array) return INVALID_NAV_AREA;
 
   static Float:flGroundHeight; flGroundHeight = GetGroundHeight(vecPos, pIgnoreEnt);
-  if (flGroundHeight == -1.0) return Invalid_Struct;
+  if (flGroundHeight == -1.0) return INVALID_NAV_AREA;
 
-  static Struct:sCurrentArea; sCurrentArea = NavAreaGrid_GetNavArea(vecPos, 120.0);
-  if (sCurrentArea != Invalid_Struct && sCurrentArea != sIgnoreArea) return sCurrentArea;
+  static iCurrentArea; iCurrentArea = NavAreaGrid_GetNavArea(vecPos, 120.0);
+  if (iCurrentArea != INVALID_NAV_AREA && iCurrentArea != iIgnoreArea) return iCurrentArea;
 
   // ensure source position is well behaved
   static Float:vecSource[3]; xs_vec_set(vecSource, vecPos[0], vecPos[1], flGroundHeight + HalfHumanHeight);
 
-  static Struct:sCloseArea; sCloseArea = Invalid_Struct;
+  static sCloseArea; sCloseArea = INVALID_NAV_AREA;
   static Float:flCloseDistSq; flCloseDistSq = 100000000.0;
 
   // TODO: Step incrementally using grid for speed
   // find closest nav area
-  new iNavAreaCount = ArraySize(g_irgNavAreaList);
-  for (new i = 0; i < iNavAreaCount; ++i) {
-    static Struct:sArea; sArea = ArrayGetCell(g_irgNavAreaList, i);
-    if (sArea == sIgnoreArea) continue;
+  for (new iArea = 0; iArea < g_iNavAreasNum; ++iArea) {
+    if (iArea == iIgnoreArea) continue;
 
-    static Float:vecAreaPos[3]; @NavArea_GetClosestPointOnArea(sArea, vecSource, vecAreaPos);
+    static Float:vecAreaPos[3]; @NavArea_GetClosestPointOnArea(NAVAREA_PTR(iArea), vecSource, vecAreaPos);
     static Float:flDistSq; flDistSq = floatpower(xs_vec_distance(vecAreaPos, vecSource), 2.0);
 
     // keep the closest area
@@ -2085,39 +2086,33 @@ Struct:NavAreaGrid_GetNearestNavArea(const Float:vecPos[3], bool:bAnyZ = false, 
       }
 
       flCloseDistSq = flDistSq;
-      sCloseArea = sArea;
+      sCloseArea = iArea;
     }
   }
 
   return sCloseArea;
 }
 
-// NavAreaGrid_GetNavAreaCount() {
-//   return g_rgGrid[NavAreaGrid_AreaCount];
-// }
+NavAreaGrid_ComputeHashKey(iId) {
+  return iId & 0xFF;
+}
 
 NavErrorType:LoadNavigationMap() {
-  new szMapName[32];
-  get_mapname(szMapName, charsmax(szMapName));
-
-  static szFilePath[256];
-  format(szFilePath, charsmax(szFilePath), "maps/%s.nav", szMapName);
+  new szMapName[32]; get_mapname(szMapName, charsmax(szMapName));
+  new szFilePath[256]; format(szFilePath, charsmax(szFilePath), "maps/%s.nav", szMapName);
 
   if (!file_exists(szFilePath)) {
     log_amx("File ^"%s^" not found!", szFilePath);
     return NAV_CANT_ACCESS_FILE;
   }
 
-  g_irgNavAreaList = ArrayCreate();
   // g_irgNavLadderList = ArrayCreate();
 
   new iFile = fopen(szFilePath, "rb");
   g_iNavAreaNextId = 1;
 
   new iMagic;
-  if (!FileReadInt32(iFile, iMagic)) {
-    return NAV_INVALID_FILE;
-  }
+  if (!FileReadInt32(iFile, iMagic)) return NAV_INVALID_FILE;
 
   if (iMagic != NAV_MAGIC_NUMBER) {
     log_amx("Wrong magic number %d. Should be %d.", iMagic, NAV_MAGIC_NUMBER);
@@ -2125,9 +2120,7 @@ NavErrorType:LoadNavigationMap() {
   }
 
   new iVersion;
-  if (!FileReadInt32(iFile, iVersion)) {
-    return NAV_BAD_FILE_VERSION;
-  }
+  if (!FileReadInt32(iFile, iVersion)) return NAV_BAD_FILE_VERSION;
 
   if (iVersion > NAV_VERSION) {
     log_amx("Wrong version %d. Should be less then %d.", iVersion, NAV_VERSION);
@@ -2153,9 +2146,8 @@ NavErrorType:LoadNavigationMap() {
   }
 
   // get number of areas
-  static iAreaCount;
-  FileReadInt32(iFile, iAreaCount);
-  log_amx("Found %d areas", iAreaCount);
+  FileReadInt32(iFile, g_iNavAreasNum);
+  log_amx("Found %d areas", g_iNavAreasNum);
 
   new rgExtent[Extent];
   rgExtent[Extent_Lo][0] = 9999999999.9;
@@ -2166,26 +2158,10 @@ NavErrorType:LoadNavigationMap() {
   log_amx("Loading areas...");
 
   // load the areas and compute total extent
-  for (new i = 0; i < iAreaCount; i++) {
-    new Struct:sArea = @NavArea_Create();
-    @NavArea_Load(sArea, iFile, iVersion, false);
-    ArrayPushCell(g_irgNavAreaList, sArea);
-
-    if (Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0) < rgExtent[Extent_Lo][0]) {
-      rgExtent[Extent_Lo][0] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 0);
-    }
-
-    if (Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1) < rgExtent[Extent_Lo][1]) {
-      rgExtent[Extent_Lo][1] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Lo + 1);
-    }
-
-    if (Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0) > rgExtent[Extent_Hi][0]) {
-      rgExtent[Extent_Hi][0] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 0);
-    }
-
-    if (Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1) > rgExtent[Extent_Hi][1]) {
-      rgExtent[Extent_Hi][1] = Float:StructGetCell(sArea, NavArea_Extent, _:Extent_Hi + 1); 
-    }
+  for (new iArea = 0; iArea < g_iNavAreasNum; iArea++) {
+    @NavArea_Allocate(NAVAREA_PTR(iArea));
+    @NavArea_Load(NAVAREA_PTR(iArea), iFile, iVersion, false);
+    AdjustExtentWithArea(rgExtent, NAVAREA_PTR(iArea));
   }
 
   log_amx("All areas loaded!");
@@ -2195,17 +2171,15 @@ NavErrorType:LoadNavigationMap() {
 
   log_amx("Grid initialized!");
 
-  for (new i = 0; i < iAreaCount; i++) {
-    new Struct:sArea = ArrayGetCell(g_irgNavAreaList, i);
-    NavAreaGrid_AddNavArea(sArea);
+  for (new iArea = 0; iArea < g_iNavAreasNum; iArea++) {
+    NavAreaGrid_AddNavArea(NAVAREA_PTR(iArea));
   }
 
   log_amx("All areas added to the grid!");
 
-  // allow areas to connect to each other, etc
-  for (new i = 0; i < iAreaCount; i++) {
-    new Struct:sArea = ArrayGetCell(g_irgNavAreaList, i);
-    @NavArea_PostLoadArea(sArea);
+  // allow areas to connect to each iOtherArea, etc
+  for (new iArea = 0; iArea < g_iNavAreasNum; iArea++) {
+    @NavArea_PostLoadArea(NAVAREA_PTR(iArea));
   }
 
   log_amx("Loaded areas post processing complete!");
@@ -2215,6 +2189,13 @@ NavErrorType:LoadNavigationMap() {
   if (b_bInitStage) BuildLadders();
 
   return NAV_OK;
+}
+
+AdjustExtentWithArea(rgExtent[Extent], const area[NavArea]) {
+  rgExtent[Extent_Lo][0] = floatmin(area[NavArea_Extent][Extent_Lo][0], rgExtent[Extent_Lo][0]);
+  rgExtent[Extent_Lo][1] = floatmin(area[NavArea_Extent][Extent_Lo][1], rgExtent[Extent_Lo][1]);
+  rgExtent[Extent_Hi][0] = floatmax(area[NavArea_Extent][Extent_Hi][0], rgExtent[Extent_Hi][0]);
+  rgExtent[Extent_Hi][1] = floatmax(area[NavArea_Extent][Extent_Hi][1], rgExtent[Extent_Hi][1]);
 }
 
 // For each ladder in the map, create a navigation representation of it.
@@ -2308,75 +2289,75 @@ BuildLadder(pEntity) {
     // find "ahead" area
     rgNavLadder[NavLadder_TopForwardArea] = FindFirstAreaInDirection(vecCenter, OppositeDirection(rgNavLadder[NavLadder_Dir]), flNearLadderRange, 120.0, pEntity);
     if (rgNavLadder[NavLadder_TopForwardArea] == rgNavLadder[NavLadder_BottomArea]) {
-      rgNavLadder[NavLadder_TopForwardArea] = Invalid_Struct;
+      rgNavLadder[NavLadder_TopForwardArea] = INVALID_NAV_AREA;
     }
 
     // find "left" area
     rgNavLadder[NavLadder_TopLeftArea] = FindFirstAreaInDirection(vecCenter, DirectionLeft(rgNavLadder[NavLadder_Dir]), flNearLadderRange, 120.0, pEntity);
     if (rgNavLadder[NavLadder_TopLeftArea] == rgNavLadder[NavLadder_BottomArea]) {
-      rgNavLadder[NavLadder_TopLeftArea] = Invalid_Struct;
+      rgNavLadder[NavLadder_TopLeftArea] = INVALID_NAV_AREA;
     }
 
     // find "right" area
     rgNavLadder[NavLadder_TopRightArea] = FindFirstAreaInDirection(vecCenter, DirectionRight(rgNavLadder[NavLadder_Dir]), flNearLadderRange, 120.0, pEntity);
     if (rgNavLadder[NavLadder_TopRightArea] == rgNavLadder[NavLadder_BottomArea]) {
-      rgNavLadder[NavLadder_TopRightArea] = Invalid_Struct;
+      rgNavLadder[NavLadder_TopRightArea] = INVALID_NAV_AREA;
     }
 
     // find "behind" area - must look farther, since ladder is against the wall away from this area
     rgNavLadder[NavLadder_TopBehindArea] = FindFirstAreaInDirection(vecCenter, rgNavLadder[NavLadder_Dir], 2.0 * flNearLadderRange, 120.0, pEntity);
     if (rgNavLadder[NavLadder_TopBehindArea] == rgNavLadder[NavLadder_BottomArea]) {
-      rgNavLadder[NavLadder_TopBehindArea] = Invalid_Struct;
+      rgNavLadder[NavLadder_TopBehindArea] = INVALID_NAV_AREA;
     }
 
     // can't include behind area, since it is not used when going up a ladder
-    if (rgNavLadder[NavLadder_BottomArea] == Invalid_Struct) {
+    if (rgNavLadder[NavLadder_BottomArea] == INVALID_NAV_AREA) {
       log_amx("ERROR: Unconnected ladder bottom at (%f, %f, %f)", rgNavLadder[NavLadder_Bottom][0], rgNavLadder[NavLadder_Bottom][1], rgNavLadder[NavLadder_Bottom][2]);
       return;
     }
 
-    if (rgNavLadder[NavLadder_TopForwardArea] == Invalid_Struct && rgNavLadder[NavLadder_TopLeftArea] == Invalid_Struct && rgNavLadder[NavLadder_TopRightArea] == Invalid_Struct) {
+    if (rgNavLadder[NavLadder_TopForwardArea] == INVALID_NAV_AREA && rgNavLadder[NavLadder_TopLeftArea] == INVALID_NAV_AREA && rgNavLadder[NavLadder_TopRightArea] == INVALID_NAV_AREA) {
       log_amx("ERROR: Unconnected ladder top at (%f, %f, %f)", rgNavLadder[NavLadder_Top][0], rgNavLadder[NavLadder_Top][1], rgNavLadder[NavLadder_Top][2]);
       return;
     }
 
     // store reference to ladder in the area
-    if (rgNavLadder[NavLadder_BottomArea] != Invalid_Struct) {
-      @NavArea_AddLadderUp(rgNavLadder[NavLadder_BottomArea], rgNavLadder);
+    if (rgNavLadder[NavLadder_BottomArea] != INVALID_NAV_AREA) {
+      @NavArea_AddLadderUp(NAVAREA_PTR(rgNavLadder[NavLadder_BottomArea]), rgNavLadder);
     }
 
     // store reference to ladder in the area(s)
-    if (rgNavLadder[NavLadder_TopForwardArea] != Invalid_Struct) {
-      @NavArea_AddLadderDown(rgNavLadder[NavLadder_TopForwardArea], rgNavLadder);
+    if (rgNavLadder[NavLadder_TopForwardArea] != INVALID_NAV_AREA) {
+      @NavArea_AddLadderDown(NAVAREA_PTR(rgNavLadder[NavLadder_TopForwardArea]), rgNavLadder);
     }
 
-    if (rgNavLadder[NavLadder_TopLeftArea] != Invalid_Struct) {
-      @NavArea_AddLadderDown(rgNavLadder[NavLadder_TopLeftArea], rgNavLadder);
+    if (rgNavLadder[NavLadder_TopLeftArea] != INVALID_NAV_AREA) {
+      @NavArea_AddLadderDown(NAVAREA_PTR(rgNavLadder[NavLadder_TopLeftArea]), rgNavLadder);
     }
 
-    if (rgNavLadder[NavLadder_TopRightArea] != Invalid_Struct) {
-      @NavArea_AddLadderDown(rgNavLadder[NavLadder_TopRightArea], rgNavLadder);
+    if (rgNavLadder[NavLadder_TopRightArea] != INVALID_NAV_AREA) {
+      @NavArea_AddLadderDown(NAVAREA_PTR(rgNavLadder[NavLadder_TopRightArea]), rgNavLadder);
     }
 
-    if (rgNavLadder[NavLadder_TopBehindArea] != Invalid_Struct) {
-      @NavArea_AddLadderDown(rgNavLadder[NavLadder_TopBehindArea], rgNavLadder);
+    if (rgNavLadder[NavLadder_TopBehindArea] != INVALID_NAV_AREA) {
+      @NavArea_AddLadderDown(NAVAREA_PTR(rgNavLadder[NavLadder_TopBehindArea]), rgNavLadder);
     }
 
     // adjust top of ladder to highest connected area
     new Float:flTopZ = -99999.9;
     new bool:bTopAdjusted = false;
 
-    new Struct:rgsTopAreaList[NUM_CORNERS];
+    new rgsTopAreaList[NUM_CORNERS];
     rgsTopAreaList[NORTH_WEST] = rgNavLadder[NavLadder_TopForwardArea];
     rgsTopAreaList[NORTH_EAST] = rgNavLadder[NavLadder_TopLeftArea];
     rgsTopAreaList[SOUTH_EAST] = rgNavLadder[NavLadder_TopRightArea];
     rgsTopAreaList[SOUTH_WEST] = rgNavLadder[NavLadder_TopBehindArea];
 
-    for (new iCorner = 0; iCorner < _:NUM_CORNERS; iCorner++) {
-      new Struct:sTopArea = rgsTopAreaList[NavCornerType:iCorner];
-      if (!sTopArea) continue;
+    for (new NavCornerType:iCorner = NORTH_WEST; iCorner < NUM_CORNERS; iCorner++) {
+      new iTopArea = rgsTopAreaList[iCorner];
+      if (iTopArea == INVALID_NAV_AREA) continue;
 
-      new Float:vecClose[3]; @NavArea_GetClosestPointOnArea(sTopArea, rgNavLadder[NavLadder_Top], vecClose);
+      new Float:vecClose[3]; @NavArea_GetClosestPointOnArea(NAVAREA_PTR(iTopArea), rgNavLadder[NavLadder_Top], vecClose);
 
       if (flTopZ < vecClose[2]) {
         flTopZ = vecClose[2];
@@ -2390,7 +2371,7 @@ BuildLadder(pEntity) {
     // "Dangling" ladders are too high to go up
     rgNavLadder[NavLadder_IsDangling] = false;
     if (rgNavLadder[NavLadder_BottomArea]) {
-      new Float:vecBottomSpot[3]; @NavArea_GetClosestPointOnArea(rgNavLadder[NavLadder_BottomArea], rgNavLadder[NavLadder_Bottom], vecBottomSpot);
+      new Float:vecBottomSpot[3]; @NavArea_GetClosestPointOnArea(NAVAREA_PTR(rgNavLadder[NavLadder_BottomArea]), rgNavLadder[NavLadder_Bottom], vecBottomSpot);
       if (rgNavLadder[NavLadder_Bottom][2] - vecBottomSpot[2] > HumanHeight) {
         rgNavLadder[NavLadder_IsDangling] = true;
       }
@@ -2402,7 +2383,7 @@ BuildLadder(pEntity) {
     // ArrayPushCell(g_irgNavLadderList, sNavLadder);
 }
 
-AdjustLadderPositionToBypassBlockages(pEntity, Float:vecPosition[], NavDirType:iDir, const Float:vecAlong[3]) {
+AdjustLadderPositionToBypassBlockages(pEntity, Float:vecPosition[], NavDirType:iDir, const Float:vecAlong[]) {
     static const Float:flMinLadderClearance = 32.0;
     static const Float:flLadderStep = 10.0;
 
@@ -2429,13 +2410,12 @@ AdjustLadderPositionToBypassBlockages(pEntity, Float:vecPosition[], NavDirType:i
     }
 }
 
-Struct:FindFirstAreaInDirection(const Float:vecStart[3], NavDirType:iDir, Float:flRange, Float:flBeneathLimit, pIgnoreEnt, Float:vecClosePos[3] = 0.0) {
-  new Struct:sArea = Invalid_Struct;
+FindFirstAreaInDirection(const Float:vecStart[], NavDirType:iDir, Float:flRange, Float:flBeneathLimit, pIgnoreEnt, Float:vecClosePos[3] = 0.0) {
+  static iArea; iArea = INVALID_NAV_AREA;
 
-  static Float:vecPos[3];
-  xs_vec_copy(vecStart, vecPos);
+  static Float:vecPos[3]; xs_vec_copy(vecStart, vecPos);
 
-  new iEnd = floatround((flRange / GenerationStepSize) + 0.5);
+  static iEnd; iEnd = floatround((flRange / GenerationStepSize) + 0.5);
 
   for (new i = 1; i <= iEnd; i++) {
     AddDirectionVector(vecPos, iDir, GenerationStepSize);
@@ -2443,39 +2423,28 @@ Struct:FindFirstAreaInDirection(const Float:vecStart[3], NavDirType:iDir, Float:
     // make sure we dont look thru the wall
     engfunc(EngFunc_TraceLine, vecStart, vecPos, IGNORE_MONSTERS, pIgnoreEnt, g_pTrace);
 
-    static Float:flFraction;
-    get_tr2(g_pTrace, TR_flFraction, flFraction);
-    if (flFraction != 1.0) {
-      break;
-    }
+    static Float:flFraction; get_tr2(g_pTrace, TR_flFraction, flFraction);
+    if (flFraction != 1.0) break;
 
-    sArea = NavAreaGrid_GetNavArea(vecPos, flBeneathLimit);
+    iArea = NavAreaGrid_GetNavArea(vecPos, flBeneathLimit);
 
-    if (sArea != Invalid_Struct) {
-      vecClosePos[0] = vecPos[0];
-      vecClosePos[1] = vecPos[1];
-
-      static Float:pos2d[3];
-      xs_vec_copy(vecPos, pos2d);
-      pos2d[2] = 0.0;
-
-      vecClosePos[2] = @NavArea_GetZ(sArea, pos2d);
+    if (iArea != INVALID_NAV_AREA) {
+      xs_vec_set(vecClosePos, vecPos[0], vecPos[1], @NavArea_GetZ(NAVAREA_PTR(iArea), vecPos));
       break;
     }
   }
 
-  return sArea;
+  return iArea;
 }
 
-Struct:NavAreaPopOpenList() {
-  if (g_sNavAreaOpenList != Invalid_Struct) {
-    static Struct:sArea; sArea = g_sNavAreaOpenList;
-    // disconnect from list
-    @NavArea_RemoveFromOpenList(sArea);
-    return sArea;
+NavAreaPopOpenList() {
+  if (g_iNavAreaOpenList != INVALID_NAV_AREA) {
+    static iArea; iArea = g_iNavAreaOpenList;
+    @NavArea_RemoveFromOpenList(NAVAREA_PTR(iArea));
+    return iArea;
   }
 
-  return Invalid_Struct;
+  return INVALID_NAV_AREA;
 }
 
 NavAreaMakeNewMarker() {
@@ -2486,60 +2455,50 @@ NavAreaMakeNewMarker() {
 
 NavAreaClearSearchLists() {
   NavAreaMakeNewMarker();
-  g_sNavAreaOpenList = Invalid_Struct;
+  g_iNavAreaOpenList = INVALID_NAV_AREA;
 }
 
-Struct:NavAreaBuildPath(const Float:vecStart[3], const Float:vecGoal[3], iCbFuncId = -1, iCbFuncPluginId = -1, pIgnoreEnt, iUserToken, iCostFuncId = -1, iCostFuncPluginId = -1) {
-  if (!g_bPrecached) {
-    return Invalid_Struct;
+NavAreaBuildPath(const Float:vecStart[], const Float:vecGoal[], iCbFuncId = -1, iCbFuncPluginId = -1, pIgnoreEnt, iUserToken, iCostFuncId = -1, iCostFuncPluginId = -1) {
+  if (!g_bPrecached) return INVALID_BUILD_PATH_TASK;
+
+  static iStartArea; iStartArea = NavAreaGrid_GetNearestNavArea(vecStart, false, pIgnoreEnt);
+  if (iStartArea == INVALID_NAV_AREA) return INVALID_BUILD_PATH_TASK;
+
+  static iGoalArea; iGoalArea = NavAreaGrid_GetNearestNavArea(vecGoal, false, pIgnoreEnt);
+  if (iGoalArea == INVALID_NAV_AREA) return INVALID_BUILD_PATH_TASK;
+  
+  static iTask; iTask = FindFreeTaskSlot();
+
+  if (iTask == INVALID_BUILD_PATH_TASK) return INVALID_BUILD_PATH_TASK;
+  
+  @BuildPathTask_Allocate(
+    TASK_PTR(iTask),
+    iUserToken,
+    iStartArea,
+    iGoalArea,
+    vecStart,
+    vecGoal,
+    pIgnoreEnt,
+    iCbFuncPluginId,
+    iCbFuncId,
+    iCostFuncPluginId,
+    iCostFuncId
+  );
+
+  if (g_irgBuildPathTasksQueue == Invalid_Array) {
+    g_irgBuildPathTasksQueue = ArrayCreate();
   }
 
-  if (!xs_vec_len(vecGoal)) {
-    return Invalid_Struct;
-  }
+  ArrayPushCell(g_irgBuildPathTasksQueue, iTask);
 
-  new Struct:sStartArea = NavAreaGrid_GetNearestNavArea(vecStart, false, pIgnoreEnt);
-  if (sStartArea == Invalid_Struct) {
-    return Invalid_Struct;
-  }
-
-  new Struct:sGoalArea = NavAreaGrid_GetNearestNavArea(vecGoal, false, pIgnoreEnt);
-  if (sGoalArea == Invalid_Struct) {
-    return Invalid_Struct;
-  }
-
-  new Struct:sTask = @BuildPathTask_Create();
-
-  StructSetArray(sTask, BuildPathTask_StartPos, vecStart, 3);
-  StructSetArray(sTask, BuildPathTask_GoalPos, vecGoal, 3);
-  StructSetCell(sTask, BuildPathTask_StartArea, sStartArea);
-  StructSetCell(sTask, BuildPathTask_GoalArea, sGoalArea);
-  StructSetCell(sTask, BuildPathTask_ClosestArea, Invalid_Struct);
-  StructSetCell(sTask, BuildPathTask_FinishCallback, iCbFuncPluginId, Callback_PluginId);
-  StructSetCell(sTask, BuildPathTask_FinishCallback, iCbFuncId, Callback_FunctionId);
-  StructSetCell(sTask, BuildPathTask_CostCallback, iCostFuncPluginId, Callback_PluginId);
-  StructSetCell(sTask, BuildPathTask_CostCallback, iCostFuncId, Callback_FunctionId);
-  StructSetCell(sTask, BuildPathTask_IgnoreEntity, pIgnoreEnt);
-  StructSetCell(sTask, BuildPathTask_UserToken, iUserToken);
-  StructSetCell(sTask, BuildPathTask_IsFinished, false);
-  StructSetCell(sTask, BuildPathTask_IsSuccessed, false);
-  StructSetCell(sTask, BuildPathTask_IsTerminated, false);
-
-  if (g_irgBuildPathTasks == Invalid_Array) {
-    g_irgBuildPathTasks = ArrayCreate();
-  }
-
-  ArrayPushCell(g_irgBuildPathTasks, sTask);
-
-  return sTask;
+  return iTask;
 }
 
-bool:NavAreaBuildPathAbortTask(Struct:sTask) {
+bool:NavAreaBuildPathAbortTask(task[BuildPathTask]) {
   // if task already in progress
-  if (g_rgBuildPathJob[BuildPathJob_Task] == sTask) {
+  if (g_rgBuildPathJob[BuildPathJob_Task] == task[BuildPathTask_Index]) {
     g_rgBuildPathJob[BuildPathJob_Finished] = true;
-    g_rgBuildPathJob[BuildPathJob_Terminated] = true;
-    g_rgBuildPathJob[BuildPathJob_Successed] = false;
+    task[BuildPathTask_IsTerminated] = true;
 
     // finish task in the same frame
     NavAreaBuildPathFinish();
@@ -2547,54 +2506,46 @@ bool:NavAreaBuildPathAbortTask(Struct:sTask) {
     return true;
   }
 
-  if (g_irgBuildPathTasks == Invalid_Array) {
-    return false;
-  }
+  if (g_irgBuildPathTasksQueue == Invalid_Array) return false;
 
   // remove task from the queue
-  new iTask = ArrayFindValue(g_irgBuildPathTasks, sTask);
-  if (iTask != -1) {
-    @BuildPathTask_Destroy(sTask);
-    ArrayDeleteItem(g_irgBuildPathTasks, iTask);
+  static iTaskQueueIndex; iTaskQueueIndex = ArrayFindValue(g_irgBuildPathTasksQueue, task[BuildPathTask_Index]);
+  if (iTaskQueueIndex != -1) {
+    @BuildPathTask_Free(task);
+    ArrayDeleteItem(g_irgBuildPathTasksQueue, iTaskQueueIndex);
     return true;
   }
 
   return false;
 }
 
-bool:NavAreaBuildPathRunTask(Struct:sTask) {
-  g_rgBuildPathJob[BuildPathJob_Task] = sTask;
-  g_rgBuildPathJob[BuildPathJob_StartArea] = StructGetCell(sTask, BuildPathTask_StartArea);
-  g_rgBuildPathJob[BuildPathJob_GoalArea] = StructGetCell(sTask, BuildPathTask_GoalArea);
-  g_rgBuildPathJob[BuildPathJob_CostFuncId] = StructGetCell(sTask, BuildPathTask_CostCallback, Callback_FunctionId);
-  g_rgBuildPathJob[BuildPathJob_CostFuncPluginId] = StructGetCell(sTask, BuildPathTask_CostCallback, Callback_PluginId);
+bool:NavAreaBuildPathRunTask(task[BuildPathTask]) {
+  static iStartArea; iStartArea = task[BuildPathTask_StartArea];
+
+  g_rgBuildPathJob[BuildPathJob_Task] = task[BuildPathTask_Index];
   g_rgBuildPathJob[BuildPathJob_Finished] = false;
-  g_rgBuildPathJob[BuildPathJob_FinishHandled] = false;
-  g_rgBuildPathJob[BuildPathJob_Terminated] = false;
-  g_rgBuildPathJob[BuildPathJob_Successed] = false;
-  g_rgBuildPathJob[BuildPathJob_MaxIterations] = get_pcvar_num(g_pCvarMaxIterationsPerFrame);
+  g_rgBuildPathJob[BuildPathJob_Released] = false;
+  g_rgBuildPathJob[BuildPathJob_MaxIterations] = g_iMaxIterationsPerFrame;
   g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = 999999.0;
-  g_rgBuildPathJob[BuildPathJob_ClosestArea] = Invalid_Struct;
-  g_rgBuildPathJob[BuildPathJob_IgnoreEntity] = StructGetCell(sTask, BuildPathTask_IgnoreEntity);
+  g_rgBuildPathJob[BuildPathJob_ClosestArea] = INVALID_NAV_AREA;
 
-  StructGetArray(sTask, BuildPathTask_GoalPos, g_rgBuildPathJob[BuildPathJob_GoalPos], 3);
-
-  @NavArea_SetParent(g_rgBuildPathJob[BuildPathJob_StartArea], Invalid_Struct, NUM_TRAVERSE_TYPES);
+  @NavArea_SetParent(NAVAREA_PTR(iStartArea), INVALID_NAV_AREA, NUM_TRAVERSE_TYPES);
 
   // if we are already in the goal area, build trivial path
-  if (g_rgBuildPathJob[BuildPathJob_StartArea] == g_rgBuildPathJob[BuildPathJob_GoalArea]) {
-    @NavArea_SetParent(g_rgBuildPathJob[BuildPathJob_GoalArea], Invalid_Struct, NUM_TRAVERSE_TYPES);
-    g_rgBuildPathJob[BuildPathJob_ClosestArea] = g_rgBuildPathJob[BuildPathJob_GoalArea];
-    g_rgBuildPathJob[BuildPathJob_Successed] = true;
+  if (iStartArea == task[BuildPathTask_GoalArea]) {
+    @NavArea_SetParent(NAVAREA_PTR(task[BuildPathTask_GoalArea]), INVALID_NAV_AREA, NUM_TRAVERSE_TYPES);
+    g_rgBuildPathJob[BuildPathJob_ClosestArea] = task[BuildPathTask_GoalArea];
+    task[BuildPathTask_IsSuccessed] = true;
     g_rgBuildPathJob[BuildPathJob_Finished] = true;
+
     return true;
   }
 
   // determine actual goal position
-  if (xs_vec_len(g_rgBuildPathJob[BuildPathJob_GoalPos]) > 0.0) {
-    xs_vec_copy(g_rgBuildPathJob[BuildPathJob_GoalPos], g_rgBuildPathJob[BuildPathJob_ActualGoalPos]);
+  if (xs_vec_len(task[BuildPathTask_GoalPos]) > 0.0) {
+    xs_vec_copy(task[BuildPathTask_GoalPos], task[BuildPathTask_ActualGoalPos]);
   } else {
-    @NavArea_GetCenter(g_rgBuildPathJob[BuildPathJob_GoalArea], g_rgBuildPathJob[BuildPathJob_ActualGoalPos]);
+    @NavArea_GetCenter(NAVAREA_PTR(task[BuildPathTask_GoalArea]), task[BuildPathTask_ActualGoalPos]);
   }
 
   // start search
@@ -2602,284 +2553,260 @@ bool:NavAreaBuildPathRunTask(Struct:sTask) {
 
   // compute estimate of path length
   // TODO: Cost might work as "manhattan distance"
-  static Float:vecStartAreaCenter[3];
-  @NavArea_GetCenter(g_rgBuildPathJob[BuildPathJob_StartArea], vecStartAreaCenter);
-  @NavArea_SetTotalCost(g_rgBuildPathJob[BuildPathJob_StartArea], xs_vec_distance(vecStartAreaCenter, g_rgBuildPathJob[BuildPathJob_ActualGoalPos]));
+  static Float:vecStartAreaCenter[3]; @NavArea_GetCenter(NAVAREA_PTR(iStartArea), vecStartAreaCenter);
+  @NavArea_SetTotalCost(NAVAREA_PTR(iStartArea), xs_vec_distance(vecStartAreaCenter, task[BuildPathTask_ActualGoalPos]));
 
-  new Float:flInitCost = 0.0;
+  static Float:flInitCost; flInitCost = 0.0;
 
-  if (g_rgBuildPathJob[BuildPathJob_CostFuncId] != -1 && callfunc_begin_i(g_rgBuildPathJob[BuildPathJob_CostFuncId], g_rgBuildPathJob[BuildPathJob_CostFuncPluginId])) {
-    callfunc_push_int(_:g_rgBuildPathJob[BuildPathJob_Task]);
-    callfunc_push_int(_:g_rgBuildPathJob[BuildPathJob_StartArea]);
-    callfunc_push_int(_:Invalid_Struct);
-    flInitCost = Float:callfunc_end();
+  if (task[BuildPathTask_CostCallback][Callback_FunctionId] != -1) {
+    if (callfunc_begin_i(task[BuildPathTask_CostCallback][Callback_FunctionId], task[BuildPathTask_CostCallback][Callback_PluginId])) {
+      callfunc_push_int(g_rgBuildPathJob[BuildPathJob_Task]);
+      callfunc_push_int(iStartArea);
+      callfunc_push_int(INVALID_NAV_AREA);
+      flInitCost = Float:callfunc_end();
+    }
   }
 
   if (flInitCost < 0.0) {
     g_rgBuildPathJob[BuildPathJob_Finished] = true;
-    g_rgBuildPathJob[BuildPathJob_Terminated] = true;
-    g_rgBuildPathJob[BuildPathJob_Successed] = false;
+    // task[BuildPathTask_IsTerminated] = true;
     return false;
   }
 
-  @NavArea_SetCostSoFar(g_rgBuildPathJob[BuildPathJob_StartArea], flInitCost);
-  @NavArea_AddToOpenList(g_rgBuildPathJob[BuildPathJob_StartArea]);
+  @NavArea_SetCostSoFar(NAVAREA_PTR(iStartArea), flInitCost);
+  @NavArea_AddToOpenList(NAVAREA_PTR(iStartArea));
 
   // keep track of the area we visit that is closest to the goal
-  if (g_rgBuildPathJob[BuildPathJob_ClosestArea] != Invalid_Struct) {
-    g_rgBuildPathJob[BuildPathJob_ClosestArea] = g_rgBuildPathJob[BuildPathJob_StartArea];
-  }
-
-  g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = @NavArea_GetTotalCost(g_rgBuildPathJob[BuildPathJob_StartArea]);
+  g_rgBuildPathJob[BuildPathJob_ClosestArea] = iStartArea;
+  g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = @NavArea_GetTotalCost(NAVAREA_PTR(iStartArea));
 
   return true;
 }
 
 NavAreaBuildPathFinish() {
-  new Struct:sTask = g_rgBuildPathJob[BuildPathJob_Task];
-  StructSetCell(sTask, BuildPathTask_IsFinished, true);
-  StructSetCell(sTask, BuildPathTask_IsSuccessed, g_rgBuildPathJob[BuildPathJob_Successed]);
-  StructSetCell(sTask, BuildPathTask_IsTerminated, g_rgBuildPathJob[BuildPathJob_Terminated]);
+  new iTask = g_rgBuildPathJob[BuildPathJob_Task];
+  g_rgBuildPathTasks[iTask][BuildPathTask_IsFinished] = true;
 
-  new Struct:sNavPath = StructGetCell(sTask, BuildPathTask_Path);
-  @NavPath_Invalidate(sNavPath);
+  // @NavPath_Invalidate(g_rgBuildPathTasks[iTask][BuildPathTask_Path]);
 
-  if (!g_rgBuildPathJob[BuildPathJob_Terminated]) {
+  if (!g_rgBuildPathTasks[iTask][BuildPathTask_IsTerminated]) {
     NavAreaBuildPathSegments();
   }
 
-  new iCbFuncId = StructGetCell(sTask, BuildPathTask_FinishCallback, Callback_FunctionId);
-  new iCbFuncPluginId = StructGetCell(sTask, BuildPathTask_FinishCallback, Callback_PluginId);
-
-  if (iCbFuncId != -1 && callfunc_begin_i(iCbFuncId, iCbFuncPluginId)) {
-    callfunc_push_int(_:sTask);
-    callfunc_end();
+  if (g_rgBuildPathTasks[iTask][BuildPathTask_FinishCallback][Callback_FunctionId] != -1) {
+    if (callfunc_begin_i(g_rgBuildPathTasks[iTask][BuildPathTask_FinishCallback][Callback_FunctionId], g_rgBuildPathTasks[iTask][BuildPathTask_FinishCallback][Callback_PluginId])) {
+      callfunc_push_int(iTask);
+      callfunc_end();
+    }
   }
 
-  g_rgBuildPathJob[BuildPathJob_FinishHandled] = true;
+  g_rgBuildPathJob[BuildPathJob_Released] = true;
 }
 
 NavAreaBuildPathIteration() {
-  if (g_sNavAreaOpenList == Invalid_Struct) {
+  static iTask; iTask = g_rgBuildPathJob[BuildPathJob_Task];
+
+  if (g_iNavAreaOpenList == INVALID_NAV_AREA) {
     g_rgBuildPathJob[BuildPathJob_Finished] = true;
-    g_rgBuildPathJob[BuildPathJob_Successed] = false;
     return;
   }
 
   // get next area to check
-  static Struct:sArea; sArea = NavAreaPopOpenList();
+  static iArea; iArea = NavAreaPopOpenList();
 
   // check if we have found the goal area
-  if (sArea == g_rgBuildPathJob[BuildPathJob_GoalArea]) {
-    if (g_rgBuildPathJob[BuildPathJob_ClosestArea] != Invalid_Struct) {
-      g_rgBuildPathJob[BuildPathJob_ClosestArea] = g_rgBuildPathJob[BuildPathJob_GoalArea];
+  if (iArea == g_rgBuildPathTasks[iTask][BuildPathTask_GoalArea]) {
+    if (g_rgBuildPathJob[BuildPathJob_ClosestArea] != INVALID_NAV_AREA) {
+      g_rgBuildPathJob[BuildPathJob_ClosestArea] = g_rgBuildPathTasks[iTask][BuildPathTask_GoalArea];
     }
 
     g_rgBuildPathJob[BuildPathJob_Finished] = true;
-    g_rgBuildPathJob[BuildPathJob_Successed] = true;
+    g_rgBuildPathTasks[iTask][BuildPathTask_IsSuccessed] = true;
 
     return;
   }
 
-  // search adjacent areas
-  static bool:bSearchFloor; bSearchFloor = true;
-  static Array:irgFloorList; irgFloorList = @NavArea_GetAdjacentList(sArea, NORTH);
-  static iFloorIter; iFloorIter = 0;
-  static bool:bLadderUp; bLadderUp = true;
-  static Array:irgLadderList; irgLadderList = Invalid_Array;
-  static iLadderIter; iLadderIter = 0;
-  static iLadderTopDir; iLadderTopDir = LADDER_TOP_DIR_AHEAD;
+  NavAreaBuildPathFloorIteration(TASK_PTR(iTask), NAVAREA_PTR(iArea));
+  NavAreaBuildPathLadderUpIteration(TASK_PTR(iTask), NAVAREA_PTR(iArea));
+  NavAreaBuildPathLadderDownIteration(TASK_PTR(iTask), NAVAREA_PTR(iArea));
 
+  // we have searched this area
+  @NavArea_AddToClosedList(NAVAREA_PTR(iArea));
+
+  g_rgBuildPathTasks[iTask][BuildPathTask_IterationsNum]++;
+}
+
+NavAreaBuildPathFloorIteration(const task[BuildPathTask], const area[NavArea]) {
   static NavDirType:iDir;
-  for (iDir = NORTH; iDir < NUM_DIRECTIONS;) {
-    static rgNavLadder[NavLadder];
-    static Struct:sNewArea; sNewArea = Invalid_Struct;
-    static NavTraverseType:iHow; iHow = GO_NORTH;
 
-    // Get next adjacent area - either on floor or via ladder
-    if (bSearchFloor) {
-      // if exhausted adjacent connections in current direction, begin checking next direction
-      if (iFloorIter >= ArraySize(irgFloorList)) {
-        iDir++;
+  for (iDir = NORTH; iDir < NUM_DIRECTIONS; ++iDir) {
+    static Array:irgFloorList; irgFloorList = @NavArea_GetAdjacentList(area, iDir);
+    static iFloorListSize; iFloorListSize = ArraySize(irgFloorList);
 
-        if (iDir < NUM_DIRECTIONS) {    
-          // start next direction
-          irgFloorList = @NavArea_GetAdjacentList(sArea, iDir);
-          iFloorIter = 0;
-        } else {
-          // checked all directions on floor - check ladders next
-          bSearchFloor = false;
+    static iFloor;
+    for (iFloor = 0; iFloor < iFloorListSize; ++iFloor) {
+      static iNewArea; iNewArea = ArrayGetCell(irgFloorList, iFloor, _:NavConnect_Area);
 
-          irgLadderList = StructGetCell(sArea, NavArea_Ladder, LADDER_UP);
-          iLadderIter = 0;
-          iLadderTopDir = LADDER_TOP_DIR_AHEAD;
-          iDir = NORTH;
+      if (iNewArea == INVALID_NAV_AREA) continue;
+
+      NavAreaBuildPathProcessNewArea(task, area, NAVAREA_PTR(iNewArea), NavTraverseType:iDir);
+    }
+  }
+}
+
+NavAreaBuildPathLadderUpIteration(const task[BuildPathTask], const area[NavArea]) {
+  static Array:irgUpLadderList; irgUpLadderList = @NavArea_GetLadder(area, LADDER_UP);
+  static iUpLadderListSize; iUpLadderListSize = ArraySize(irgUpLadderList);
+
+  static iLadder;
+  for (iLadder = 0; iLadder < iUpLadderListSize; ++iLadder) {
+    if (ArrayGetCell(irgUpLadderList, iLadder, _:NavLadder_IsDangling)) continue;
+
+    static iLadderTopDir;
+    for (iLadderTopDir = LADDER_TOP_DIR_AHEAD; iLadderTopDir < NUM_TOP_DIRECTIONS; ++iLadderTopDir) {
+      static iNewArea; iNewArea = INVALID_NAV_AREA;
+
+      switch (iLadderTopDir) {
+        case LADDER_TOP_DIR_AHEAD: {
+          iNewArea = ArrayGetCell(irgUpLadderList, iLadder, _:NavLadder_TopForwardArea);
         }
-
-        continue;
+        case LADDER_TOP_DIR_LEFT: {
+          iNewArea = ArrayGetCell(irgUpLadderList, iLadder, _:NavLadder_TopLeftArea);
+        }
+        case LADDER_TOP_DIR_RIGHT: {
+          iNewArea = ArrayGetCell(irgUpLadderList, iLadder, _:NavLadder_TopRightArea);
+        }
       }
 
-      sNewArea = ArrayGetCell(irgFloorList, iFloorIter, _:NavConnect_Area);
-      iHow = NavTraverseType:iDir;
-      iFloorIter++;
-    } else { // search ladders
-      if (iLadderIter >= ArraySize(irgLadderList)) {
-          // checked both ladder directions - done
-        if (!bLadderUp) break;
+      if (iNewArea == INVALID_NAV_AREA) continue;
 
-        // check down ladders
-        bLadderUp = false;
-        irgLadderList = StructGetCell(sArea, NavArea_Ladder, LADDER_DOWN);
-        iLadderIter = 0;
-
-        continue;
-      }
-
-      ArrayGetArray(irgLadderList, iLadderIter, rgNavLadder[any:0], _:NavLadder);
-
-      if (bLadderUp) {
-        // cannot use this ladder if the ladder bottom is hanging above our head
-        if (rgNavLadder[NavLadder_IsDangling]) {
-          iLadderIter++;
-          continue;
-        }
-
-        // do not use BEHIND connection, as its very hard to get to when going up a ladder
-        if (iLadderTopDir == LADDER_TOP_DIR_AHEAD) {
-          sNewArea = rgNavLadder[NavLadder_TopForwardArea];
-        } else if (iLadderTopDir == LADDER_TOP_DIR_LEFT) {
-          sNewArea = rgNavLadder[NavLadder_TopLeftArea];
-        } else if (iLadderTopDir == LADDER_TOP_DIR_RIGHT) {
-          sNewArea = rgNavLadder[NavLadder_TopRightArea];
-        // } else if (iLadderTopDir == LADDER_TOP_DIR_BEHIND) {
-        //   sNewArea = rgNavLadder[NavLadder_TopBehindArea];
-        } else {
-          iLadderIter++;
-          continue;
-        }
-
-        iHow = GO_LADDER_UP;
-        iLadderTopDir++;
-      } else {
-        sNewArea = rgNavLadder[NavLadder_BottomArea];
-        iHow = GO_LADDER_DOWN;
-        iLadderIter++;
-      }
+      NavAreaBuildPathProcessNewArea(task, area, NAVAREA_PTR(iNewArea), GO_LADDER_UP);
     }
+  }
+}
 
-    if (sNewArea == Invalid_Struct) continue;
+NavAreaBuildPathLadderDownIteration(const task[BuildPathTask], const area[NavArea]) {
+  static Array:irgDownLadderList; irgDownLadderList = @NavArea_GetLadder(area, LADDER_DOWN);
+  static iDownLadderListSize; iDownLadderListSize = ArraySize(irgDownLadderList);
 
-    // don't backtrack
-    if (sNewArea == sArea) continue;
+  static iLadder;
+  for (iLadder = 0; iLadder < iDownLadderListSize; ++iLadder) {
+    static iNewArea; iNewArea = ArrayGetCell(irgDownLadderList, iLadder, _:NavLadder_BottomArea);
 
-    static Float:newCostSoFar; newCostSoFar = 1.0;
+    if (iNewArea == INVALID_NAV_AREA) continue;
 
-    if (g_rgBuildPathJob[BuildPathJob_CostFuncId] != -1 && callfunc_begin_i(g_rgBuildPathJob[BuildPathJob_CostFuncId], g_rgBuildPathJob[BuildPathJob_CostFuncPluginId])) {
-      callfunc_push_int(_:g_rgBuildPathJob[BuildPathJob_Task]);
-      callfunc_push_int(_:sNewArea);
-      callfunc_push_int(_:sArea);
-      newCostSoFar = Float:callfunc_end();
-    }
+    NavAreaBuildPathProcessNewArea(task, area, NAVAREA_PTR(iNewArea), GO_LADDER_DOWN);
+  }
+}
 
-    // check if cost functor says this area is a dead-end
-    if (newCostSoFar < 0.0) continue;
+bool:NavAreaBuildPathProcessNewArea(const task[BuildPathTask], const area[NavArea], newArea[NavArea], const NavTraverseType:iHow) {
+  if (NAVAREA_INDEX(newArea) == NAVAREA_INDEX(area)) return false;
 
-    if ((@NavArea_IsOpen(sNewArea) || @NavArea_IsClosed(sNewArea)) && @NavArea_GetCostSoFar(sNewArea) <= newCostSoFar) {
-      // this is a worse path - skip it
-      continue;
-    }
+  static Float:flCost; flCost = 0.0;
 
-    // compute estimate of distance left to go
-    static Float:vecNewAreaCenter[3]; @NavArea_GetCenter(sNewArea, vecNewAreaCenter);
-    static Float:newCostRemaining; newCostRemaining = xs_vec_distance(vecNewAreaCenter, g_rgBuildPathJob[BuildPathJob_ActualGoalPos]);
-
-    // track closest area to goal in case path fails
-    if (g_rgBuildPathJob[BuildPathJob_ClosestArea] != Invalid_Struct && newCostRemaining < g_rgBuildPathJob[BuildPathJob_ClosestAreaDist]) {
-      g_rgBuildPathJob[BuildPathJob_ClosestArea] = sNewArea;
-      g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = newCostRemaining;
-    }
-
-    @NavArea_SetParent(sNewArea, sArea, iHow);
-    @NavArea_SetCostSoFar(sNewArea, newCostSoFar);
-    @NavArea_SetTotalCost(sNewArea, newCostSoFar + newCostRemaining);
-
-    if (@NavArea_IsClosed(sNewArea)) {
-      @NavArea_RemoveFromClosedList(sNewArea);
-    }
-
-    if (@NavArea_IsOpen(sNewArea)) {
-      // area already on open list, update the list order to keep costs sorted
-      @NavArea_UpdateOnOpenList(sNewArea);
-    } else {
-      @NavArea_AddToOpenList(sNewArea);
+  if (task[BuildPathTask_CostCallback][Callback_FunctionId] != -1) {
+    if (callfunc_begin_i(task[BuildPathTask_CostCallback][Callback_FunctionId], task[BuildPathTask_CostCallback][Callback_PluginId])) {
+      callfunc_push_int(task[BuildPathTask_Index]);
+      callfunc_push_int(NAVAREA_INDEX(newArea));
+      callfunc_push_int(NAVAREA_INDEX(area));
+      flCost = Float:callfunc_end();
     }
   }
 
-  // we have searched this area
-  @NavArea_AddToClosedList(sArea);
+  // check if cost functor says this newArea is a dead-end
+  if (flCost < 0.0) return false;
+
+  static Float:flNewCostSoFar; flNewCostSoFar = @NavArea_GetCostSoFar(area) + flCost;
+
+  if ((@NavArea_IsOpen(newArea) || @NavArea_IsClosed(newArea)) && @NavArea_GetCostSoFar(newArea) <= flNewCostSoFar) {
+    // this is a worse path - skip it
+    return false;
+  }
+
+  // compute estimate of distance left to go
+  static Float:vecNewAreaCenter[3]; @NavArea_GetCenter(newArea, vecNewAreaCenter);
+  static Float:flNewCostRemaining; flNewCostRemaining = xs_vec_distance(vecNewAreaCenter, task[BuildPathTask_ActualGoalPos]);
+
+  // track closest area to goal in case path fails
+  if (g_rgBuildPathJob[BuildPathJob_ClosestArea] != INVALID_NAV_AREA && flNewCostRemaining < g_rgBuildPathJob[BuildPathJob_ClosestAreaDist]) {
+    g_rgBuildPathJob[BuildPathJob_ClosestArea] = NAVAREA_INDEX(newArea);
+    g_rgBuildPathJob[BuildPathJob_ClosestAreaDist] = flNewCostRemaining;
+  }
+
+  @NavArea_SetParent(newArea, NAVAREA_INDEX(area), iHow);
+  @NavArea_SetCostSoFar(newArea, flNewCostSoFar);
+  @NavArea_SetTotalCost(newArea, flNewCostSoFar + flNewCostRemaining);
+
+  if (@NavArea_IsClosed(newArea)) {
+    @NavArea_RemoveFromClosedList(newArea);
+  }
+
+  if (@NavArea_IsOpen(newArea)) {
+    // area already on open list, update the list order to keep costs sorted
+    @NavArea_UpdateOnOpenList(newArea);
+  } else {
+    @NavArea_AddToOpenList(newArea);
+  }
+
+  return true;
 }
 
 NavAreaBuildPathFrame() {
-  if (g_rgBuildPathJob[BuildPathJob_Task] != Invalid_Struct) {
-    if (g_rgBuildPathJob[BuildPathJob_Finished] && g_rgBuildPathJob[BuildPathJob_FinishHandled]) {
-      @BuildPathTask_Destroy(g_rgBuildPathJob[BuildPathJob_Task]);
-      g_rgBuildPathJob[BuildPathJob_Task] = Invalid_Struct;
+  if (g_rgBuildPathJob[BuildPathJob_Task] != INVALID_BUILD_PATH_TASK) {
+    if (g_rgBuildPathJob[BuildPathJob_Finished] && g_rgBuildPathJob[BuildPathJob_Released]) {
+      @BuildPathTask_Free(TASK_PTR(g_rgBuildPathJob[BuildPathJob_Task]));
+      g_rgBuildPathJob[BuildPathJob_Task] = INVALID_BUILD_PATH_TASK;
     }
   }
 
   // if no job in progress then find new task to start
-  if (g_rgBuildPathJob[BuildPathJob_Task] == Invalid_Struct) {
-    if (g_irgBuildPathTasks != Invalid_Array && ArraySize(g_irgBuildPathTasks)) {
-      new Struct:sTask = ArrayGetCell(g_irgBuildPathTasks, 0);
-      ArrayDeleteItem(g_irgBuildPathTasks, 0);
-      NavAreaBuildPathRunTask(sTask);
+  if (g_rgBuildPathJob[BuildPathJob_Task] == INVALID_BUILD_PATH_TASK) {
+    if (g_irgBuildPathTasksQueue != Invalid_Array && ArraySize(g_irgBuildPathTasksQueue)) {
+      static iTask; iTask = ArrayGetCell(g_irgBuildPathTasksQueue, 0);
+      ArrayDeleteItem(g_irgBuildPathTasksQueue, 0);
+      NavAreaBuildPathRunTask(TASK_PTR(iTask));
     }
 
     return;
+  }
+
+  // do path finding iterations
+  static iIterationsNum; iIterationsNum = g_rgBuildPathJob[BuildPathJob_MaxIterations];
+  for (new i = 0; i < iIterationsNum && !g_rgBuildPathJob[BuildPathJob_Finished]; ++i) {
+    NavAreaBuildPathIteration();
   }
 
   // current job finished, process
   if (g_rgBuildPathJob[BuildPathJob_Finished]) {
     NavAreaBuildPathFinish();
-    return;
-  }
-
-  // do path finding iterations
-  new iIterationsNum = g_rgBuildPathJob[BuildPathJob_MaxIterations];
-  for (new i = 0; i < iIterationsNum && !g_rgBuildPathJob[BuildPathJob_Finished]; ++i) {
-    NavAreaBuildPathIteration();
   }
 }
 
 NavAreaBuildPathSegments() {
-  static Struct:sTask; sTask = g_rgBuildPathJob[BuildPathJob_Task];
-  static Struct:sNavPath; sNavPath = StructGetCell(sTask, BuildPathTask_Path);
-  static Float:vecStart[3]; StructGetArray(sTask, BuildPathTask_StartPos, vecStart, sizeof(vecStart));
-  static Float:vecGoal[3]; StructGetArray(sTask, BuildPathTask_GoalPos, vecGoal, sizeof(vecGoal));
-
-  @NavPath_Invalidate(sNavPath);
+  static iTask; iTask = g_rgBuildPathJob[BuildPathJob_Task];
+  static Struct:sNavPath; sNavPath = g_rgBuildPathTasks[iTask][BuildPathTask_Path];
 
   static iSegmentCount; iSegmentCount = 0;
 
-  new Struct:sEffectiveGoalArea = (
-    g_rgBuildPathJob[BuildPathJob_Successed]
-      ? g_rgBuildPathJob[BuildPathJob_GoalArea]
+  static iEffectiveGoalArea; iEffectiveGoalArea = (
+    g_rgBuildPathTasks[iTask][BuildPathTask_IsSuccessed]
+      ? g_rgBuildPathTasks[iTask][BuildPathTask_GoalArea]
       : g_rgBuildPathJob[BuildPathJob_ClosestArea]
   );
 
-  if (g_rgBuildPathJob[BuildPathJob_StartArea] != g_rgBuildPathJob[BuildPathJob_GoalArea]) {
-    // Build path by following parent links
-    for (new Struct:sArea = sEffectiveGoalArea; sArea != Invalid_Struct; sArea = StructGetCell(sArea, NavArea_Parent)) {
-      iSegmentCount++;
-    }
-
+  if (g_rgBuildPathTasks[iTask][BuildPathTask_StartArea] != g_rgBuildPathTasks[iTask][BuildPathTask_GoalArea]) {
     // save room for endpoint
-    iSegmentCount = min(iSegmentCount, MAX_PATH_SEGMENTS - 1);
-
-    if (iSegmentCount == 0) return false;
-
+    if (iEffectiveGoalArea != INVALID_NAV_AREA) {
+      iSegmentCount = NavAreaCalculateSegmentCount(NAVAREA_PTR(iEffectiveGoalArea));
+      iSegmentCount = min(iSegmentCount, MAX_PATH_SEGMENTS - 1);
+    }
   } else {
     iSegmentCount = 1;
+  }
+
+  if (iSegmentCount == 0) {
+    @NavPath_Invalidate(sNavPath);
+    return false;
   }
 
   static Array:irgSegments; irgSegments = StructGetCell(sNavPath, NavPath_Segments);
@@ -2888,16 +2815,13 @@ NavAreaBuildPathSegments() {
 
   if (iSegmentCount > 1) {
     // Prepare segments
-    static Struct:sArea; sArea = sEffectiveGoalArea;
+    static iArea; iArea = iEffectiveGoalArea;
 
-    for (new i = iSegmentCount - 1; i >= 0; --i) {
-      static Struct:sSegment; sSegment = @PathSegment_Create();
-      StructSetCell(sSegment, PathSegment_Area, sArea);
-      StructSetCell(sSegment, PathSegment_How, StructGetCell(sArea, NavArea_ParentHow));
+    for (new iSegment = iSegmentCount - 1; iSegment >= 0; --iSegment) {
+      ArraySetCell(irgSegments, iSegment, iArea, _:PathSegment_Area);
+      ArraySetCell(irgSegments, iSegment, NAVAREA_PTR(iArea)[NavArea_ParentHow], _:PathSegment_How);
 
-      ArraySetCell(irgSegments, i, sSegment);
-
-      sArea = StructGetCell(sArea, NavArea_Parent);
+      iArea = NAVAREA_PTR(iArea)[NavArea_Parent];
     }
 
     if (!@NavPath_ComputePathPositions(sNavPath)) {
@@ -2906,28 +2830,24 @@ NavAreaBuildPathSegments() {
     }
 
     // append path end position
-    static Struct:sEndSegment; sEndSegment = @PathSegment_Create();
-    StructSetCell(sEndSegment, PathSegment_Area, sEffectiveGoalArea);
-    StructSetArray(sEndSegment, PathSegment_Pos, vecGoal, sizeof(vecGoal));
-    StructSetCell(sEndSegment, PathSegment_Pos, @NavArea_GetZ(sEffectiveGoalArea, vecGoal), 2);
-    StructSetCell(sEndSegment, PathSegment_How, NUM_TRAVERSE_TYPES);
-    @NavPath_PushSegment(sNavPath, sEndSegment);
+    static rgEndSegment[PathSegment];
+    rgEndSegment[PathSegment_Area] = iEffectiveGoalArea;
+    rgEndSegment[PathSegment_How] = NUM_TRAVERSE_TYPES;
+    xs_vec_set(rgEndSegment[PathSegment_Pos], g_rgBuildPathTasks[iTask][BuildPathTask_GoalPos][0], g_rgBuildPathTasks[iTask][BuildPathTask_GoalPos][1], @NavArea_GetZ(NAVAREA_PTR(iEffectiveGoalArea), g_rgBuildPathTasks[iTask][BuildPathTask_GoalPos]));
+    @NavPath_PushSegment(sNavPath, rgEndSegment);
+    iSegmentCount++;
   } else {
-    @NavPath_BuildTrivialPath(sNavPath, vecStart, vecGoal);
+    @NavPath_BuildTrivialPath(sNavPath, g_rgBuildPathTasks[iTask][BuildPathTask_StartPos], g_rgBuildPathTasks[iTask][BuildPathTask_GoalPos]);
   }
 
-  if (get_pcvar_bool(g_pCvarDebug)) {
-    new iSegmentCount = StructGetCell(sNavPath, NavPath_SegmentCount);
-    for (new i = 1; i < iSegmentCount; ++i) {
-      static Struct:sPrevSegment; sPrevSegment = ArrayGetCell(irgSegments, i - 1);
-      static Struct:sNextSegment; sNextSegment = ArrayGetCell(irgSegments, i);
-
-      static Float:vecSrc[3]; StructGetArray(sPrevSegment, PathSegment_Pos, vecSrc, sizeof(vecSrc));
-      static Float:vecNext[3]; StructGetArray(sNextSegment, PathSegment_Pos, vecNext, sizeof(vecNext));
+  if (g_bDebug) {
+    for (new iSegment = 1; iSegment < iSegmentCount; ++iSegment) {
+      static Float:vecSrc[3]; ArrayGetArray2(irgSegments, iSegment - 1, vecSrc, 3, PathSegment_Pos);
+      static Float:vecNext[3]; ArrayGetArray2(irgSegments, iSegment, vecNext, 3, PathSegment_Pos);
 
       static irgColor[3];
-      irgColor[0] = floatround(255.0 * (1.0 - (float(i) / iSegmentCount)));
-      irgColor[1] = floatround(255.0 * (float(i) / iSegmentCount));
+      irgColor[0] = floatround(255.0 * (1.0 - (float(iSegment) / iSegmentCount)));
+      irgColor[1] = floatround(255.0 * (float(iSegment) / iSegmentCount));
       irgColor[2] = 0;
 
       UTIL_DrawArrow(0, vecSrc, vecNext, irgColor, 255, 30);
@@ -2935,6 +2855,133 @@ NavAreaBuildPathSegments() {
   }
 
   return true;
+}
+
+NavAreaCalculateSegmentCount(const goalArea[NavArea]) {
+  static iCount; iCount = 0;
+
+  static iArea; iArea = NAVAREA_INDEX(goalArea);
+
+  while (iArea != INVALID_NAV_AREA) {
+    iCount++;
+    iArea = NAVAREA_PTR(iArea)[NavArea_Parent];
+  }
+
+  return iCount;
+}
+
+FindFreeTaskSlot() {
+  for (new iTask; iTask < MAX_NAV_PATH_TASKS; ++iTask) {
+    if (g_rgBuildPathTasks[iTask][BuildPathTask_IsFree]) {
+      return iTask;
+    }
+  }
+
+  return INVALID_BUILD_PATH_TASK;
+}
+
+// Can we see this area?
+// For now, if we can see any corner, we can see the area
+// TODO: Need to check LOS to more than the corners for large and/or long areas
+stock bool:IsAreaVisible(const Float:vecPos[], const area[NavArea]) {
+  for (new NavCornerType:iCorner = NORTH_WEST; iCorner < NUM_CORNERS; iCorner++) {
+    static Float:vecCorner[3];
+    @NavArea_GetCorner(area, iCorner, vecCorner);
+    vecCorner[2] += 0.75 * HumanHeight;
+
+    engfunc(EngFunc_TraceLine, vecPos, vecCorner, IGNORE_MONSTERS, nullptr, g_pTrace);
+
+    static Float:flFraction; get_tr2(g_pTrace, TR_flFraction, flFraction);
+    if (flFraction == 1.0) return true;
+  }
+
+  return false;
+}
+
+stock bool:IsEntityWalkable(pEntity, iFlags) {
+  static szClassName[32]; pev(pEntity, pev_classname, szClassName, charsmax(szClassName));
+
+  // if we hit a door, assume its walkable because it will open when we touch it
+  if (equal(szClassName, "func_door") || equal(szClassName, "func_door_rotating")) {
+    return !!(iFlags & WALK_THRU_DOORS);
+  }
+  
+  if (equal(szClassName, "func_breakable")) {
+    // if we hit a breakable object, assume its walkable because we will shoot it when we touch it
+    static Float:flTakeDamage; pev(pEntity, pev_takedamage, flTakeDamage);
+    if (flTakeDamage == DAMAGE_YES) {
+      return !!(iFlags & WALK_THRU_BREAKABLES);
+    }
+  }
+
+  return false;
+}
+
+stock Float:GetGroundHeight(const Float:vecPos[], pIgnoreEnt, Float:vecNormal[] = {0.0, 0.0, 0.0}) {
+  enum GroundLayerInfo {
+    Float:GroundLayerInfo_Ground,
+    Float:GroundLayerInfo_Normal[3]
+  };
+
+  static Float:vecFrom[3]; xs_vec_copy(vecPos, vecFrom);
+  static Float:vecTo[3]; xs_vec_set(vecTo, vecPos[0], vecPos[1], -8192.0);
+
+  static const Float:flMaxOffset = 100.0;
+  static const Float:flInc = 10.0;
+
+  static rgLayer[MAX_NAV_GROUND_LAYERS][GroundLayerInfo];
+  static iLayerCount; iLayerCount = 0;
+
+  static pIgnore; pIgnore = pIgnoreEnt;
+  static Float:flOffset;
+
+  for (flOffset = 1.0; flOffset < flMaxOffset; flOffset += flInc) {
+    vecFrom[2] = vecPos[2] + flOffset;
+
+    engfunc(EngFunc_TraceLine, vecFrom, vecTo, IGNORE_MONSTERS, pIgnore, g_pTrace);
+
+    static Float:flFraction; get_tr2(g_pTrace, TR_flFraction, flFraction);
+
+    if (flFraction != 1.0) {
+      static pHit; pHit = get_tr2(g_pTrace, TR_pHit);
+      if (pHit > 0) {
+        // ignoring any entities that we can walk through
+        if (IsEntityWalkable(pHit, WALK_THRU_DOORS | WALK_THRU_BREAKABLES)) {
+          pIgnore = pHit;
+          continue;
+        }
+      }
+    }
+
+    static bool:bStartSolid; bStartSolid = bool:get_tr2(g_pTrace, TR_StartSolid);
+
+    if (!bStartSolid) {
+      static Float:vecEndPos[3]; get_tr2(g_pTrace, TR_vecEndPos, vecEndPos);
+
+      if (iLayerCount == 0 || vecEndPos[2] > rgLayer[iLayerCount - 1][GroundLayerInfo_Ground]) {
+        static Float:vecPlaneNormal[3]; get_tr2(g_pTrace, TR_vecPlaneNormal, vecPlaneNormal);
+
+        rgLayer[iLayerCount][GroundLayerInfo_Ground] = vecEndPos[2];
+        xs_vec_copy(vecPlaneNormal, rgLayer[iLayerCount][GroundLayerInfo_Normal]);
+        iLayerCount++;
+
+        if (iLayerCount == MAX_NAV_GROUND_LAYERS) break;
+      }
+    }
+  }
+
+  if (!iLayerCount) return -1.0;
+
+  static i;
+  for (i = 0; i < iLayerCount - 1; i++) {
+    if (rgLayer[i + 1][GroundLayerInfo_Ground] - rgLayer[i][GroundLayerInfo_Ground] >= HalfHumanHeight) {
+      break;
+    }
+  }
+
+  xs_vec_copy(rgLayer[i][GroundLayerInfo_Normal], vecNormal);
+
+  return rgLayer[i][GroundLayerInfo_Ground];
 }
 
 stock NavDirType:OppositeDirection(NavDirType:iDir) {
@@ -2970,113 +3017,7 @@ stock NavDirType:DirectionRight(NavDirType:iDir) {
   return NORTH;
 }
 
-stock Float:GetGroundHeight(const Float:vecPos[3], pIgnoreEnt, Float:vecNormal[3] = {0.0, 0.0, 0.0}) {
-  enum GroundLayerInfo {
-    Float:GroundLayerInfo_ground,
-    Float:GroundLayerInfo_normal[3]
-  };
-
-  static Float:vecTo[3]; xs_vec_set(vecTo, vecPos[0], vecPos[1], -8192.0);
-
-  static pIgnore; pIgnore = pIgnoreEnt;
-  // new Float:ground = 0.0;
-
-  static const Float:flMaxOffset = 100.0;
-  static const Float:flInc = 10.0;
-  const MAX_GROUND_LAYERS = 16;
-
-  static rgLayer[MAX_GROUND_LAYERS][GroundLayerInfo];
-  static iLayerCount; iLayerCount = 0;
-
-  static Float:flOffset;
-  for (flOffset = 1.0; flOffset < flMaxOffset; flOffset += flInc) {
-    static Float:vecFrom[3]; xs_vec_set(vecFrom, vecPos[0], vecPos[1], vecPos[2] + flOffset);
-
-    engfunc(EngFunc_TraceLine, vecFrom, vecTo, IGNORE_MONSTERS, pIgnore, g_pTrace);
-
-    static Float:flFraction; get_tr2(g_pTrace, TR_flFraction, flFraction);
-    static bool:bStartSolid; bStartSolid = bool:get_tr2(g_pTrace, TR_StartSolid);
-    static pHit; pHit = get_tr2(g_pTrace, TR_pHit);
-    static Float:vecPlaneNormal[3]; get_tr2(g_pTrace, TR_vecPlaneNormal, vecPlaneNormal);
-    static Float:vecEndPos[3]; get_tr2(g_pTrace, TR_vecEndPos, vecEndPos);
-
-    if (flFraction != 1.0 && pHit > 0) {
-      // ignoring any entities that we can walk through
-      if (IsEntityWalkable(pHit, WALK_THRU_DOORS | WALK_THRU_BREAKABLES)) {
-        pIgnore = pHit;
-        continue;
-      }
-    }
-
-    if (!bStartSolid) {
-      if (iLayerCount == 0 || vecEndPos[2] > rgLayer[iLayerCount - 1][GroundLayerInfo_ground]) {
-        rgLayer[iLayerCount][GroundLayerInfo_ground] = vecEndPos[2];
-        xs_vec_copy(vecPlaneNormal, rgLayer[iLayerCount][GroundLayerInfo_normal]);
-        iLayerCount++;
-
-        if (iLayerCount == MAX_GROUND_LAYERS) break;
-      }
-    }
-  }
-
-  if (!iLayerCount) return -1.0;
-
-  static i;
-  for (i = 0; i < iLayerCount - 1; i++) {
-    if (rgLayer[i + 1][GroundLayerInfo_ground] - rgLayer[i][GroundLayerInfo_ground] >= HalfHumanHeight) {
-      break;
-    }
-  }
-
-  xs_vec_copy(rgLayer[i][GroundLayerInfo_normal], vecNormal);
-
-  return rgLayer[i][GroundLayerInfo_ground];
-}
-
-stock bool:IsEntityWalkable(pEntity, iFlags) {
-  static szClassName[32]; pev(pEntity, pev_classname, szClassName, charsmax(szClassName));
-
-  // if we hit a door, assume its walkable because it will open when we touch it
-  if (equal(szClassName, "func_door") || equal(szClassName, "func_door_rotating")) {
-    return !!(iFlags & WALK_THRU_DOORS);
-  }
-  
-  if (equal(szClassName, "func_breakable")) {
-    // if we hit a breakable object, assume its walkable because we will shoot it when we touch it
-    static Float:flTakeDamage;
-    pev(pEntity, pev_takedamage, flTakeDamage);
-    if (flTakeDamage == DAMAGE_YES) {
-      return !!(iFlags & WALK_THRU_BREAKABLES);
-    }
-  }
-
-  return false;
-}
-
-// Can we see this area?
-// For now, if we can see any corner, we can see the area
-// TODO: Need to check LOS to more than the corners for large and/or long areas
-stock bool:IsAreaVisible(const Float:vecPos[3], Struct:sArea) {
-  static Float:vecCorner[3];
-  for (new i = 0; i < _:NUM_CORNERS; i++) {
-    @NavArea_GetCorner(sArea, NavCornerType:i, vecCorner);
-    vecCorner[2] += 0.75 * HumanHeight;
-
-    engfunc(EngFunc_TraceLine, vecPos, vecCorner, IGNORE_MONSTERS, nullptr, g_pTrace);
-
-    static Float:flFraction;
-    get_tr2(g_pTrace, TR_flFraction, flFraction);
-
-    if (flFraction == 1.0) {
-      // we can see this area
-      return true;
-    }
-  }
-
-  return false;
-}
-
-stock AddDirectionVector(Float:vecInput[3], NavDirType:iDir, Float:flAmount) {
+stock AddDirectionVector(Float:vecInput[], NavDirType:iDir, Float:flAmount) {
   switch (iDir) {
     case NORTH: vecInput[1] -= flAmount;
     case SOUTH: vecInput[1] += flAmount;
@@ -3088,26 +3029,26 @@ stock AddDirectionVector(Float:vecInput[3], NavDirType:iDir, Float:flAmount) {
 stock DirectionToVector2D(NavDirType:iDir, Float:vecOutput[]) {
   switch (iDir) {
     case NORTH: {
-      vecOutput[0] =  0.0;
+      vecOutput[0] = 0.0;
       vecOutput[1] = -1.0;
     }
     case SOUTH: {
-      vecOutput[0] =  0.0;
-      vecOutput[1] =  1.0;
+      vecOutput[0] = 0.0;
+      vecOutput[1] = 1.0;
     }
     case EAST: {
-      vecOutput[0] =  1.0;
-      vecOutput[1] =  0.0;
+      vecOutput[0] = 1.0;
+      vecOutput[1] = 0.0;
     }
     case WEST: {
       vecOutput[0] = -1.0;
-      vecOutput[1] =  0.0;
+      vecOutput[1] = 0.0;
     }
   }
 }
 
-stock Float:NormalizeInPlace(const Float:vecSrc[3], Float:vecOut[3]) {
-  new Float:flLen = xs_vec_len(vecSrc);
+stock Float:NormalizeInPlace(const Float:vecSrc[], Float:vecOut[]) {
+  static Float:flLen; flLen = xs_vec_len(vecSrc);
 
   if (flLen > 0) {
     vecOut[0] = vecSrc[0] / flLen;
@@ -3122,7 +3063,7 @@ stock Float:NormalizeInPlace(const Float:vecSrc[3], Float:vecOut[3]) {
   return flLen;
 }
 
-stock UTIL_DrawArrow(pPlayer, const Float:vecSrc[3], const Float:vecTarget[3], const irgColor[3] = {255, 255, 255}, iBrightness = 255, iLifeTime = 10, iWidth = 64) {
+stock UTIL_DrawArrow(pPlayer, const Float:vecSrc[], const Float:vecTarget[], const irgColor[3] = {255, 255, 255}, iBrightness = 255, iLifeTime = 10, iWidth = 64) {
   engfunc(EngFunc_MessageBegin, pPlayer ? MSG_ONE : MSG_ALL, SVC_TEMPENTITY, vecSrc, pPlayer);
   write_byte(TE_BEAMPOINTS);
   engfunc(EngFunc_WriteCoord, vecTarget[0]);
@@ -3143,4 +3084,16 @@ stock UTIL_DrawArrow(pPlayer, const Float:vecSrc[3], const Float:vecTarget[3], c
   write_byte(iBrightness);
   write_byte(0);
   message_end();
+}
+
+stock ArrayGetArray2(const &Array:irgArray, any:iItem, any:rgOut[], any:iSize, any:iBlock) {
+  for (new i = 0; i < iSize; ++i) {
+    rgOut[i] = ArrayGetCell(irgArray, iItem, iBlock + i);
+  }
+}
+
+stock ArraySetArray2(const &Array:irgArray, any:iItem, const any:rgValue[], any:iSize, any:iBlock) {
+  for (new i = 0; i < iSize; ++i) {
+    ArraySetCell(irgArray, iItem, rgValue[i], iBlock + i);
+  }
 }

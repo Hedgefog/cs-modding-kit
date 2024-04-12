@@ -12,15 +12,15 @@
 public NavPathCallback(NavBuildPathTask:pTask) {
     new pEntity = Nav_Path_FindTask_GetUserToken(pTask);
     new NavPath:pPath = Nav_Path_FindTask_GetPath(pTask);
-    new Array:irgSegments = Nav_Path_GetSegments(pPath);
     
     new Array:irgPath = CE_GetMember(pEntity, m_irgPath);
     ArrayClear(irgPath);
 
-    for (new i = 0; i < ArraySize(irgSegments); ++i) {
-        new NavPathSegment:pSegment = ArrayGetCell(irgSegments, i);
-        static Float:vecPos[3];
-        Nav_Path_Segment_GetPos(pSegment, vecPos);
+    static iSegmentsNum; iSegmentsNum = Nav_Path_GetSegmentCount(pPath);
+
+    for (new iSegment = 0; iSegment < iSegmentsNum; ++iSegment) {
+        static Float:vecPos[3]; Nav_Path_GetSegmentPos(pPath, iSegment, vecPos);
+
         ArrayPushArray(irgPath, vecPos, sizeof(vecPos));
     }
 

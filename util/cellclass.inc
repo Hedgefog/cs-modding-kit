@@ -215,6 +215,15 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const Function:
   TrieSetCell(itMethods, szMethod, sMethod);
 }
 
+stock Function:ClassGetMethodFunction(const &Class:class, const szMethod[]) {
+    static Trie:itMethods; itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
+
+    static Struct:sMethod;
+    if (!TrieGetCell(itMethods, szMethod, sMethod)) return Invalid_FunctionPointer;
+
+    return StructGetCell(sMethod, __cls_MethodData_Function);
+}
+
 stock ClassAddSetter(const &Class:class, const szMember[], const Function:func, iType, iSize = 1) {
   __cls_AddMemberAccessorMethod(class, szMember, func, __cls_MethodType_Setter, iType, iSize);
 }

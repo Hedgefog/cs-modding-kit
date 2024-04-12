@@ -15,16 +15,16 @@
 #define VERSION "1.0.0"
 #define AUTHOR "Hedgehog Fog"
 
-#define EVENT_CLIENT 5000
-#define STUDIO_LOOPING 0x0001
-
 #define IS_PLAYER(%1) (%1 >= 1 && %1 <= MaxClients)
 #define IS_MONSTER(%1) (!!(pev(%1, pev_flags) & FL_MONSTER))
 
 #define ENTITY_NAME BASE_MONSTER_ENTITY_NAME
 
+#define EVENT_CLIENT 5000
+#define STUDIO_LOOPING 0x0001
 #define DIST_TO_CHECK 200.0
 #define MONSTER_CUT_CORNER_DIST 8.0
+#define MAX_WORLD_SOUNDS 64
 
 #define CHAR_TEX_CONCRETE 'C'
 #define CHAR_TEX_METAL 'M'
@@ -39,6 +39,14 @@
 #define CHAR_TEX_GLASS 'Y'
 #define CHAR_TEX_FLESH 'F'
 #define CHAR_TEX_SNOW 'N'
+
+enum Sound {
+    Sound_Emitter,
+    Sound_Type,
+    Sound_Volume,
+    Float:Sound_ExpiredTime,
+    Float:Sound_Origin[3]
+};
 
 enum ModelEvent {
     ModelEvent_Frame,
@@ -359,16 +367,6 @@ new Float:g_vecAttackDir[3];
 
 new Float:g_flGameTime = 0.0;
 
-#define MAX_WORLD_SOUNDS 64
-
-enum Sound {
-    Sound_Emitter,
-    Sound_Type,
-    Sound_Volume,
-    Float:Sound_ExpiredTime,
-    Float:Sound_Origin[3]
-};
-
 new Struct:g_rgSharedSchedules[MONSTER_SHARED_SCHED] = { _:Invalid_Struct, ... };
 
 new g_rgSounds[MAX_WORLD_SOUNDS][Sound];
@@ -389,6 +387,7 @@ public plugin_precache() {
 
     CE_RegisterHook(ENTITY_NAME, CEFunction_Init, "@Monster_Init");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Spawned, "@Monster_Spawned");
+    CE_RegisterHook(ENTITY_NAME, CEFunction_Remove, "@Monster_Remove");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Kill, "@Monster_Kill");
     CE_RegisterHook(ENTITY_NAME, CEFunction_Think, "@Monster_Think");
 
@@ -415,6 +414,27 @@ public plugin_precache() {
     CE_RegisterVirtualMethod(ENTITY_NAME, MeleeAttack1, "@Monster_MeleeAttack1");
     CE_RegisterVirtualMethod(ENTITY_NAME, MeleeAttack2, "@Monster_MeleeAttack2");
 
+    CE_RegisterVirtualMethod(ENTITY_NAME, IsCurTaskContinuousMove, "@Monster_IsCurTaskContinuousMove");
+    CE_RegisterVirtualMethod(ENTITY_NAME, GetScheduleOfType, "@Monster_GetScheduleOfType", CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, GetSchedule, "@Monster_GetSchedule");
+    CE_RegisterVirtualMethod(ENTITY_NAME, SetActivity, "@Monster_SetActivity", CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, ChangeSchedule, "@Monster_ChangeSchedule", CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, RunTask, "@Monster_RunTask", CE_MP_Cell, CE_MP_Cell);
+    CE_RegisterVirtualMethod(ENTITY_NAME, StartTask, "@Monster_StartTask", CE_MP_Cell, CE_MP_Cell);
+
+    CE_RegisterVirtualMethod(ENTITY_NAME, HandlePathTask, "@Monster_HandlePathTask");
+    CE_RegisterVirtualMethod(ENTITY_NAME, MoveExecute, "@Monster_MoveExecute", CE_MP_Cell, CE_MP_FloatArray, 3, CE_MP_Float);
+
+    CE_RegisterMethod(ENTITY_NAME, SetConditions, "@Monster_SetConditions", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, ClearConditions, "@Monster_ClearConditions", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, HasConditions, "@Monster_HasConditions", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, HasAllConditions, "@Monster_HasAllConditions", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, Remember, "@Monster_Remember", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, Forget, "@Monster_Forget", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, HasMemory, "@Monster_HasMemory", CE_MP_Cell);
+    CE_RegisterMethod(ENTITY_NAME, HasAllMemory, "@Monster_HasAllMemory", CE_MP_Cell);
+
+    CE_RegisterMethod(ENTITY_NAME, GetSharedSchedule, "@Monster_GetSharedSchedule", CE_MP_Cell);
     CE_RegisterMethod(ENTITY_NAME, MoveToEnemy, "@Monster_MoveToEnemy", CE_MP_Cell, CE_MP_Float);
     CE_RegisterMethod(ENTITY_NAME, MoveToTarget, "@Monster_MoveToTarget", CE_MP_Cell, CE_MP_Float);
     CE_RegisterMethod(ENTITY_NAME, MoveToLocation, "@Monster_MoveToLocation", CE_MP_Cell, CE_MP_Float, CE_MP_FloatArray, 3);
@@ -443,8 +463,6 @@ public plugin_init() {
 
     RegisterHam(Ham_Classify, CE_BASE_CLASSNAME, "HamHook_Base_Classify", .Post = 0);
     RegisterHam(Ham_TraceAttack, CE_BASE_CLASSNAME, "HamHook_Base_TraceAttack", .Post = 0);
-
-    register_forward(FM_EmitSound, "FMHook_EmitSound");
 }
 
 public HamHook_Base_Classify(pEntity) {
@@ -536,6 +554,7 @@ public plugin_end() {
     CE_SetMember(this, m_bSequenceFinished, false);
     CE_SetMember(this, m_iActivity, 0);
     CE_SetMember(this, m_iMovementGoal, 0);
+    CE_SetMember(this, m_pPathTask, Invalid_NavBuildPathTask);
     CE_SetMember(this, m_flMoveWaitTime, 0.0);
     CE_SetMember(this, m_flHungryTime, 0.0);
     CE_SetMember(this, m_pGoalEnt, FM_NULLENT);
@@ -619,7 +638,15 @@ bool:@Monster_ShouldGibMonster(this, iGib) {
     return false;
 }
 
-@Monster_Remove(this) {}
+@Monster_Remove(this) {
+    @Monster_RouteNew(this);
+
+    new Array:irgRoute = CE_GetMember(this, m_irgRoute);
+    ArrayDestroy(irgRoute);
+
+    new Array:irgOldEnemies = CE_GetMember(this, m_irgOldEnemies);
+    ArrayDestroy(irgOldEnemies);
+}
 
 @Monster_Think(this) {
     g_flGameTime = get_gametime();
@@ -810,9 +837,6 @@ stock Float:UTIL_FrameRatioToFrame(Float:flRatio, iFramesNum) {
 }
 
 @Monster_HandleAnimEvent(this, iEventId, const rgOptions[]) {
-    // static iSequence; iSequence = pev(this, pev_sequence);
-    // client_print_color(0, print_team_red, "^3[Event Detected]^1 Entity: ^4%d^1, Sequence: ^4%d^1, Event: ^4%d^1, Options: ^4^"%s^"^1", this, iSequence, iEventId, rgOptions);
-
     switch (iEventId) {
         case SCRIPT_EVENT_DEAD: {
             if (CE_GetMember(this, m_iMonsterState) == MONSTER_STATE_SCRIPT) {
@@ -889,23 +913,9 @@ stock Float:UTIL_FrameRatioToFrame(Float:flRatio, iFramesNum) {
 }
 
 Float:@Monster_GetPathCost(this, NavArea:newArea, NavArea:prevArea, iMoveFlags) {
+    if (prevArea == Invalid_NavArea) return 1.0;
+
     static Float:vecMins[3]; pev(this, pev_mins, vecMins);
-
-    static Float:vecSrc[3];
-
-    if (prevArea != Invalid_NavArea) {
-        Nav_Area_GetCenter(prevArea, vecSrc);
-    } else {
-        pev(this, pev_origin, vecSrc);
-        vecSrc[2] += vecMins[2];
-    }
-    
-    static Float:vecTarget[3]; Nav_Area_GetClosestPointOnArea(newArea, vecSrc, vecTarget);
-
-    vecTarget[2] = Nav_Area_GetZ(newArea);
-
-    vecSrc[2] += -vecMins[2];
-    vecTarget[2] += -vecMins[2];
 
     static pTargetEnt; pTargetEnt = FM_NULLENT;
     if (iMoveFlags & MF_TO_ENEMY) {
@@ -914,13 +924,30 @@ Float:@Monster_GetPathCost(this, NavArea:newArea, NavArea:prevArea, iMoveFlags) 
         pTargetEnt = CE_GetMember(this, m_pTargetEnt);
     }
 
+    static Float:vecSrc[3];
+    Nav_Area_GetCenter(prevArea, vecSrc);
+    vecSrc[2] += -vecMins[2];
+
+    static Float:vecMiddle[3];
+    Nav_Area_GetClosestPointOnArea(newArea, vecSrc, vecMiddle);
+    vecMiddle[2] += -vecMins[2];
+    
+    static Float:vecTarget[3];
+    Nav_Area_GetCenter(newArea, vecTarget);
+    vecTarget[2] += -vecMins[2];
+
     static Float:flDist;
-    if (@Monster_CheckLocalMove(this, vecSrc, vecTarget, pTargetEnt, true, flDist) != MONSTER_LOCALMOVE_VALID) {
+    if (@Monster_CheckLocalMove(this, vecSrc, vecMiddle, pTargetEnt, false, flDist) != MONSTER_LOCALMOVE_VALID) {
         return -1.0;
     }
 
+    if (@Monster_CheckLocalMove(this, vecMiddle, vecTarget, pTargetEnt, false, flDist) != MONSTER_LOCALMOVE_VALID) {
+        return -1.0;
+    }
 
-    return 1.0;
+    static Float:flCost; flCost = get_distance_f(vecSrc, vecTarget);
+
+    return flCost;
 }
 
 /*--------------------------------[ Function ]--------------------------------*/
@@ -952,25 +979,21 @@ public HamHook_Base_TakeDamage_Post(pEntity, pInflictor, pAttacker, Float:flDama
 
 /*--------------------------------[ Callbacks ]--------------------------------*/
 
-public Float:NavPathCost(NavBuildPathTask:pTask, NavArea:newArea, NavArea:prevArea) {
-    static pEntity; pEntity = Nav_Path_FindTask_GetUserToken(pTask);
-    if (!pEntity) return 1.0;
+#if defined _api_navsystem_included
+    public Float:NavPathCost(NavBuildPathTask:pTask, NavArea:newArea, NavArea:prevArea) {
+        static pEntity; pEntity = Nav_Path_FindTask_GetUserToken(pTask);
+        if (!pEntity) return 1.0;
 
-    return @Monster_GetPathCost(pEntity, newArea, prevArea, MF_TO_ENEMY);
-}
+        return @Monster_GetPathCost(pEntity, newArea, prevArea, MF_TO_ENEMY);
+        // return CE_CallMethod(pEntity, GetPathCost, newArea, prevArea);
+    }
 
-public NavPathCallback(NavBuildPathTask:pTask) {
-    #if defined _api_navsystem_included
+    public NavPathCallback(NavBuildPathTask:pTask) {
         new pEntity = Nav_Path_FindTask_GetUserToken(pTask);
 
-        if (Nav_Path_FindTask_IsSuccessed(pTask)) {
-            new NavPath:pPath = Nav_Path_FindTask_GetPath(pTask);
-            @Monster_MoveNavPath(pEntity, pPath);
-        }
-
-        @Monster_ReleasePathTask(pEntity);
-    #endif
-}
+        return CE_CallMethod(pEntity, HandlePathTask);
+    }
+#endif
 
 /*--------------------------------[ Stocks ]--------------------------------*/
 
@@ -1323,8 +1346,12 @@ DestroySharedSchedule() {
     }
 }
 
-Struct:GetSharedSchedule(MONSTER_SHARED_SCHED:iSchedule) {
+Struct:_GetSharedSchedule(MONSTER_SHARED_SCHED:iSchedule) {
     return g_rgSharedSchedules[iSchedule];
+}
+
+Struct:@Monster_GetSharedSchedule(this, MONSTER_SHARED_SCHED:iSchedule) {
+    return _GetSharedSchedule(iSchedule); 
 }
 
 Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, iSoundMask, MONSTER_SHARED_SCHED:iSharedId = MONSTER_SHARED_SCHED_INVALID) {
@@ -1413,14 +1440,14 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
 
             if (@Monster_HasConditions(this, COND_TASK_FAILED) && iMonsterState == iIdealMonsterState) {
                 static MONSTER_SCHEDULE_TYPE:iFailSchedule; iFailSchedule = CE_GetMember(this, m_iFailSchedule);
-                pNewSchedule = @Monster_GetScheduleOfType(this, iFailSchedule != MONSTER_SCHED_NONE ? iFailSchedule : MONSTER_SCHED_FAIL);
+                pNewSchedule = CE_CallMethod(this, GetScheduleOfType, iFailSchedule != MONSTER_SCHED_NONE ? iFailSchedule : MONSTER_SCHED_FAIL);
             } else {
                 @Monster_SetState(this, iIdealMonsterState);
 
-                pNewSchedule = @Monster_GetSchedule(this);
+                pNewSchedule = CE_CallMethod(this, GetSchedule);
             }
 
-            @Monster_ChangeSchedule(this, pNewSchedule);
+            CE_CallMethod(this, ChangeSchedule, pNewSchedule);
         }
 
         static MONSTER_TASK_STATUS:iTaskStatus; iTaskStatus = CE_GetMember(this, m_iTaskStatus);
@@ -1430,14 +1457,14 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
             if (@Monster_GetTask(this, rgTask) == -1) return;
 
             @Monster_TaskBegin(this);
-            @Monster_StartTask(this, rgTask[MONSTER_TASK_DATA_ID], rgTask[MONSTER_TASK_DATA_DATA]);
+            CE_CallMethod(this, StartTask, rgTask[MONSTER_TASK_DATA_ID], rgTask[MONSTER_TASK_DATA_DATA]);
         }
 
         static Activity:iActivity; iActivity = CE_GetMember(this, m_iActivity);
         static Activity:iIdealActivity; iIdealActivity = CE_GetMember(this, m_iIdealActivity);
 
         if (iActivity != iIdealActivity) {
-            @Monster_SetActivity(this, iIdealActivity);
+            CE_CallMethod(this, SetActivity, iIdealActivity);
         }
         
         if (!@Monster_TaskIsComplete(this) && iTaskStatus != MONSTER_TASK_STATUS_NEW) break;
@@ -1447,16 +1474,21 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
         static rgTask[MONSTER_TASK_DATA];
         if (@Monster_GetTask(this, rgTask) == -1) return;
 
-        @Monster_RunTask(this, rgTask[MONSTER_TASK_DATA_ID], rgTask[MONSTER_TASK_DATA_DATA]);
+        CE_CallMethod(this, RunTask, rgTask[MONSTER_TASK_DATA_ID], rgTask[MONSTER_TASK_DATA_DATA]);
+
+        // CE_CallMethod(this, RunTaskOverlay);
     }
 
     static Activity:iActivity; iActivity = CE_GetMember(this, m_iActivity);
     static Activity:iIdealActivity; iIdealActivity = CE_GetMember(this, m_iIdealActivity);
 
     if (iActivity != iIdealActivity) {
-        @Monster_SetActivity(this, iIdealActivity);
+        CE_CallMethod(this, SetActivity, iIdealActivity);
     }
 }
+
+// @Monster_StartTaskOverlay(this) {}
+// @Monster_RunTaskOverlay(this) {}
 
 @Monster_MonsterInit(this) {
     static Float:vecAngles[3]; pev(this, pev_angles, vecAngles);
@@ -1492,7 +1524,7 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
     CE_SetMember(this, m_pCine, FM_NULLENT);
     CE_SetMember(this, m_bSequenceFinished, false);
     CE_SetMember(this, m_iActivity, 0);
-    CE_SetMember(this, m_iMovementGoal, 0);
+    CE_SetMember(this, m_iMovementGoal, MOVEGOAL_NONE);
     CE_SetMember(this, m_flMoveWaitTime, 0.0);
     CE_SetMember(this, m_flHungryTime, 0.0);
     CE_SetMember(this, m_pGoalEnt, FM_NULLENT);
@@ -1587,7 +1619,7 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
             @Monster_RefreshRoute(this);
 
             @Monster_SetState(this, MONSTER_STATE_IDLE);
-            @Monster_ChangeSchedule(this, @Monster_GetScheduleOfType(this, MONSTER_SCHED_IDLE_WALK));
+            CE_CallMethod(this, ChangeSchedule, CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_IDLE_WALK));
         }
     }
     
@@ -1597,8 +1629,8 @@ Struct:CreateSchedule(const rgTask[][MONSTER_TASK_DATA], iSize, iInterruptMask, 
 
     if (!equal(szTargetname, NULL_STRING)) {
         @Monster_SetState(this, MONSTER_STATE_IDLE);
-        @Monster_SetActivity(this, ACT_IDLE);
-        @Monster_ChangeSchedule(this, @Monster_GetScheduleOfType(this, MONSTER_SCHED_WAIT_TRIGGER));
+        CE_CallMethod(this, SetActivity, ACT_IDLE);
+        CE_CallMethod(this, ChangeSchedule, CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_WAIT_TRIGGER));
     }
 
     set_pev(this, pev_nextthink, g_flGameTime + random_float(0.1, 0.4));
@@ -2020,15 +2052,15 @@ bool:@Monster_CanCheckAttacks(this) {
     if (@Monster_HasHumanGibs(this)) {
         if (get_cvar_float("violence_hgibs") != 0.0) {
             // TODO: Implement gibs
-            // @Entity_SpawnHeadGib(this);
-            // @Entity_SpawnRandomGibs(this, 4, 1);    // throw some human gibs.
+            // @Monster_SpawnHeadGib(this);
+            // @Monster_SpawnRandomGibs(this, 4, 1);    // throw some human gibs.
         }
 
         bGibbed = true;
     } else if (@Monster_HasAlienGibs(this)) {
         if (get_cvar_float("violence_agibs") != 0.0) {
             // TODO: Implement gibs
-            // @Entity_SpawnRandomGibs(this, 4, 0);    // Throw alien gibs
+            // @Monster_SpawnRandomGibs(this, 4, 0);    // Throw alien gibs
         }
 
         bGibbed = true;
@@ -2073,12 +2105,12 @@ bool:@Monster_CanCheckAttacks(this) {
     if (flRenderAmt > 7.0) {
         set_pev(this, pev_renderamt, flRenderAmt - 7.0);
         set_pev(this, pev_nextthink, g_flGameTime + 0.1);
-	} else {
+    } else {
         set_pev(this, pev_renderamt, 0.0);
         set_pev(this, pev_nextthink, g_flGameTime + 0.1);
 
         CE_CallMethod(this, SetThink, "@Monster_SUB_Remove");
-	}
+    }
 }
 
 @Monster_SUB_Remove(this) {
@@ -2230,6 +2262,8 @@ bool:@Monster_CheckMeleeAttack2(this, Float:flDot, Float:flDistance) {
 @Monster_PrescheduleThink(this) {}
 
 @Monster_Move(this, Float:flInterval) {
+    if (@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) return;
+
     if (@Monster_IsRouteClear(this)) {
         if (CE_GetMember(this, m_iMovementGoal) == MOVEGOAL_NONE || !@Monster_RefreshRoute(this)) {
             @Monster_TaskFail(this);
@@ -2246,6 +2280,8 @@ bool:@Monster_CheckMeleeAttack2(this, Float:flDot, Float:flDistance) {
     static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
     static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
+    if (!ArraySize(irgRoute)) return;
+
     static rgWaypoint[MONSTER_WAYPOINT]; ArrayGetArray(irgRoute, CE_GetMember(this, m_iRouteIndex), rgWaypoint[any:0], _:MONSTER_WAYPOINT);
     static Float:flWaypointDist; flWaypointDist = xs_vec_distance_2d(vecOrigin, rgWaypoint[MONSTER_WAYPOINT_LOCATION]);
     static Float:flCheckDist; flCheckDist = floatmin(flWaypointDist, DIST_TO_CHECK);
@@ -2286,7 +2322,6 @@ bool:@Monster_CheckMeleeAttack2(this, Float:flDot, Float:flDistance) {
             }
         } else {
             static Float:vecApex[3];
-
             if (@Monster_Triangulate(this, vecOrigin, rgWaypoint[MONSTER_WAYPOINT_LOCATION], flDist, pTargetEnt, vecApex)) {
                 @Monster_RouteSimplify(this, pTargetEnt);
                 @Monster_InsertWaypoint(this, vecApex, MF_TO_DETOUR);
@@ -2328,7 +2363,7 @@ bool:@Monster_CheckMeleeAttack2(this, Float:flDot, Float:flDistance) {
         flInterval = flCheckDist / flGroundSpeed;
     }
 
-    @Monster_MoveExecute(this, pTargetEnt, vecDir, flInterval);
+    CE_CallMethod(this, MoveExecute, pTargetEnt, vecDir, flInterval);
 
     if (@Monster_MovementIsComplete(this)) {
         @Monster_Stop(this);
@@ -2358,6 +2393,15 @@ bool:@Monster_CheckMeleeAttack2(this, Float:flDot, Float:flDistance) {
     ArrayInsertArrayBefore(irgRoute, iRouteIndex, rgWaypoint[any:0]);
 }
 
+@Monster_PushWaypoint(this, const Float:vecLocation[3], iMoveFlag) {
+    new rgWaypoint[MONSTER_WAYPOINT];
+    xs_vec_copy(vecLocation, rgWaypoint[MONSTER_WAYPOINT_LOCATION]);
+    rgWaypoint[MONSTER_WAYPOINT_TYPE] = iMoveFlag | MF_IS_GOAL;
+
+    static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
+    ArrayPushArray(irgRoute, rgWaypoint[any:0]);
+}
+
 bool:@Monster_ShouldAdvanceRoute(this, Float:flWaypointDist) {
     return flWaypointDist <= MONSTER_CUT_CORNER_DIST;
 }
@@ -2375,7 +2419,7 @@ bool:@Monster_ShouldAdvanceRoute(this, Float:flWaypointDist) {
 
     if (rgCurrentWaypoint[MONSTER_WAYPOINT_TYPE] & MF_IS_GOAL) {
         if (flDistance < Float:CE_GetMember(this, m_flGroundSpeed) * 0.2) {
-            @Monster_MovementComplete(this);
+                @Monster_MovementComplete(this);
         }
 
         return;
@@ -2545,6 +2589,19 @@ bool:@Monster_PopEnemy(this) {
     return rgTask[MONSTER_TASK_DATA_ID];
 }
 
+@Monster_IsCurTaskContinuousMove(this) {
+    static rgTask[MONSTER_TASK_DATA];
+    if (@Monster_GetTask(this, rgTask) == -1) return false;
+
+    switch (rgTask[MONSTER_TASK_DATA_ID]) {
+        case TASK_WAIT_FOR_MOVEMENT: {
+            return true;
+        }
+	}
+
+    return false;
+}
+
 bool:@Monster_CanActiveIdle(this) {
     return false;
 }
@@ -2589,37 +2646,37 @@ Struct:@Monster_GetSchedule(this) {
 
     switch (iMonsterState) {
         case MONSTER_STATE_PRONE: {
-            return @Monster_GetScheduleOfType(this, MONSTER_SCHED_BARNACLE_VICTIM_GRAB);
+            return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_BARNACLE_VICTIM_GRAB);
         }
         case MONSTER_STATE_IDLE: {
             if (@Monster_HasConditions(this, COND_HEAR_SOUND)) {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_ALERT_FACE);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_ALERT_FACE);
             } else if (!@Monster_IsRouteClear(this)) {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_IDLE_WALK);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_IDLE_WALK);
             } else {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_IDLE_STAND);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_IDLE_STAND);
             }
         }
         case MONSTER_STATE_ALERT: {
             if (@Monster_HasConditions(this, COND_ENEMY_DEAD) && @Monster_LookupActivity(this, ACT_VICTORY_DANCE) != ACTIVITY_NOT_AVAILABLE) {
-                return @Monster_GetScheduleOfType(this,  MONSTER_SCHED_VICTORY_DANCE);
+                return CE_CallMethod(this, GetScheduleOfType,  MONSTER_SCHED_VICTORY_DANCE);
             }
 
             if (@Monster_HasConditions(this, COND_LIGHT_DAMAGE | COND_HEAVY_DAMAGE)) {
                 static Float:flFieldOfView; flFieldOfView = CE_GetMember(this, m_flFieldOfView);
 
                 if (floatabs(@Monster_YawDiff(this)) < (1.0 - flFieldOfView) * 60) {
-                    return @Monster_GetScheduleOfType(this, MONSTER_SCHED_TAKE_COVER_FROM_ORIGIN);
+                    return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_TAKE_COVER_FROM_ORIGIN);
                 }
 
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_ALERT_SMALL_FLINCH);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_ALERT_SMALL_FLINCH);
             }
             
             if (@Monster_HasConditions(this, COND_HEAR_SOUND)) {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_ALERT_FACE);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_ALERT_FACE);
             }
 
-            return @Monster_GetScheduleOfType(this, MONSTER_SCHED_ALERT_STAND);
+            return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_ALERT_STAND);
         }
         case MONSTER_STATE_COMBAT: {
             if (@Monster_HasConditions(this, COND_ENEMY_DEAD)) {
@@ -2631,48 +2688,48 @@ Struct:@Monster_GetSchedule(this) {
                     @Monster_SetState(this, MONSTER_STATE_ALERT);
                 }
 
-                return @Monster_GetSchedule(this);
+                return CE_CallMethod(this, GetSchedule);
             }
 
             if (@Monster_HasConditions(this, COND_NEW_ENEMY)) {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_WAKE_ANGRY);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_WAKE_ANGRY);
             }
 
             if (@Monster_HasConditions(this, COND_LIGHT_DAMAGE) && !@Monster_HasMemory(this, MEMORY_FLINCHED)) {
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_SMALL_FLINCH);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_SMALL_FLINCH);
             }
             
             if (!@Monster_HasConditions(this, COND_SEE_ENEMY)) {
                 if (!@Monster_HasConditions(this, COND_ENEMY_OCCLUDED)) {
-                    return @Monster_GetScheduleOfType(this, MONSTER_SCHED_COMBAT_FACE);
+                    return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_COMBAT_FACE);
                 }
 
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_CHASE_ENEMY);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_CHASE_ENEMY);
             }
 
-            if (@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK1)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_RANGE_ATTACK1);
-            if (@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK2)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_RANGE_ATTACK2);
-            if (@Monster_HasConditions(this, COND_CAN_MELEE_ATTACK1)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_MELEE_ATTACK1);
-            if (@Monster_HasConditions(this, COND_CAN_MELEE_ATTACK2)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_MELEE_ATTACK2);
-            if (!@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK1 | COND_CAN_MELEE_ATTACK1)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_CHASE_ENEMY);
-            if (!@Monster_FacingIdeal(this)) return @Monster_GetScheduleOfType(this, MONSTER_SCHED_COMBAT_FACE);
+            if (@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK1)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_RANGE_ATTACK1);
+            if (@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK2)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_RANGE_ATTACK2);
+            if (@Monster_HasConditions(this, COND_CAN_MELEE_ATTACK1)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_MELEE_ATTACK1);
+            if (@Monster_HasConditions(this, COND_CAN_MELEE_ATTACK2)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_MELEE_ATTACK2);
+            if (!@Monster_HasConditions(this, COND_CAN_RANGE_ATTACK1 | COND_CAN_MELEE_ATTACK1)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_CHASE_ENEMY);
+            if (!@Monster_FacingIdeal(this)) return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_COMBAT_FACE);
         }
         case MONSTER_STATE_DEAD: {
-            return @Monster_GetScheduleOfType(this, MONSTER_SCHED_DIE);
+            return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_DIE);
         }
         case MONSTER_STATE_SCRIPT: {
             new pCine = CE_GetMember(this, m_pCine);
 
             if (!pCine) {
                 @Monster_CineCleanup(this);
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_IDLE_STAND);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_IDLE_STAND);
             }
 
-            return @Monster_GetScheduleOfType(this, MONSTER_SCHED_AISCRIPT);
+            return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_AISCRIPT);
         }
     }
 
-    return GetSharedSchedule(MONSTER_SHARED_SCHED_ERROR);
+    return _GetSharedSchedule(MONSTER_SHARED_SCHED_ERROR);
 }
 
 Struct:@Monster_GetScheduleOfType(this, MONSTER_SCHEDULE_TYPE:iType) {
@@ -2682,57 +2739,57 @@ Struct:@Monster_GetScheduleOfType(this, MONSTER_SCHEDULE_TYPE:iType) {
 
             if (!pCine) {
                 @Monster_CineCleanup(this);
-                return @Monster_GetScheduleOfType(this, MONSTER_SCHED_IDLE_STAND);
+                return CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHED_IDLE_STAND);
             }
 
             new iMoveTo = CE_GetMember(pCine, "iMoveTo");
 
             switch (iMoveTo) {
-                case 0, 4: return GetSharedSchedule(MONSTER_SHARED_SCHED_WAIT_SCRIPT);
-                case 1: return GetSharedSchedule(MONSTER_SHARED_SCHED_WALK_TO_SCRIPT);
-                case 2: return GetSharedSchedule(MONSTER_SHARED_SCHED_RUN_TO_SCRIPT);
-                case 5: return GetSharedSchedule(MONSTER_SHARED_SCHED_FACE_SCRIPT);
+                case 0, 4: return _GetSharedSchedule(MONSTER_SHARED_SCHED_WAIT_SCRIPT);
+                case 1: return _GetSharedSchedule(MONSTER_SHARED_SCHED_WALK_TO_SCRIPT);
+                case 2: return _GetSharedSchedule(MONSTER_SHARED_SCHED_RUN_TO_SCRIPT);
+                case 5: return _GetSharedSchedule(MONSTER_SHARED_SCHED_FACE_SCRIPT);
             }
         }
         case MONSTER_SCHED_IDLE_STAND: {
             if (random(14) == 0 && @Monster_CanActiveIdle(this)) {
-                return GetSharedSchedule(MONSTER_SHARED_SCHED_ACTIVE_IDLE);
+                return _GetSharedSchedule(MONSTER_SHARED_SCHED_ACTIVE_IDLE);
             }
 
-            return GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_STAND);
+            return _GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_STAND);
         }
-        case MONSTER_SCHED_IDLE_WALK: return GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_WALK);
-        case MONSTER_SCHED_WAIT_TRIGGER: return GetSharedSchedule(MONSTER_SHARED_SCHED_WAIT_TRIGGER);
-        case MONSTER_SCHED_WAKE_ANGRY: return GetSharedSchedule(MONSTER_SHARED_SCHED_WAKE_ANGRY);
-        case MONSTER_SCHED_ALERT_FACE: return GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_FACE);
-        case MONSTER_SCHED_ALERT_STAND: return GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_STAND);
-        case MONSTER_SCHED_COMBAT_STAND: return GetSharedSchedule(MONSTER_SHARED_SCHED_COMBAT_STAND);
-        case MONSTER_SCHED_COMBAT_FACE: return GetSharedSchedule(MONSTER_SHARED_SCHED_COMBAT_FACE);
-        case MONSTER_SCHED_CHASE_ENEMY: return GetSharedSchedule(MONSTER_SHARED_SCHED_CHASE_ENEMY);
-        case MONSTER_SCHED_CHASE_ENEMY_FAILED: return GetSharedSchedule(MONSTER_SHARED_SCHED_FAIL);
-        case MONSTER_SCHED_SMALL_FLINCH: return GetSharedSchedule(MONSTER_SHARED_SCHED_SMALL_FLINCH);
-        case MONSTER_SCHED_ALERT_SMALL_FLINCH: return GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_SMALL_FLINCH);
-        case MONSTER_SCHED_RELOAD: return GetSharedSchedule(MONSTER_SHARED_SCHED_RELOAD);
-        case MONSTER_SCHED_ARM_WEAPON: return GetSharedSchedule(MONSTER_SHARED_SCHED_ARM_WEAPON);
-        case MONSTER_SCHED_STANDOFF: return GetSharedSchedule(MONSTER_SHARED_SCHED_STANDOFF);
-        case MONSTER_SCHED_RANGE_ATTACK1: return GetSharedSchedule(MONSTER_SHARED_SCHED_RANGE_ATTACK1);
-        case MONSTER_SCHED_RANGE_ATTACK2: return GetSharedSchedule(MONSTER_SHARED_SCHED_RANGE_ATTACK2);
-        case MONSTER_SCHED_MELEE_ATTACK1: return GetSharedSchedule(MONSTER_SHARED_SCHED_MELEE_ATTACK1);
-        case MONSTER_SCHED_MELEE_ATTACK2: return GetSharedSchedule(MONSTER_SHARED_SCHED_MELEE_ATTACK2);
-        case MONSTER_SCHED_SPECIAL_ATTACK1: return GetSharedSchedule(MONSTER_SHARED_SCHED_SPECIAL_ATTACK1);
-        case MONSTER_SCHED_SPECIAL_ATTACK2: return GetSharedSchedule(MONSTER_SHARED_SCHED_SPECIAL_ATTACK2);
-        case MONSTER_SCHED_TAKE_COVER_FROM_BEST_SOUND: return GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_BEST_SOUND);
-        case MONSTER_SCHED_TAKE_COVER_FROM_ENEMY: return GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_ENEMY);
-        case MONSTER_SCHED_COWER: return GetSharedSchedule(MONSTER_SHARED_SCHED_COWER);
-        case MONSTER_SCHED_AMBUSH: return GetSharedSchedule(MONSTER_SHARED_SCHED_AMBUSH);
-        case MONSTER_SCHED_BARNACLE_VICTIM_GRAB: return GetSharedSchedule(MONSTER_SHARED_SCHED_BARNACLE_VICTIM_GRAB);
-        case MONSTER_SCHED_BARNACLE_VICTIM_CHOMP: return GetSharedSchedule(MONSTER_SHARED_SCHED_BARNACLE_VICTIM_CHOMP);
-        case MONSTER_SCHED_INVESTIGATE_SOUND: return GetSharedSchedule(MONSTER_SHARED_SCHED_INVESTIGATE_SOUND);
-        case MONSTER_SCHED_DIE: return GetSharedSchedule(MONSTER_SHARED_SCHED_DIE);
-        case MONSTER_SCHED_TAKE_COVER_FROM_ORIGIN: return GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_ORIGIN);
-        case MONSTER_SCHED_VICTORY_DANCE: return GetSharedSchedule(MONSTER_SHARED_SCHED_VICTORY_DANCE);
-        case MONSTER_SCHED_FAIL: return GetSharedSchedule(MONSTER_SHARED_SCHED_FAIL);
-        default: return GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_STAND);
+        case MONSTER_SCHED_IDLE_WALK: return _GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_WALK);
+        case MONSTER_SCHED_WAIT_TRIGGER: return _GetSharedSchedule(MONSTER_SHARED_SCHED_WAIT_TRIGGER);
+        case MONSTER_SCHED_WAKE_ANGRY: return _GetSharedSchedule(MONSTER_SHARED_SCHED_WAKE_ANGRY);
+        case MONSTER_SCHED_ALERT_FACE: return _GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_FACE);
+        case MONSTER_SCHED_ALERT_STAND: return _GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_STAND);
+        case MONSTER_SCHED_COMBAT_STAND: return _GetSharedSchedule(MONSTER_SHARED_SCHED_COMBAT_STAND);
+        case MONSTER_SCHED_COMBAT_FACE: return _GetSharedSchedule(MONSTER_SHARED_SCHED_COMBAT_FACE);
+        case MONSTER_SCHED_CHASE_ENEMY: return _GetSharedSchedule(MONSTER_SHARED_SCHED_CHASE_ENEMY);
+        case MONSTER_SCHED_CHASE_ENEMY_FAILED: return _GetSharedSchedule(MONSTER_SHARED_SCHED_FAIL);
+        case MONSTER_SCHED_SMALL_FLINCH: return _GetSharedSchedule(MONSTER_SHARED_SCHED_SMALL_FLINCH);
+        case MONSTER_SCHED_ALERT_SMALL_FLINCH: return _GetSharedSchedule(MONSTER_SHARED_SCHED_ALERT_SMALL_FLINCH);
+        case MONSTER_SCHED_RELOAD: return _GetSharedSchedule(MONSTER_SHARED_SCHED_RELOAD);
+        case MONSTER_SCHED_ARM_WEAPON: return _GetSharedSchedule(MONSTER_SHARED_SCHED_ARM_WEAPON);
+        case MONSTER_SCHED_STANDOFF: return _GetSharedSchedule(MONSTER_SHARED_SCHED_STANDOFF);
+        case MONSTER_SCHED_RANGE_ATTACK1: return _GetSharedSchedule(MONSTER_SHARED_SCHED_RANGE_ATTACK1);
+        case MONSTER_SCHED_RANGE_ATTACK2: return _GetSharedSchedule(MONSTER_SHARED_SCHED_RANGE_ATTACK2);
+        case MONSTER_SCHED_MELEE_ATTACK1: return _GetSharedSchedule(MONSTER_SHARED_SCHED_MELEE_ATTACK1);
+        case MONSTER_SCHED_MELEE_ATTACK2: return _GetSharedSchedule(MONSTER_SHARED_SCHED_MELEE_ATTACK2);
+        case MONSTER_SCHED_SPECIAL_ATTACK1: return _GetSharedSchedule(MONSTER_SHARED_SCHED_SPECIAL_ATTACK1);
+        case MONSTER_SCHED_SPECIAL_ATTACK2: return _GetSharedSchedule(MONSTER_SHARED_SCHED_SPECIAL_ATTACK2);
+        case MONSTER_SCHED_TAKE_COVER_FROM_BEST_SOUND: return _GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_BEST_SOUND);
+        case MONSTER_SCHED_TAKE_COVER_FROM_ENEMY: return _GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_ENEMY);
+        case MONSTER_SCHED_COWER: return _GetSharedSchedule(MONSTER_SHARED_SCHED_COWER);
+        case MONSTER_SCHED_AMBUSH: return _GetSharedSchedule(MONSTER_SHARED_SCHED_AMBUSH);
+        case MONSTER_SCHED_BARNACLE_VICTIM_GRAB: return _GetSharedSchedule(MONSTER_SHARED_SCHED_BARNACLE_VICTIM_GRAB);
+        case MONSTER_SCHED_BARNACLE_VICTIM_CHOMP: return _GetSharedSchedule(MONSTER_SHARED_SCHED_BARNACLE_VICTIM_CHOMP);
+        case MONSTER_SCHED_INVESTIGATE_SOUND: return _GetSharedSchedule(MONSTER_SHARED_SCHED_INVESTIGATE_SOUND);
+        case MONSTER_SCHED_DIE: return _GetSharedSchedule(MONSTER_SHARED_SCHED_DIE);
+        case MONSTER_SCHED_TAKE_COVER_FROM_ORIGIN: return _GetSharedSchedule(MONSTER_SHARED_SCHED_TAKE_COVER_FROM_ORIGIN);
+        case MONSTER_SCHED_VICTORY_DANCE: return _GetSharedSchedule(MONSTER_SHARED_SCHED_VICTORY_DANCE);
+        case MONSTER_SCHED_FAIL: return _GetSharedSchedule(MONSTER_SHARED_SCHED_FAIL);
+        default: return _GetSharedSchedule(MONSTER_SHARED_SCHED_IDLE_STAND);
     }
 
     return Invalid_Struct;
@@ -3006,7 +3063,7 @@ MONSTER_STATE:@Monster_GetIdealState(this) {
             }
         }
         case MONSTER_STATE_ALERT: {
-            if (iConditions & (COND_NEW_ENEMY|COND_SEE_ENEMY)) {
+            if (iConditions & (COND_NEW_ENEMY | COND_SEE_ENEMY)) {
                 CE_SetMember(this, m_iIdealMonsterState, MONSTER_STATE_COMBAT);
             } else if (iConditions & COND_HEAR_SOUND) {
                 CE_SetMember(this, m_iIdealMonsterState, MONSTER_STATE_ALERT);
@@ -3023,7 +3080,7 @@ MONSTER_STATE:@Monster_GetIdealState(this) {
             }
         }
         case MONSTER_STATE_SCRIPT: {
-            if (iConditions & (COND_TASK_FAILED|COND_LIGHT_DAMAGE|COND_HEAVY_DAMAGE)) {
+            if (iConditions & (COND_TASK_FAILED | COND_LIGHT_DAMAGE | COND_HEAVY_DAMAGE)) {
                 @Monster_ExitScriptedSequence(this);
             }
         }
@@ -3218,13 +3275,9 @@ bool:@Monster_MoveStep(this, const Float:vecMove[3], bool:bRelink) {
 
         // If move forward failed then try to make height step and repeat
         if (!bSuccessed) {
-            get_tr2(g_pTrace, TR_vecEndPos, vecSrc);
             xs_vec_set(vecEnd, vecSrc[0], vecSrc[1], vecSrc[2] + flStepHeight);
-            @Monster_Trace(this, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, this, g_pTrace);
-            
-            static Float:vecMins[3]; pev(this, pev_mins, vecMins);
-            static Float:vecEndPos[3]; get_tr2(g_pTrace, TR_vecEndPos, vecEndPos);
 
+            @Monster_Trace(this, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, this, g_pTrace);
             get_tr2(g_pTrace, TR_vecEndPos, vecSrc);
             xs_vec_add(vecSrc, vecMove, vecEnd);
 
@@ -3241,17 +3294,26 @@ bool:@Monster_MoveStep(this, const Float:vecMove[3], bool:bRelink) {
 
             get_tr2(g_pTrace, TR_vecEndPos, vecSrc);
             xs_vec_set(vecEnd, vecSrc[0], vecSrc[1], vecSrc[2] - flStepHeight - OFFSET_TO_HIT_GROUND);
-            @Monster_Trace(this, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, this, g_pTrace);
+            
+            if (!@Monster_Trace(this, vecSrc, vecEnd, DONT_IGNORE_MONSTERS, this, g_pTrace)) {
+                get_tr2(g_pTrace, TR_vecEndPos, vecOrigin);
+            } else {
+                xs_vec_copy(vecEnd, vecOrigin);
+            }
 
-            static Float:vecPlaneNormal[3]; get_tr2(g_pTrace, TR_vecPlaneNormal, vecPlaneNormal);
+            // static Float:vecPlaneNormal[3]; get_tr2(g_pTrace, TR_vecPlaneNormal, vecPlaneNormal);
 
-            bSuccessed = vecPlaneNormal[2] > 0.5;
+            // bSuccessed = vecPlaneNormal[2] > 0.5;
+
+            // if (vecPlaneNormal[2] <= 0.5) {
+            //     log_amx("vecPlaneNormal[2] %f", vecPlaneNormal[2]);
+            // }
         }
-
-        get_tr2(g_pTrace, TR_vecEndPos, vecOrigin);
 
         // TODO: Investigate ability to allow monsters to fall
     }
+
+    get_tr2(g_pTrace, TR_vecEndPos, vecOrigin);
 
     if (bSuccessed) {
         if (bRelink) {
@@ -3281,7 +3343,13 @@ bool:@Monster_Trace(this, const Float:vecSrc[3], const Float:vecEnd[3], iTraceFl
 
     CE_SetMember(this, m_iRouteIndex, 0);
 
-    @Monster_ReleasePathTask(this);
+    if (@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) {
+        static NavBuildPathTask:pTask; pTask = CE_GetMember(this, m_pPathTask);
+        Nav_Path_FindTask_Abort(pTask);
+
+        @Monster_ClearConditions(this, COND_WAIT_FOR_PATH);
+        CE_SetMember(this, m_pPathTask, Invalid_NavBuildPathTask);
+    }
 }
 
 @Monster_RouteSimplify(this, pTarget) {}
@@ -3308,44 +3376,49 @@ bool:@Monster_GetNodeRoute(this, const Float:vecDest[3]) {
     #endif
 }
 
-@Monster_MoveNavPath(this, NavPath:pPath) {
-    if (!Nav_Path_IsValid(pPath)) return false;
-    
+@Monster_HandlePathTask(this) {
+    if (!@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) return;
+
+    @Monster_ClearConditions(this, COND_WAIT_FOR_PATH);
+
+    static NavBuildPathTask:pTask; pTask = CE_GetMember(this, m_pPathTask);
+
+    if (Nav_Path_FindTask_IsSuccessed(pTask)) {
+        new NavPath:pPath = Nav_Path_FindTask_GetPath(pTask);
+        if (Nav_Path_IsValid(pPath)) {
+            @Monster_MoveNavPath(this, pPath);
+        } else {
+            @Monster_TaskFail(this);
+        }
+    } else {
+        @Monster_TaskFail(this);
+    }
+
+    CE_SetMember(this, m_pPathTask, Invalid_NavBuildPathTask);
+}
+
+@Monster_MoveNavPath(this, NavPath:pPath) {    
     @Monster_RouteNew(this);
+
+    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
     static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
 
-    static Array:irgSegments; irgSegments = Nav_Path_GetSegments(pPath);
-    static iSegmentsNum; iSegmentsNum = ArraySize(irgSegments);
+    static iSegmentsNum; iSegmentsNum = Nav_Path_GetSegmentCount(pPath);
 
-    for (new i = 0; i < iSegmentsNum; ++i) {
-        static NavPathSegment:pSegment; pSegment = ArrayGetCell(irgSegments, i);
-        static Float:vecPos[3]; Nav_Path_Segment_GetPos(pSegment, vecPos);
-        
+    for (new iSegment = 0; iSegment < iSegmentsNum; ++iSegment) {
+        static Float:vecPos[3]; Nav_Path_GetSegmentPos(pPath, iSegment, vecPos);
+
         static rgWaypoint[MONSTER_WAYPOINT];
         xs_vec_copy(vecPos, rgWaypoint[MONSTER_WAYPOINT_LOCATION]);
         rgWaypoint[MONSTER_WAYPOINT_TYPE] = MF_TO_NODE;
 
-        if (i == iSegmentsNum - 1) {
+        if (iSegment == iSegmentsNum - 1) {
             rgWaypoint[MONSTER_WAYPOINT_TYPE] = MF_IS_GOAL;
         }
 
         ArrayPushArray(irgRoute, rgWaypoint[any:0]);
     }
-
-    return true;
-}
-
-@Monster_ReleasePathTask(this) {
-    if (!@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) return;
-
-    static NavBuildPathTask:pTask; pTask = CE_GetMember(this, m_pPathTask);
-    if (!Nav_Path_FindTask_IsFinished(pTask)) {
-        Nav_Path_FindTask_Abort(pTask);
-    }
-
-    @Monster_ClearConditions(this, COND_WAIT_FOR_PATH);
-    CE_SetMember(this, m_pPathTask, Invalid_NavBuildPathTask);
 }
 
 bool:@Monster_MoveToNode(this, Activity:iActivity, Float:flWaitTime, const Float:vecGoal[3]) {
@@ -3395,10 +3468,15 @@ bool:@Monster_Triangulate(this, const Float:vecStart[], const Float:vecEnd[], Fl
         xs_vec_sub_scaled(vecOrigin, vecDirUp, (flSizeZ * 3), vecBottom);
     }
 
-    static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
-    static rgWaypoint[MONSTER_WAYPOINT]; ArrayGetArray(irgRoute, CE_GetMember(this, m_iRouteIndex), rgWaypoint[any:0], _:MONSTER_WAYPOINT);
+    static Float:vecFarSide[3];
 
-    static Float:vecFarSide[3]; xs_vec_copy(rgWaypoint[MONSTER_WAYPOINT_LOCATION], vecFarSide);
+    static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
+    if (ArraySize(irgRoute)) {
+        static rgWaypoint[MONSTER_WAYPOINT]; ArrayGetArray(irgRoute, CE_GetMember(this, m_iRouteIndex), rgWaypoint[any:0], _:MONSTER_WAYPOINT);
+        xs_vec_copy(rgWaypoint[MONSTER_WAYPOINT_LOCATION], vecFarSide);
+    } else {
+        xs_vec_copy(vecEnd, vecFarSide);
+    }
 
     for (new i = 0; i < 8; i++) {
         static Float:flDistance;
@@ -3446,33 +3524,12 @@ bool:@Monster_Triangulate(this, const Float:vecStart[], const Float:vecEnd[], Fl
 }
 
 bool:@Monster_BuildRoute(this, const Float:vecGoal[3], iMoveFlag, pTarget) {
-    // TODO: Investigate cases when monster have to cancel current path task
-    if (@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) return false;
-
     @Monster_RouteNew(this);
-
-    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
 
     static iMovementGoal; iMovementGoal = @Monster_RouteClassify(this, iMoveFlag);
     CE_SetMember(this, m_iMovementGoal, iMovementGoal);
 
-    static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
-
-    new rgGoalWaypoint[MONSTER_WAYPOINT];
-    xs_vec_copy(vecGoal, rgGoalWaypoint[MONSTER_WAYPOINT_LOCATION]);
-    rgGoalWaypoint[MONSTER_WAYPOINT_TYPE] = iMoveFlag | MF_IS_GOAL;
-
-    ArrayPushArray(irgRoute, rgGoalWaypoint[any:0]);
-
-    static Float:flDistance; flDistance = 0.0;
-    static MONSTER_LOCALMOVE:iLocalMove; iLocalMove = @Monster_CheckLocalMove(this, vecOrigin, vecGoal, pTarget, true, flDistance);
-
-    if (iLocalMove == MONSTER_LOCALMOVE_VALID) return true;
-
-    static Float:vecApex[3];
-    if (iLocalMove != MONSTER_LOCALMOVE_INVALID_DONT_TRIANGULATE && @Monster_Triangulate(this, vecOrigin, vecGoal, flDistance, pTarget, vecApex)) {
-        @Monster_InsertWaypoint(this, vecApex, iMoveFlag | MF_TO_DETOUR);
-        @Monster_RouteSimplify(this, pTarget);
+    if (@Monster_BuildSimpleRoute(this, vecGoal, iMoveFlag, pTarget)) {
         return true;
     }
 
@@ -3482,6 +3539,30 @@ bool:@Monster_BuildRoute(this, const Float:vecGoal[3], iMoveFlag, pTarget) {
         return true;
     }
 
+    return false;
+}
+
+@Monster_BuildSimpleRoute(this, const Float:vecGoal[3], iMoveFlag, pTarget) {
+    static Float:vecOrigin[3]; pev(this, pev_origin, vecOrigin);
+
+    static Float:flDistance; flDistance = 0.0;
+    static MONSTER_LOCALMOVE:iLocalMove; iLocalMove = @Monster_CheckLocalMove(this, vecOrigin, vecGoal, pTarget, true, flDistance);
+
+    if (iLocalMove == MONSTER_LOCALMOVE_VALID) {
+        @Monster_PushWaypoint(this, vecGoal, iMoveFlag | MF_IS_GOAL);
+        return true;
+    }
+
+    if (iLocalMove != MONSTER_LOCALMOVE_INVALID_DONT_TRIANGULATE) {
+        static Float:vecApex[3];
+        if (@Monster_Triangulate(this, vecOrigin, vecGoal, flDistance, pTarget, vecApex)) {
+            @Monster_PushWaypoint(this, vecGoal, iMoveFlag | MF_IS_GOAL);
+            @Monster_InsertWaypoint(this, vecApex, iMoveFlag | MF_TO_DETOUR);
+            @Monster_RouteSimplify(this, pTarget);
+
+            return true;
+        }
+    }
 
     return false;
 }
@@ -3514,6 +3595,7 @@ bool:@Monster_BuildNearestRoute(this, const Float:vecThreat[3], const Float:vecV
 
 @Monster_IsRouteClear(this) {
     if (CE_GetMember(this, m_iMovementGoal) == MOVEGOAL_NONE) return true;
+    if (@Monster_HasConditions(this, COND_WAIT_FOR_PATH)) return false;
 
     static Array:irgRoute; irgRoute = CE_GetMember(this, m_irgRoute);
     if (!ArraySize(irgRoute)) return true;
@@ -3549,28 +3631,28 @@ bool:@Monster_RefreshRoute(this) {
             }
 
             return true;
-    }
-    case MOVEGOAL_ENEMY: {
-        new pEnemy = CE_GetMember(this, m_pEnemy);
-        new Float:vecEnemyLKP[3]; CE_GetMemberVec(this, m_vecEnemyLKP, vecEnemyLKP);
-        return @Monster_BuildRoute(this, vecEnemyLKP, MF_TO_ENEMY, pEnemy);
-    }
-    case MOVEGOAL_LOCATION: {
-        new Float:vecMoveGoal[3]; CE_GetMemberVec(this, m_vecMoveGoal, vecMoveGoal);
-        return @Monster_BuildRoute(this, vecMoveGoal, MF_TO_LOCATION, FM_NULLENT);
-    }
-    case MOVEGOAL_TARGETENT: {
-        new pTarget = CE_GetMember(this, m_pTargetEnt);
-        new Float:vecTarget[3]; pev(pTarget, pev_origin, vecTarget); 
-
-        if (pTarget != FM_NULLENT) {
-            return @Monster_BuildRoute(this, vecTarget, MF_TO_TARGETENT, pTarget);
         }
-    }
-    case MOVEGOAL_NODE: {
-        new Float:vecMoveGoal[3]; CE_GetMemberVec(this, m_vecMoveGoal, vecMoveGoal);
-        return @Monster_GetNodeRoute(this, vecMoveGoal);
-    }
+        case MOVEGOAL_ENEMY: {
+            new pEnemy = CE_GetMember(this, m_pEnemy);
+            new Float:vecEnemyLKP[3]; CE_GetMemberVec(this, m_vecEnemyLKP, vecEnemyLKP);
+            return @Monster_BuildRoute(this, vecEnemyLKP, MF_TO_ENEMY, pEnemy);
+        }
+        case MOVEGOAL_LOCATION: {
+            new Float:vecMoveGoal[3]; CE_GetMemberVec(this, m_vecMoveGoal, vecMoveGoal);
+            return @Monster_BuildRoute(this, vecMoveGoal, MF_TO_LOCATION, FM_NULLENT);
+        }
+        case MOVEGOAL_TARGETENT: {
+            new pTarget = CE_GetMember(this, m_pTargetEnt);
+            new Float:vecTarget[3]; pev(pTarget, pev_origin, vecTarget); 
+
+            if (pTarget != FM_NULLENT) {
+                return @Monster_BuildRoute(this, vecTarget, MF_TO_TARGETENT, pTarget);
+            }
+        }
+        case MOVEGOAL_NODE: {
+            new Float:vecMoveGoal[3]; CE_GetMemberVec(this, m_vecMoveGoal, vecMoveGoal);
+            return @Monster_GetNodeRoute(this, vecMoveGoal);
+        }
     }
 
     return false;
@@ -3842,7 +3924,7 @@ Float:@Monster_DamageForce(this, Float:flDamage) {
     return 1;
 }
 
-@Monster_StartTask(this, iTask, any:data) {
+@Monster_StartTask(this, iTask, any:data) { 
     switch (iTask) {
         case TASK_TURN_RIGHT: {
             new Float:vecAngles[3]; pev(this, pev_angles, vecAngles);
@@ -3906,10 +3988,10 @@ Float:@Monster_DamageForce(this, Float:flDamage) {
             // CE_SetMember(this, m_iIdealActivity, iActivity);
         }
         case TASK_SET_SCHEDULE: {
-            new Struct:sNewSchedule = @Monster_GetScheduleOfType(this, MONSTER_SCHEDULE_TYPE:data);
+            new Struct:sNewSchedule = CE_CallMethod(this, GetScheduleOfType, MONSTER_SCHEDULE_TYPE:data);
             
             if (sNewSchedule != Invalid_Struct) {
-                @Monster_ChangeSchedule(this, sNewSchedule);
+                CE_CallMethod(this, ChangeSchedule, sNewSchedule);
             } else {
                 @Monster_TaskFail(this);
             }
@@ -4058,11 +4140,9 @@ Float:@Monster_DamageForce(this, Float:flDamage) {
             } else {
                 CE_SetMemberVec(this, m_vecMoveGoal, vecTarget);
 
-                // if (CE_GetMember(this, m_pPathTask) == Invalid_NavBuildPathTask) {
-                        if (!@Monster_MoveToTarget(this, ACT_WALK, 2.0)) {
-                            @Monster_TaskFail(this);
-                        }
-                // }
+                if (!@Monster_MoveToTarget(this, ACT_WALK, 2.0)) {
+                    @Monster_TaskFail(this);
+                }
             }
         }
         case TASK_RUN_TO_TARGET, TASK_WALK_TO_TARGET: {
@@ -4079,12 +4159,10 @@ Float:@Monster_DamageForce(this, Float:flDamage) {
                 if (@Monster_LookupActivity(this, iNewActivity) == ACTIVITY_NOT_AVAILABLE) {
                     @Monster_TaskComplete(this);
                 } else {
-                        // if (CE_GetMember(this, m_pPathTask) == Invalid_NavBuildPathTask) {
-                                if (pTargetEnt == FM_NULLENT || !@Monster_MoveToTarget(this, iNewActivity, 2.0)) {
-                                        @Monster_TaskFail(this);
-                                        @Monster_RouteClear(this);
-                                }
-                        // }
+                    if (pTargetEnt == FM_NULLENT || !@Monster_MoveToTarget(this, iNewActivity, 2.0)) {
+                        @Monster_TaskFail(this);
+                        @Monster_RouteClear(this);
+                    }
                 }
             }
 
@@ -4179,14 +4257,13 @@ Float:@Monster_DamageForce(this, Float:flDamage) {
                 new Activity:iMovementActivity = CE_GetMember(this, m_iMovementActivity);
                 new pTargetEnt = CE_GetMember(this, m_pTargetEnt);
 
-                // if (CE_GetMember(this, m_pPathTask) == Invalid_NavBuildPathTask) {
-                        @Monster_RouteClear(this);
-                        if (pTargetEnt != FM_NULLENT && @Monster_MoveToTarget(this, iMovementActivity, 1.0)) {
-                                @Monster_TaskComplete(this);
-                        } else {
-                                @Monster_TaskFail(this);
-                        }
-                // }
+                @Monster_RouteClear(this);
+
+                if (pTargetEnt != FM_NULLENT && @Monster_MoveToTarget(this, iMovementActivity, 1.0)) {
+                    @Monster_TaskComplete(this);
+                } else {
+                    @Monster_TaskFail(this);
+                }
         }
         case TASK_GET_PATH_TO_HINTNODE: {
             // TODO: Implement
@@ -4884,7 +4961,7 @@ Float:MapTextureTypeVolume(chTextureType) {
                 case 3: emit_sound(this, CHAN_BODY, "player/pl_snow4.wav", flVolume, ATTN_NORM, 0, PITCH_NORM);
             }
         }  
-	}
+    }
 
     CE_SetMember(this, m_iStepLeft, !iStepLeft);
 }

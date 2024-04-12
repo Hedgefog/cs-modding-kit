@@ -8,11 +8,11 @@
 #include <api_navsystem_const>
 
 enum NavArea {
-  Invalid_NavArea = 0
+  Invalid_NavArea = -1
 };
 
 enum NavBuildPathTask {
-  Invalid_NavBuildPathTask = 0
+  Invalid_NavBuildPathTask = -1
 };
 
 enum NavPath {
@@ -48,9 +48,14 @@ native NavDirType:Nav_Area_ComputeDirection(NavArea:pArea, const Float:vecPoint[
 native Nav_Area_ComputePortal(NavArea:pAreas, NavArea:pOther, NavDirType:iDir, Float:vecCenter[3], &Float:flHalfWidth);
 native bool:Nav_Area_IsOverlapping(NavArea:pArea, NavArea:pOther);
 native bool:Nav_Area_IsOverlappingPoint(NavArea:pArea, const Float:vecPoint[3]);
+native Float:Nav_Area_GetCostSoFar(NavArea:pArea);
 
 native bool:Nav_Path_IsValid(NavPath:pPath);
-native Array:Nav_Path_GetSegments(NavPath:pPath);
+native Nav_Path_GetSegmentCount(NavPath:pPath);
+native Nav_Path_GetSegmentPos(NavPath:pPath, iSegment, Float:vecOut[3]);
+native NavTraverseType:Nav_Path_GetSegmentHow(NavPath:pPath, iSegment);
+native NavArea:Nav_Path_GetSegmentArea(NavPath:pPath, iSegment);
+native bool:Nav_Path_FindClosestPoint(NavPath:pPath, const Float:vecWorldPos[3], iStartIndex, iEndIndex, Float:vecClose[3]);
 
 /**
   * Use the A* algorithm to find the shortest path asynchronous
@@ -87,7 +92,4 @@ native bool:Nav_Path_FindTask_IsFinished(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_IsSuccessed(NavBuildPathTask:pTask);
 native bool:Nav_Path_FindTask_IsTerminated(NavBuildPathTask:pTask);
 native any:Nav_Path_FindTask_GetUserToken(NavBuildPathTask:pTask);
-
-native Nav_Path_Segment_GetPos(NavPathSegment:pSegment, Float:vecOut[3]);
-native NavTraverseType:Nav_Path_Segment_GetHow(NavPathSegment:pSegment);
-native NavArea:Nav_Path_Segment_GetArea(NavPathSegment:pSegment);
+native any:Nav_Path_FindTask_GetIterationsNum(NavBuildPathTask:pTask);

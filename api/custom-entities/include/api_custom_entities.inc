@@ -36,7 +36,7 @@ native CE:CE_RegisterDerived(const szClassname[], const szBase[], bool:bAbstract
  *
  * @return Entity index
  */
-native CE_Create(const szClassname[], const Float:vecOrigin[3] = {0.0, 0.0, 0.0}, bool:bTemp = true);
+native CE_Create(const szClassname[], const Float:vecOrigin[] = {0.0, 0.0, 0.0}, bool:bTemp = true);
 
 /**
  * Restart entity
@@ -167,7 +167,7 @@ native CE_SetMember(pEntity, const szMember[], any:value, bool:bReplace = true);
  * @param szMember Member name
  * @param vecOut Output vector
  */
-native bool:CE_GetMemberVec(pEntity, const szMember[], Float:vecOut[3]);
+native bool:CE_GetMemberVec(pEntity, const szMember[], Float:vecOut[]);
 
 /**
  * Sets vector member of an entity
@@ -176,7 +176,7 @@ native bool:CE_GetMemberVec(pEntity, const szMember[], Float:vecOut[3]);
  * @param szMember Member name
  * @param vecValue Vector to set
  */
-native CE_SetMemberVec(pEntity, const szMember[], const Float:vecValue[3], bool:bReplace = true);
+native CE_SetMemberVec(pEntity, const szMember[], const Float:vecValue[], bool:bReplace = true);
 
 /**
  * Gets string member of an entity
@@ -216,3 +216,5 @@ native any:CE_CallMethod(pEntity, const szMethod[], any:...);
  * @return Method return value
 */
 native any:CE_CallBaseMethod(any:...);
+
+native CE_GetCallPluginId();

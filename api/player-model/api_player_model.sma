@@ -59,6 +59,7 @@ public plugin_natives() {
   register_native("PlayerModel_Set", "Native_SetPlayerModel");
   register_native("PlayerModel_Reset", "Native_ResetPlayerModel");
   register_native("PlayerModel_Update", "Native_UpdatePlayerModel");
+  register_native("PlayerModel_UpdateAnimation", "Native_UpdatePlayerAnimation");
   register_native("PlayerModel_SetSequence", "Native_SetPlayerSequence");
   register_native("PlayerModel_PrecacheAnimation", "Native_PrecacheAnimation");
 }
@@ -142,6 +143,16 @@ public Native_UpdatePlayerModel(iPluginId, iArgc) {
   }
 
   @Player_UpdateCurrentModel(pPlayer);
+}
+
+public Native_UpdatePlayerAnimation(iPluginId, iArgc) {
+  new pPlayer = get_param(1);
+
+  if (!is_user_connected(pPlayer)) {
+    NATIVE_ERROR_NOT_CONNECTED(pPlayer);
+  }
+
+  @Player_UpdateAnimationModel(pPlayer);
 }
 
 public Native_SetPlayerSequence(iPluginId, iArgc) {

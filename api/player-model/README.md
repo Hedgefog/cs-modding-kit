@@ -11,22 +11,22 @@ PlayerModel_Update(pPlayer); // force update player model
 ```
 
 
-## Working with animations
+## Working With Animations
 
 The API supports loading custom animations, including additional weapon animations from separate files.
 
-### Precaching animation
+### Precaching Animation
 
 To precache the animation use `PlayerModel_PrecacheAnimation` native, it will precache animation from `animations` directory. This example will precache animation from `cstrike/animations/my-mod/player.mdl`:
 ```cpp
 PlayerModel_PrecacheAnimation("my-mod/player.mdl");
 ```
 
-### Set custom weapon animation
+### Set Custom Weapon Animation
 
-Customize weapon animations by set `m_szAnimExtension` member. The following example sets the animation to `ref_aim_mysupergun`:
+Customize weapon animations by set `m_szAnimExtension` member. The following example sets the animation to `ref_aim_myweapon`:
 ```cpp
-static const szCustonWeaponExt[] = "mysupergun";
+static const szCustonWeaponExt[] = "myweapon";
 
 set_ent_data_string(pPlayer, "CBasePlayer", "m_szAnimExtention", szCustonWeaponExt);
 set_ent_data(pPlayer, "CBaseMonster", "m_Activity", ACT_IDLE);
@@ -34,7 +34,7 @@ rg_set_animation(pPlayer, PLAYER_IDLE);
 ```
 
 
-## Making animations file
+## Making Animations File
 
 ### Creating Animation Files
 
@@ -132,7 +132,7 @@ Fist of all you have to provide basic player sequences like `walk`, `run`, `flit
 </details>
 
 
-#### Fake reference
+#### Fake Reference
 Ensure your animation model includes at least one polygon. Here's an example SMD file for a fake reference:
 
 <details>

@@ -1,7 +1,7 @@
 
 # Player Model API
 
-## Working With Models
+## 🧍Working With Models
 
 To change player model use `PlayerModel_Set` and `PlayerModel_Update` natives.
 `PlayerModel_Set` is using to set player model, calling `PlayerModel_Update` will force update model.
@@ -10,8 +10,7 @@ PlayerModel_Set(pPlayer, "player/model/vip/vip.mdl"); // set current player mode
 PlayerModel_Update(pPlayer); // force update player model
 ```
 
-
-## Working With Animations
+## 🕺Working With Animations
 
 The API supports loading custom animations, including additional weapon animations from separate files.
 
@@ -33,8 +32,7 @@ set_ent_data(pPlayer, "CBaseMonster", "m_Activity", ACT_IDLE);
 rg_set_animation(pPlayer, PLAYER_IDLE);
 ```
 
-
-## Making Animations File
+## 📄 Making Animations File
 
 ### Creating Animation Files
 

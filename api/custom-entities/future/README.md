@@ -200,20 +200,13 @@ This implementation has a small issue: changing the `iType` member does not imme
 #define UpdateColor "UpdateColor"
 
 public plugin_precache() {
-    precache_model(g_szModel);
-
-    CE_RegisterClass(ENTITY_CLASSNAME, CEPreset_Item);
-    
-    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Allocate, "@KeyItem_Allocate");
-    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Spawn, "@KeyItem_Spawn");
-    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_CanPickup, "@KeyItem_CanPickup");
-    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Pickup, "@KeyItem_Pickup");
+    ...
 
     // Registering new class methods
     CE_RegisterClassMethod(ENTITY_CLASSNAME, SetType, "@KeyItem_SetType", CE_MP_Cell);
     CE_RegisterClassMethod(ENTITY_CLASSNAME, UpdateColor, "@KeyItem_UpdateColor");
 
-    CE_RegisterClassKeyMemberBinding(ENTITY_CLASSNAME, "type", m_iType, CEMemberType_Cell);
+    ...
 }
 
 @KeyItem_Allocate(const this) { ... }

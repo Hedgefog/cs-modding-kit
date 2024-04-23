@@ -267,7 +267,7 @@ ce_call_method <entity> "item_key" "SetType" 3
 Replace `<entity>` with the desired entity index, which you can obtain from the console message after executing `ce_spawn` or by running `ce_list` to get a list of custom entities.
 
 
-### Spawning an Entity with Code
+#### Spawning an Entity with Code
 
 You can also create the entity using the `CE_Create` native function and then call the engine `Spawn` function on it:
 

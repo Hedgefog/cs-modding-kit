@@ -47,7 +47,9 @@ public plugin_precache() {
 
 In the implementation of the `Allocate` method, the `CE_CallBaseMethod()` call allows us to invoke the base `Allocate` method of the `CEPreset_Item` preset class, allowing it to handle its own allocation logic before executing custom logic. Make sure to include this call in every implemented or overridden method unless you need to fully rewrite the implementation.
 
-> Caution: When calling CE_CallBaseMethod, you need to pass all method arguments to ensure the base method receives the necessary context for its operations.
+> **Caution:** The `Allocate` method is called during entity initialization. Modifying entity variables or invoking engine functions on the entity within this method may lead to unexpected results. Use this method only for initializing custom entity members!
+
+> **Caution:** When calling `CE_CallBaseMethod`, you need to pass all method arguments to ensure the base method receives the necessary context for its operations.
 
 Natives like `CE_SetMemberString` and `CE_SetMemberVec` are used to set members/properties for the entity instance. Constants such as `CE_MEMBER_*` are used to specify the property names that will set the model each time the entity is spawned or its variables are reset. For example, `CE_MEMBER_MODEL` sets `pev->model` of the entity every respawn. Similarly, `CE_MEMBER_MINS` and `CE_MEMBER_MAXS` specify the entity's bounding box.
 

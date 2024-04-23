@@ -209,6 +209,7 @@ You can also create the entity using the `CE_Create` native function and then ca
 new pKey = CE_Create("item_key", vecOrigin);
 
 if (pKey != FM_NULLENT) {
+    CE_SetMember(pKey, "iType", 3);
     dllfunc(DLLFunc_Spawn, pKey);
 }
 ```

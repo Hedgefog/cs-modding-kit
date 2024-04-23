@@ -187,6 +187,59 @@ Here, we added `KeyType` constants to represent different key types and implemen
 
 You may have noticed the constant `m_iType`, which is a string constant used for the custom member we work with using `CE_GetMember` and `CE_SetMember` natives. We also use `CE_RegisterClassKeyMemberBinding` to bind this member to the entity key `type`, allowing us to change the key type by setting the `type` key-value on the map.
 
+### 📦 Custom Methods
+
+This implementation has a small issue: changing the `iType` member does not immediately update the entity's color until the entity respawns. To resolve this, let's add `SetType` and `UpdateColor` methods to change the type correctly and update the entity's color in real time:
+
+```cpp
+#define SetType "SetType"
+#define UpdateColor "UpdateColor"
+
+public plugin_precache() {
+    precache_model(g_szModel);
+
+    CE_RegisterClass(ENTITY_CLASSNAME, CEPreset_Item);
+    
+    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Allocate, "@KeyItem_Allocate");
+    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Spawn, "@KeyItem_Spawn");
+    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_CanPickup, "@KeyItem_CanPickup");
+    CE_ImplementClassMethod(ENTITY_CLASSNAME, CEMethod_Pickup, "@KeyItem_Pickup");
+
+    // Registering new class methods
+    CE_RegisterClassMethod(ENTITY_CLASSNAME, SetType, "@KeyItem_SetType", CE_MP_Cell);
+    CE_RegisterClassMethod(ENTITY_CLASSNAME, UpdateColor, "@KeyItem_UpdateColor");
+
+    CE_RegisterClassKeyMemberBinding(ENTITY_CLASSNAME, "type", m_iType, CEMemberType_Cell);
+}
+
+@KeyItem_Allocate(const this) { ... }
+
+@KeyItem_Spawn(const this) {
+    CE_CallBaseMethod();
+
+    // Calling UpdateColor method to set color
+    CE_CallMethod(this, UpdateColor);
+}
+
+@KeyItem_CanPickup(const this, const pPlayer) { ... }
+@KeyItem_Pickup(const this, const pPlayer) { ... }
+
+@KeyItem_SetType(const this, const iType) {
+    CE_SetMember(this, m_iType, iType);
+
+    // Calling UpdateColor method to apply color change
+    CE_CallMethod(this, UpdateColor);
+}
+
+@KeyItem_UpdateColor(const this) {
+    new KeyType:iType = CE_GetMember(this, m_iType);
+
+    set_pev(this, pev_renderfx, kRenderFxGlowShell);
+    set_pev(this, pev_renderamt, 1.0);
+    set_pev(this, pev_rendercolor, KEY_COLORS_F[iType]);
+}
+```
+
 ### 🕵️‍♂️ Testing and Debugging
 
 > What if we don't have a map yet to test it? Is there another way to spawn our entity?
@@ -195,11 +248,20 @@ Yes, there are a few ways to do it!
 
 #### Spawning an Entity Using the Console
 
-You can spawn an entity using the console command `ce_spawn <classname> [...members]`. The `<classname>` parameter is the `classname` of the registered entity, and `[...members]` are optional parameters to set before spawning. Let's spawn a `"Green"` key:
+You can spawn an entity using the console command `ce_spawn <classname> [...members]`. The `<classname>` parameter is the `classname` of the registered entity, and `[...members]` are optional parameters to set members before spawning. Let's spawn a `"Green"` key:
 
 ```cpp
 ce_spawn "item_key" "iType" 3
 ```
+
+You can also invoke methods using the console command `ce_call_method <entity> <classname> <method> [...params]`. In this command, the `<entity>` parameter is the entity index, `<classname>` is the entity class, `<method>` is the method to call, and `[...params]` are optional parameters for method arguments. For example, to use the `SetType` method to change the key type to `Blue`, use:
+
+```cpp
+ce_call_method <entity> "item_key" "SetType" 3
+```
+
+Replace `<entity>` with the desired entity index, which you can obtain from the console message after executing `ce_spawn` or by running `ce_list` to get a list of custom entities.
+
 
 ### Spawning an Entity with Code
 
@@ -212,4 +274,9 @@ if (pKey != FM_NULLENT) {
     CE_SetMember(pKey, "iType", 3);
     dllfunc(DLLFunc_Spawn, pKey);
 }
+```
+
+You can also call the `SetType` method to change the key type to `Blue`:
+```cpp
+CE_CallMethod(pKey, "SetType", 3);
 ```

@@ -1,5 +1,3 @@
-Certainly! Let's create documentation for the Custom Entities API:
-
 # Custom Entities API
 
 The Custom Entities API provides a flexible framework for managing and creating custom entities. This API allows developers to register, spawn, manipulate, and interact with custom entities, defining their behavior through hooks and methods.

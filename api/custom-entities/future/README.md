@@ -10,7 +10,7 @@ To implement a custom entity, the first thing you need to do is register a new e
 
 Let's create a `key` item entity:
 
-```cpp
+```pawn
 #include <amxmodx>
 #include <fakemeta>
 #include <api_custom_entities>
@@ -26,7 +26,7 @@ In this example, the `CEPreset_Item` preset class is used to implement the item.
 
 The entity currently lacks a model and size, so let's provide them by implementing the `Allocate` method for the entity to supply all the necessary members:
 
-```cpp
+```pawn
 public plugin_precache() {
     // Precaching key model
     precache_model("models/w_security.mdl");
@@ -63,7 +63,7 @@ Our `item_key` entity is functional, allowing you to place the entity with the c
 
 However, we still need to add some logic to the entity, as it currently does not perform any specific actions. Let's implement the `Pickup` and `CanPickup` methods in the same way we implemented `Allocate`:
 
-```cpp
+```pawn
 new g_rgbPlayerHasKey[MAX_PLAYERS + 1];
 
 public plugin_precache() {
@@ -101,7 +101,7 @@ This simple implementation will display the text `"You have found a key!"` to th
 
 If you want to implement different key types, you can use custom members. Let's update our logic and improve the code:
 
-```cpp
+```pawn
 #include <amxmodx>
 #include <fakemeta>
 
@@ -195,7 +195,7 @@ You may have noticed the constant `m_iType`, which is a string constant used for
 
 This implementation has a small issue: changing the `iType` member does not immediately update the entity's color until the entity respawns. To resolve this, let's add `SetType` and `UpdateColor` methods to change the type correctly and update the entity's color in real time:
 
-```cpp
+```pawn
 #define SetType "SetType"
 #define UpdateColor "UpdateColor"
 
@@ -254,13 +254,13 @@ Yes, there are a few ways to do it!
 
 You can spawn an entity using the console command `ce_spawn <classname> [...members]`. The `<classname>` parameter is the `classname` of the registered entity, and `[...members]` are optional parameters to set members before spawning. Let's spawn a `"Green"` key:
 
-```cpp
+```bash
 ce_spawn "item_key" "iType" 3
 ```
 
 You can also invoke methods using the console command `ce_call_method <entity> <classname> <method> [...params]`. In this command, the `<entity>` parameter is the entity index, `<classname>` is the entity class, `<method>` is the method to call, and `[...params]` are optional parameters for method arguments. For example, to use the `SetType` method to change the key type to `Blue`, use:
 
-```cpp
+```bash
 ce_call_method <entity> "item_key" "SetType" 3
 ```
 
@@ -271,7 +271,7 @@ Replace `<entity>` with the desired entity index, which you can obtain from the 
 
 You can also create the entity using the `CE_Create` native function and then call the engine `Spawn` function on it:
 
-```cpp
+```pawn
 new pKey = CE_Create("item_key", vecOrigin);
 
 if (pKey != FM_NULLENT) {
@@ -281,6 +281,6 @@ if (pKey != FM_NULLENT) {
 ```
 
 You can also call the `SetType` method to change the key type to `Blue`:
-```cpp
+```pawn
 CE_CallMethod(pKey, "SetType", 3);
 ```

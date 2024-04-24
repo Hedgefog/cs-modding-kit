@@ -155,26 +155,34 @@ stock any:__cls_rgBuffer[CLASS_PARAM_BUFFER_LENGTH];
 stock Class:ClassCreate(const &Class:sBaseClass = Invalid_Class) {
   new Struct:class = StructCreate(__cls_Data);
   StructSetCell(class, __cls_Data_Base, sBaseClass);
-  StructSetCell(class, __cls_Data_Methods, TrieCreate());
-  StructSetCell(class, __cls_Data_Members, TrieCreate());
-  StructSetCell(class, __cls_Data_Setters, TrieCreate());
-  StructSetCell(class, __cls_Data_Getters, TrieCreate());
+  StructSetCell(class, __cls_Data_Members, Invalid_Trie);
+  StructSetCell(class, __cls_Data_Methods, Invalid_Trie);
+  StructSetCell(class, __cls_Data_Setters, Invalid_Trie);
+  StructSetCell(class, __cls_Data_Getters, Invalid_Trie);
 
   return Class:class;
 }
 
 stock ClassDestroy(&Class:class) {
   new Trie:itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
-  __cls_DestroyMethodsTrie(itMethods);
+  if (itMethods != Invalid_Trie) {
+    __cls_DestroyMethodsTrie(itMethods);
+  }
 
   new Trie:itGetters = StructGetCell(Struct:class, __cls_Data_Getters);
-  __cls_DestroyMethodsTrie(itGetters);
+  if (itGetters != Invalid_Trie) {
+    __cls_DestroyMethodsTrie(itGetters);
+  }
 
   new Trie:itSetters = StructGetCell(Struct:class, __cls_Data_Setters);
-  __cls_DestroyMethodsTrie(itSetters);
+  if (itSetters != Invalid_Trie) {
+    __cls_DestroyMethodsTrie(itSetters);
+  }
 
   new Trie:itMembers = StructGetCell(Struct:class, __cls_Data_Members);
-  TrieDestroy(itMembers);
+  if (itMembers != Invalid_Trie) {
+    TrieDestroy(itMembers);
+  }
 
   StructDestroy(Struct:class);
 
@@ -187,7 +195,7 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const Function:
   new iArgc = numargs();
 
   new Class:sBaseClass = StructGetCell(Struct:class, __cls_Data_Base);
-  new Trie:itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
+  new Trie:itMethods = __cls_GetClassMethodsTrie(class, __cls_MethodType_Method, true);
 
   if (TrieKeyExists(itMethods, szMethod)) {
     set_fail_state(__cls_err_MethodAlreadyRegistered, szMethod);
@@ -252,7 +260,9 @@ stock Class:ClassAddMethod(const &Class:class, const szMethod[], const Function:
 }
 
 stock Function:ClassGetMethodFunction(const &Class:class, const szMethod[]) {
-    static Trie:itMethods; itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
+    static Trie:itMethods; itMethods = __cls_GetClassMethodsTrie(class, __cls_MethodType_Method, false);
+
+    if (itMethods == Invalid_Trie) return Invalid_FunctionPointer;
 
     static Struct:sMethod;
     if (!TrieGetCell(itMethods, szMethod, sMethod)) return Invalid_FunctionPointer;
@@ -261,7 +271,9 @@ stock Function:ClassGetMethodFunction(const &Class:class, const szMethod[]) {
 }
 
 stock Struct:ClassGetMethodPointer(const &Class:class, const szMethod[]) {
-    static Trie:itMethods; itMethods = StructGetCell(Struct:class, __cls_Data_Methods);
+    static Trie:itMethods; itMethods = __cls_GetClassMethodsTrie(class, __cls_MethodType_Method, false);
+
+    if (itMethods == Invalid_Trie) return Invalid_Struct;
 
     static Struct:sMethod;
     if (!TrieGetCell(itMethods, szMethod, sMethod)) return Invalid_Struct;
@@ -282,51 +294,61 @@ stock Class:ClassGetBaseClass(const &Class:class) {
 }
 
 stock bool:ClassHasMetadata(const &Class:class, const szMember[]) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   return TrieKeyExists(itMembers, szMember);
 }
 
 stock ClassDeleteMetadata(const &Class:class, const szMember[]) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, false);
+
+  if (itMembers == Invalid_Trie) return;
 
   TrieDeleteKey(itMembers, szMember);
 }
 
 stock any:ClassGetMetadata(const &Class:class, const szMember[]) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, false);
+
+  if (itMembers == Invalid_Trie) return 0;
 
   static any:value;
   return TrieGetCell(itMembers, szMember, value) ? value : 0;
 }
 
 stock ClassSetMetadata(const &Class:class, const szMember[], any:value, bool:bReplace = true) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, true);
 
   TrieSetCell(itMembers, szMember, value, bReplace);
 }
 
 stock bool:ClassGetMetadataString(const &Class:class, const szMember[], szOut[], iMaxLen) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   copy(szOut, iMaxLen, NULL_STRING);
   return !!TrieGetString(itMembers, szMember, szOut, iMaxLen);
 }
 
 stock ClassSetMetadataString(const &Class:class, const szMember[], const szValue[], bool:bReplace = true) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, true);
 
   TrieSetString(itMembers, szMember, szValue, bReplace);
 }
 
 stock bool:ClassGetMetadataArray(const &Class:class, const szMember[], any:rgOut[], iLen) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   return !!TrieGetArray(itMembers, szMember, rgOut, iLen);
 }
 
 stock ClassSetMetadataArray(const &Class:class, const szMember[], const any:rgValue[], iLen, bool:bReplace = true) {
-  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+  static Trie:itMembers; itMembers = __cls_GetClassMembersTrie(class, true);
 
   TrieSetArray(itMembers, szMember, rgValue, iLen, bReplace);
 }
@@ -336,7 +358,7 @@ stock ClassSetMetadataArray(const &Class:class, const szMember[], const any:rgVa
 stock ClassInstance:ClassInstanceCreate(const &Class:class) {
   static Struct:sInstance; sInstance = StructCreate(__cls_InstanceData);
   StructSetCell(sInstance, __cls_InstanceData_Class, class);
-  StructSetCell(sInstance, __cls_InstanceData_Members, TrieCreate());
+  StructSetCell(sInstance, __cls_InstanceData_Members, Invalid_Trie);
 
   return ClassInstance:sInstance;
 }
@@ -358,8 +380,10 @@ stock ClassInstanceDestroy(&ClassInstance:pInstance) {
     __cls_cache_InstanceSetters[__cls_InstanceCache_Instance] = Invalid_ClassInstance;
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
-  TrieDestroy(itMembers);
+  static Trie:itMembers; itMembers = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+  if (itMembers != Invalid_Trie) {
+    TrieDestroy(itMembers);
+  }
 
   StructDestroy(Struct:pInstance);
 
@@ -615,7 +639,6 @@ stock ClassInstanceCallMethodPushNativeParam(iParam) {
     }
     case CMP_String, CMP_StringRef: {
       static iSize; iSize = get_string(iParam, __cls_rgBuffer[__cls_call_iBufferPos], charsmax(__cls_rgBuffer) - __cls_call_iBufferPos);
-      // log_amx("Param%d: ^"%s^"", iParam, __cls_rgBuffer);
       callfunc_push_str(__cls_rgBuffer[__cls_call_iBufferPos], iType == CMP_StringRef);
       __cls_call_iBufferPos += iSize;
     }
@@ -629,13 +652,17 @@ stock Class:ClassInstanceGetClass(const &ClassInstance:pInstance) {
 }
 
 stock bool:ClassInstanceHasMember(const &ClassInstance:pInstance, const szMember[]) {
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   return TrieKeyExists(itMembers, szMember);
 }
 
 stock ClassInstanceDeleteMember(const &ClassInstance:pInstance, const szMember[]) {
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, false);
+
+  if (itMembers == Invalid_Trie) return;
 
   TrieDeleteKey(itMembers, szMember);
 }
@@ -643,11 +670,13 @@ stock ClassInstanceDeleteMember(const &ClassInstance:pInstance, const szMember[]
 stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[]) {
   static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
-  if (TrieKeyExists(itGetters, szMember)) {
+  if (itGetters != Invalid_Trie && TrieKeyExists(itGetters, szMember)) {
     return __cls_CallCellGetter(pInstance, szMember);
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, false);
+
+  if (itMembers == Invalid_Trie) return 0;
 
   static any:value;
   return TrieGetCell(itMembers, szMember, value) ? value : 0;
@@ -656,12 +685,12 @@ stock any:ClassInstanceGetMember(const &ClassInstance:pInstance, const szMember[
 stock ClassInstanceSetMember(const &ClassInstance:pInstance, const szMember[], any:value, bool:bReplace = true) {
   static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
-  if (TrieKeyExists(itSetters, szMember)) {
+  if (itSetters != Invalid_Trie && TrieKeyExists(itSetters, szMember)) {
     __cls_CallCellSetter(pInstance, szMember, value);
     return;
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, true);
 
   TrieSetCell(itMembers, szMember, value, bReplace);
 }
@@ -669,11 +698,13 @@ stock ClassInstanceSetMember(const &ClassInstance:pInstance, const szMember[], a
 stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const szMember[], szOut[], iMaxLen) {
   static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
-  if (TrieKeyExists(itGetters, szMember)) {
+  if (itGetters != Invalid_Trie && TrieKeyExists(itGetters, szMember)) {
     return __cls_CallStringGetter(pInstance, szMember, szOut, iMaxLen);
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   copy(szOut, iMaxLen, NULL_STRING);
   return !!TrieGetString(itMembers, szMember, szOut, iMaxLen);
@@ -682,12 +713,12 @@ stock bool:ClassInstanceGetMemberString(const &ClassInstance:pInstance, const sz
 stock ClassInstanceSetMemberString(const &ClassInstance:pInstance, const szMember[], const szValue[], bool:bReplace = true) {
   static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
-  if (TrieKeyExists(itSetters, szMember)) {
+  if (itSetters != Invalid_Trie && TrieKeyExists(itSetters, szMember)) {
     __cls_CallStringSetter(pInstance, szMember, szValue);
     return;
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, true);
 
   TrieSetString(itMembers, szMember, szValue, bReplace);
 }
@@ -695,11 +726,13 @@ stock ClassInstanceSetMemberString(const &ClassInstance:pInstance, const szMembe
 stock bool:ClassInstanceGetMemberArray(const &ClassInstance:pInstance, const szMember[], any:rgOut[], iLen) {
   static Trie:itGetters; itGetters = __cls_GetInstanceGettersTrie(pInstance);
 
-  if (TrieKeyExists(itGetters, szMember)) {
+  if (itGetters != Invalid_Trie && TrieKeyExists(itGetters, szMember)) {
     return __cls_CallArrayGetter(pInstance, szMember, rgOut, iLen);
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, false);
+
+  if (itMembers == Invalid_Trie) return false;
 
   return !!TrieGetArray(itMembers, szMember, rgOut, iLen);
 }
@@ -707,12 +740,12 @@ stock bool:ClassInstanceGetMemberArray(const &ClassInstance:pInstance, const szM
 stock ClassInstanceSetMemberArray(const &ClassInstance:pInstance, const szMember[], const any:rgValue[], iLen, bool:bReplace = true) {
   static Trie:itSetters; itSetters = __cls_GetInstanceSettersTrie(pInstance);
 
-  if (TrieKeyExists(itSetters, szMember)) {
+  if (itSetters != Invalid_Trie && TrieKeyExists(itSetters, szMember)) {
     __cls_CallArraySetter(pInstance, szMember, rgValue, iLen);
     return;
   }
 
-  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance);
+  static Trie:itMembers; itMembers = __cls_GetInstanceMembersTrie(pInstance, true);
 
   TrieSetArray(itMembers, szMember, rgValue, iLen, bReplace);
 }
@@ -745,9 +778,18 @@ stock Class:__cls_GetInstanceClass(const &ClassInstance:pInstance) {
   return __cls_cache_InstanceClass[__cls_InstanceCache_Value];
 }
 
-stock Trie:__cls_GetInstanceMembersTrie(const &ClassInstance:pInstance) {
-  if (pInstance != __cls_cache_InstanceMembers[__cls_InstanceCache_Instance]) {
+stock Trie:__cls_GetInstanceMembersTrie(const &ClassInstance:pInstance, bool:bWrite = false) {
+  if (
+    pInstance != __cls_cache_InstanceMembers[__cls_InstanceCache_Instance] ||
+    (__cls_cache_InstanceMembers[__cls_InstanceCache_Value] == Invalid_Trie && bWrite)
+  ) {
     __cls_cache_InstanceMembers[__cls_InstanceCache_Value] = StructGetCell(Struct:pInstance, __cls_InstanceData_Members);
+
+    if (__cls_cache_InstanceMembers[__cls_InstanceCache_Value] == Invalid_Trie && bWrite) {
+      __cls_cache_InstanceMembers[__cls_InstanceCache_Value] = TrieCreate();
+      StructSetCell(Struct:pInstance, __cls_InstanceData_Members, __cls_cache_InstanceMembers[__cls_InstanceCache_Value]);
+    }
+
     __cls_cache_InstanceMembers[__cls_InstanceCache_Instance] = pInstance;
   }
 
@@ -757,7 +799,7 @@ stock Trie:__cls_GetInstanceMembersTrie(const &ClassInstance:pInstance) {
 stock Trie:__cls_GetInstanceGettersTrie(const &ClassInstance:pInstance) {
   if (pInstance != __cls_cache_InstanceGetters[__cls_InstanceCache_Instance]) {
     static Class:class; class = __cls_GetInstanceClass(pInstance);
-    __cls_cache_InstanceGetters[__cls_InstanceCache_Value] = StructGetCell(Struct:class, __cls_Data_Getters);
+    __cls_cache_InstanceGetters[__cls_InstanceCache_Value] = __cls_GetClassMethodsTrie(class, __cls_MethodType_Getter, false);
     __cls_cache_InstanceGetters[__cls_InstanceCache_Instance] = pInstance;
   }
 
@@ -767,7 +809,7 @@ stock Trie:__cls_GetInstanceGettersTrie(const &ClassInstance:pInstance) {
 stock Trie:__cls_GetInstanceSettersTrie(const &ClassInstance:pInstance) {
   if (pInstance != __cls_cache_InstanceSetters[__cls_InstanceCache_Instance]) {
     static Class:class; class = __cls_GetInstanceClass(pInstance);
-    __cls_cache_InstanceSetters[__cls_InstanceCache_Value] = StructGetCell(Struct:class, __cls_Data_Setters);
+    __cls_cache_InstanceSetters[__cls_InstanceCache_Value] = __cls_GetClassMethodsTrie(class, __cls_MethodType_Setter, false);
     __cls_cache_InstanceSetters[__cls_InstanceCache_Instance] = pInstance;
   }
 
@@ -959,20 +1001,9 @@ stock __cls_DestroyMethodsTrie(&Trie:itMethods) {
 }
 
 stock __cls_AddMemberAccessorMethod(const &Class:class, const szMember[], const Function:func, __cls_MethodType:iMethodType, iType, iSize) {
-  new iStructField = -1;
+  if (iMethodType != __cls_MethodType_Getter && iMethodType != __cls_MethodType_Setter) return;
 
-  switch (iMethodType) {
-    case __cls_MethodType_Getter: {
-      iStructField = __cls_Data_Getters;
-    }
-    case __cls_MethodType_Setter: {
-      iStructField = __cls_Data_Setters;
-    }
-  }
-
-  if (iStructField == -1) return;
-
-  new Trie:itMethods = StructGetCell(Struct:class, iStructField);
+  new Trie:itMethods = __cls_GetClassMethodsTrie(class, iMethodType, true);
 
   new Array:irgParamTypes; irgParamTypes = ArrayCreate(_:__cls_MethodParamData, 1);
 
@@ -1075,8 +1106,10 @@ stock Struct:__cls_FindClassMethodInHierarchy(const &Class:class, const szMethod
   do {
     static Trie:itMethods; itMethods = StructGetCell(Struct:sCurrentClass, iStructMethodsField);
 
-    static Struct:sMethod;
-    if (TrieGetCell(itMethods, szMethod, sMethod)) return sMethod;
+    if (itMethods != Invalid_Trie) {
+      static Struct:sMethod;
+      if (TrieGetCell(itMethods, szMethod, sMethod)) return sMethod;
+    }
 
     sCurrentClass = StructGetCell(Struct:sCurrentClass, __cls_Data_Base);
   } while (sCurrentClass != Invalid_Class);
@@ -1114,6 +1147,41 @@ stock Class:__cls_GetCallMethodClass(const &ClassInstance:pInstance) {
   }
 
   return __cls_GetInstanceClass(pInstance);
+}
+
+stock Trie:__cls_GetClassMembersTrie(const &Class:class, bool:bWrite = false) {
+  static Trie:itMembers; itMembers = StructGetCell(Struct:class, __cls_Data_Members);
+
+  if (itMembers == Invalid_Trie && bWrite) {
+    itMembers = TrieCreate();
+    StructSetCell(Struct:class, __cls_Data_Members, itMembers);
+  }
+
+  return itMembers;
+}
+
+stock Trie:__cls_GetClassMethodsTrie(const &Class:class, __cls_MethodType:iMethodType, bool:bWrite = false) {
+  static iStructMethodsField = __cls_MethodType_Invalid;
+  switch (iMethodType) {
+    case __cls_MethodType_Method, __cls_MethodType_Virtual: {
+      iStructMethodsField = __cls_Data_Methods;
+    }
+    case __cls_MethodType_Getter: {
+      iStructMethodsField = __cls_Data_Getters;
+    }
+    case __cls_MethodType_Setter: {
+      iStructMethodsField = __cls_Data_Setters;
+    }
+  }
+
+  static Trie:itMethods; itMethods = StructGetCell(Struct:class, iStructMethodsField);
+
+  if (itMethods == Invalid_Trie && bWrite) {
+    itMethods = TrieCreate();
+    StructSetCell(Struct:class, iStructMethodsField, itMethods);
+  }
+
+  return itMethods;
 }
 
 stock __cls_LogExecution() {

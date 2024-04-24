@@ -28,31 +28,31 @@ public plugin_natives() {
 }
 
 public Native_Push(iPluginId, iArgc) {
-  new pEntity = get_param(1);
-  new Float:vecForce[3]; get_array_f(2, vecForce, sizeof(vecForce));
-  new APS_Flags:iFlags = APS_Flags:get_param(3);
+  static pEntity; pEntity = get_param(1);
+  static Float:vecForce[3]; get_array_f(2, vecForce, sizeof(vecForce));
+  static APS_Flags:iFlags; iFlags = APS_Flags:get_param(3);
   @Base_Push(pEntity, vecForce, iFlags);
 }
 
 public Native_PushFromOrigin(iPluginId, iArgc) {
-  new pEntity = get_param(1);
-  new Float:flForce = get_param_f(2);
-  new Float:vecPushOrigin[3]; get_array_f(3, vecPushOrigin, sizeof(vecPushOrigin));
-  new APS_Flags:iFlags = APS_Flags:get_param(4);
+  static pEntity; pEntity = get_param(1);
+  static Float:flForce; flForce = get_param_f(2);
+  static Float:vecPushOrigin[3]; get_array_f(3, vecPushOrigin, sizeof(vecPushOrigin));
+  static APS_Flags:iFlags; iFlags = APS_Flags:get_param(4);
 
   @Base_PushFromOrigin(pEntity, flForce, vecPushOrigin, iFlags);
 }
 
 public Native_PushFromBBox(iPluginId, iArgc) {
-  new pEntity = get_param(1);
-  new Float:flForce = get_param_f(2);
-  new Float:vecAbsMin[3]; get_array_f(3, vecAbsMin, sizeof(vecAbsMin));
-  new Float:vecAbsMax[3]; get_array_f(4, vecAbsMax, sizeof(vecAbsMax));
-  new Float:flMinDepthRatio = get_param_f(5);
-  new Float:flMaxDepthRatio = get_param_f(6);
-  new Float:flDepthInfluenceMin = get_param_f(7);
-  new Float:flDepthInfluenceMax = get_param_f(8);
-  new APS_Flags:iFlags = APS_Flags:get_param(9);
+  static pEntity; pEntity = get_param(1);
+  static Float:flForce; flForce = get_param_f(2);
+  static Float:vecAbsMin[3]; get_array_f(3, vecAbsMin, sizeof(vecAbsMin));
+  static Float:vecAbsMax[3]; get_array_f(4, vecAbsMax, sizeof(vecAbsMax));
+  static Float:flMinDepthRatio; flMinDepthRatio = get_param_f(5);
+  static Float:flMaxDepthRatio; flMaxDepthRatio = get_param_f(6);
+  static Float:flDepthInfluenceMin; flDepthInfluenceMin = get_param_f(7);
+  static Float:flDepthInfluenceMax; flDepthInfluenceMax = get_param_f(8);
+  static APS_Flags:iFlags; iFlags = APS_Flags:get_param(9);
 
   @Base_PushFromBBox(pEntity, flForce, vecAbsMin, vecAbsMax, flMinDepthRatio, flMaxDepthRatio, flDepthInfluenceMin, flDepthInfluenceMax, iFlags);
 }

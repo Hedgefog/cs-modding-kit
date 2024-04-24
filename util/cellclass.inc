@@ -42,7 +42,8 @@
 #define __cls_err_MethodNotFoundInBaseClass "Cannot find method ^"%s^" in base classes!"
 #define __cls_err_MaxCallStackSizeExceeded "Maximum call stack size exceeded!"
 #define __cls_err_ClassMethodCallEndWithoutStart "Call ClassInstanceCallMethodEnd but method call is not started!"
-#define __cls_err_NumberOfParametersExceeded "Number of parameters exceeded!"
+#define __cls_err_NumberOfParametersExceeded "Number of argument(s) to call ^"%s^" exceeded! Expected %d, got %d."
+#define __cls_err_MissingRequiredArguments "Missing required argument(s) to call ^"%s^"! Expected %d, got %d."
 #define __cls_err_InvalidParamType "Invalid parameter type at position %d for call method %s. Expected: ^"%s^" got ^"%s^"!"
 #define __cls_err_FailedToCallMethodFunction "Failed to call method ^"%s^" function!"
 
@@ -135,6 +136,7 @@ stock Class:__cls_call_class = Invalid_Class;
 stock ClassInstance:__cls_call_pInstance = Invalid_ClassInstance;
 stock Struct:__cls_call_sMethod = Invalid_Struct;
 stock __cls_call_iParamTypesNum = 0;
+stock __cls_call_iRequiredParamsNum = 0;
 stock __cls_call_iParamsNum = 0;
 stock __cls_call_iBufferPos = 0;
 
@@ -498,6 +500,12 @@ stock any:ClassInstanceCallMethodEnd() {
     return 0;
   }
 
+  if (__cls_call_iParamsNum < __cls_call_iRequiredParamsNum) {
+    static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
+    set_fail_state(__cls_err_MissingRequiredArguments, szMethod, __cls_call_iRequiredParamsNum, __cls_call_iParamsNum);
+    return 0;
+  }
+
   while (__cls_call_iParamsNum < __cls_call_iParamTypesNum) {
     callfunc_push_int(0);
     __cls_call_iParamsNum++;
@@ -518,7 +526,8 @@ stock __cls_ValidateParamPush(iType) {
       return 1;
     }
 
-    set_fail_state(__cls_err_NumberOfParametersExceeded);
+    static szMethod[CLASS_METHOD_MAX_NAME_LENGTH]; StructGetString(__cls_call_sMethod, __cls_MethodData_Name, szMethod, charsmax(szMethod));
+    set_fail_state(__cls_err_NumberOfParametersExceeded, szMethod, __cls_call_iParamTypesNum, __cls_call_iParamsNum);
     return 0;
   }
 
@@ -798,6 +807,7 @@ stock __cls_InitMethodCall(const &ClassInstance:pInstance, const szMethod[], con
   __cls_call_sMethod = __cls_FindClassMethodInHierarchy(__cls_call_class, szMethod, iMethodType);
   __cls_call_iParamsNum = 0;
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
+  __cls_call_iRequiredParamsNum = __cls_call_iParamTypesNum;
 
   if (__cls_call_sMethod == Invalid_Struct) {
     set_fail_state(__cls_err_MethodNotFoundInBaseClass, szMethod);
@@ -811,6 +821,7 @@ stock __cls_InitMethodCallByPointer(const &ClassInstance:pInstance, const &Struc
   __cls_call_sMethod = sMethod;
   __cls_call_iParamsNum = 0;
   __cls_call_iParamTypesNum = StructGetCell(__cls_call_sMethod, __cls_MethodData_ParamTypesNum);
+  __cls_call_iRequiredParamsNum = __cls_call_iParamTypesNum;
 }
 
 stock __cls_FreeMethodCall() {
@@ -818,8 +829,9 @@ stock __cls_FreeMethodCall() {
   __cls_call_pInstance = Invalid_ClassInstance;
   __cls_call_sMethod = Invalid_Struct;
   __cls_call_iParamsNum = 0;
-  __cls_call_iParamTypesNum = 0;
   __cls_call_iBufferPos = 0;
+  __cls_call_iParamTypesNum = 0;
+  __cls_call_iRequiredParamsNum = 0;
 }
 
 stock Function:__cls_GetCallMethodFunctionPointer() {

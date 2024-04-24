@@ -67,7 +67,7 @@ STACK_DEFINE(METHOD_RETURN);
 STACK_DEFINE(PREHOOK_RETURN);
 
 new const g_rgEntityMethodParams[CEMethod][EntityMethodParams] = {
-  /* Allocate */                {2, {CMP_Cell, CMP_Cell}},
+  /* Allocate */                {0},
   /* Free */                    {0},
   /* KeyValue */                {2, {CMP_String, CMP_String}},
   /* SpawnInit */               {0},
@@ -139,9 +139,11 @@ public plugin_natives() {
   register_native("CE_RegisterClass", "Native_Register");  
   register_native("CE_RegisterClassDerived", "Native_RegisterDerived");
   register_native("CE_RegisterClassAlias", "Native_RegisterAlias");
+  register_native("CE_GetClassHandler", "Native_GetHandler");
 
   register_native("CE_RegisterClassKeyMemberBinding", "Native_RegisterKeyMemberBinding");
   register_native("CE_RemoveClassKeyMemberBinding", "Native_RemoveMemberBinding");
+
   register_native("CE_RegisterClassMethod", "Native_RegisterMethod");
   register_native("CE_ImplementClassMethod", "Native_ImplementMethod");
   register_native("CE_RegisterClassVirtualMethod", "Native_RegisterVirtualMethod");
@@ -150,13 +152,17 @@ public plugin_natives() {
   register_native("CE_GetMethodReturn", "Native_GetMethodReturn");
   register_native("CE_SetMethodReturn", "Native_SetMethodReturn");
 
-  register_native("CE_GetClassHandler", "Native_GetHandler");
-  register_native("CE_GetHandler", "Native_GetHandlerByEntity");
   register_native("CE_Create", "Native_Create");
   register_native("CE_Kill", "Native_Kill");
   register_native("CE_Remove", "Native_Remove");
   register_native("CE_Restart", "Native_Restart");
+  register_native("CE_GetHandler", "Native_GetHandlerByEntity");
   register_native("CE_IsInstanceOf", "Native_IsInstanceOf");
+
+  register_native("CE_SetThink", "Native_SetThink");
+  register_native("CE_SetTouch", "Native_SetTouch");
+  register_native("CE_SetUse", "Native_SetUse");
+  register_native("CE_SetBlocked", "Native_SetBlocked");
 
   register_native("CE_HasMember", "Native_HasMember");
   register_native("CE_GetMember", "Native_GetMember");
@@ -169,12 +175,7 @@ public plugin_natives() {
 
   register_native("CE_CallMethod", "Native_CallMethod");
   register_native("CE_CallBaseMethod", "Native_CallBaseMethod");
-  register_native("CE_GetCallPluginId", "Native_GetCallPluginId");
-
-  register_native("CE_SetThink", "Native_SetThink");
-  register_native("CE_SetTouch", "Native_SetTouch");
-  register_native("CE_SetUse", "Native_SetUse");
-  register_native("CE_SetBlocked", "Native_SetBlocked");
+  register_native("CE_GetCallerPlugin", "Native_GetCallPluginId");
 }
 
 public plugin_end() {
@@ -1033,6 +1034,16 @@ public HamHook_Base_TraceAttack_Post(pEntity, pAttacker, Float:flDamage, const F
 
 /*--------------------------------[ Entity Hookable Methods ]--------------------------------*/
 
+@Entity_Allocate(const &this, iId, bool:bTemp) {
+  g_rgEntityClassInstances[this] = ClassInstanceCreate(g_rgEntities[iId][Entity_Class]);
+  ClassInstanceSetMember(g_rgEntityClassInstances[this], CE_MEMBER_ID, iId);
+  ClassInstanceSetMember(g_rgEntityClassInstances[this], CE_MEMBER_POINTER, this);
+  ClassInstanceSetMember(g_rgEntityClassInstances[this], CE_MEMBER_IGNOREROUNDS, false);
+  ClassInstanceSetMember(g_rgEntityClassInstances[this], CE_MEMBER_WORLD, !bTemp);
+
+  ExecuteMethod(CEMethod_Allocate, this);
+}
+
 @Entity_KeyValue(const &this, const &hKVD) {
   new szKey[32]; get_kvd(hKVD, KV_KeyName, szKey, charsmax(szKey));
   new szValue[32]; get_kvd(hKVD, KV_Value, szValue, charsmax(szValue));
@@ -1045,7 +1056,7 @@ public HamHook_Base_TraceAttack_Post(pEntity, pAttacker, Float:flDamage, const F
         if (~g_rgEntities[iId][Entity_Flags] & EntityFlag_Abstract) {
           set_kvd(hKVD, KV_Value, CE_BASE_CLASSNAME);
 
-          ExecuteMethod(CEMethod_Allocate, this, iId, false);
+          @Entity_Allocate(this, iId, false);
         }
       }
     } else {
@@ -1805,12 +1816,15 @@ CreateEntity(const szClassname[], const Float:vecOrigin[3], bool:bTemp) {
     return FM_NULLENT;
   }
 
+  // szClassname can be an alias, so we need to get the classname from the metadata to make sure the classname is real
+  static szRealClassname[CE_MAX_NAME_LENGTH]; ClassGetMetadataString(g_rgEntities[iId][Entity_Class], CLASS_METADATA_NAME, szRealClassname, charsmax(szRealClassname));
+
   new this = engfunc(EngFunc_CreateNamedEntity, g_iszBaseClassName);
-  set_pev(this, pev_classname, szClassname);
+  set_pev(this, pev_classname, szRealClassname);
   engfunc(EngFunc_SetOrigin, this, vecOrigin);
   // set_pev(this, pev_flags, pev(this, pev_flags) & ~FL_ONGROUND);
 
-  ExecuteMethod(CEMethod_Allocate, this, iId, bTemp);
+  @Entity_Allocate(this, iId, bTemp);
 
   new ClassInstance:pInstance = @Entity_GetInstance(this);
   ClassInstanceSetMemberArray(pInstance, CE_MEMBER_ORIGIN, vecOrigin, 3);
@@ -1850,14 +1864,6 @@ any:ExecuteMethod(CEMethod:iMethod, const &pEntity, any:...) {
 
   switch (iMethod) {
     case CEMethod_Allocate: {
-      new iId = getarg(2);
-
-      g_rgEntityClassInstances[pEntity] = ClassInstanceCreate(g_rgEntities[iId][Entity_Class]);
-      ClassInstanceSetMember(g_rgEntityClassInstances[pEntity], CE_MEMBER_ID, iId);
-      ClassInstanceSetMember(g_rgEntityClassInstances[pEntity], CE_MEMBER_POINTER, pEntity);
-      ClassInstanceSetMember(g_rgEntityClassInstances[pEntity], CE_MEMBER_IGNOREROUNDS, false);
-      ClassInstanceSetMember(g_rgEntityClassInstances[pEntity], CE_MEMBER_WORLD, !getarg(3));
-
       HOOKABLE_METHOD_IMPLEMENTATION(CEMethod_Allocate, pEntity, 0)
     }
     case CEMethod_Free: {
@@ -2077,7 +2083,8 @@ Array:CreateClassHierarchyList(const &Class:class) {
 Array:ReadMethodParamsFromNativeCall(iStartArg, iArgc) {
   static Array:irgParams; irgParams = ArrayCreate();
 
-  for (new iParam = iStartArg; iParam <= iArgc; ++iParam) {
+  static iParam;
+  for (iParam = iStartArg; iParam <= iArgc; ++iParam) {
     static iType; iType = get_param_byref(iParam);
 
     switch (iType) {

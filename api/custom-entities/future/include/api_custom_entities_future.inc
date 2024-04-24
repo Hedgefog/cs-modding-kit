@@ -137,7 +137,7 @@ native CE:CE_GetClassHandler(const szClassname[]);
  *
  * @return Handler of the entity or -1 otherwise
  */
-native CE:CE_GetHandler(const &pEntity);
+native CE:CE_GetClassHandlerByEntity(const &pEntity);
 
 /**
  * Checks if entity is an instance of specific custom entity 
@@ -241,7 +241,7 @@ native any:CE_CallMethod(const &pEntity, const szMethod[], any:...);
 */
 native any:CE_CallBaseMethod(any:...);
 
-native CE_GetCallPluginId();
+native CE_GetCallerPlugin();
 
 native CE_SetThink(const &pEntity, const szMethod[], const szClassname[] = NULL_STRING);
 native CE_SetTouch(const &pEntity, const szMethod[], const szClassname[] = NULL_STRING);

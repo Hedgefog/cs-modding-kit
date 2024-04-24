@@ -137,7 +137,7 @@ native CE:CE_GetClassHandler(const szClassname[]);
  *
  * @return Handler of the entity or -1 otherwise
  */
-native CE:CE_GetClassHandlerByEntity(const &pEntity);
+native CE:CE_GetHandler(const &pEntity);
 
 /**
  * Checks if entity is an instance of specific custom entity 

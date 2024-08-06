@@ -11,6 +11,8 @@
 
 #define IS_PLAYER(%1) (%1 >= 1 && %1 <= MaxClients)
 
+new g_fwPush;
+
 new Float:g_flPlayerReleaseClimbBlock[MAX_PLAYERS + 1];
 
 public plugin_init() {
@@ -18,6 +20,8 @@ public plugin_init() {
 
   RegisterHamPlayer(Ham_Spawn, "HamHook_Player_Spawn_Post", .Post = 1);
   RegisterHamPlayer(Ham_Player_PostThink, "HamHook_Player_PostThink_Post", .Post = 1);
+
+  g_fwPush = CreateMultiForward("APS_Fw_Push", ET_IGNORE, FP_CELL, FP_ARRAY, FP_CELL);
 }
 
 public plugin_natives() {
@@ -100,6 +104,9 @@ public HamHook_Player_PostThink_Post(pPlayer) {
       }
     }
   }
+
+  static ivecForce; ivecForce = PrepareArray(any:vecForce, 3, 0);
+  ExecuteForward(g_fwPush, _, this, ivecForce, iFlags);
 
   set_pev(this, pev_velocity, vecVelocity);
 

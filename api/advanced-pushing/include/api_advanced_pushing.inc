@@ -61,3 +61,5 @@ native APS_PushFromBBox(
   Float:flDepthInfluenceMax = 1.0,
   APS_Flags:iFlags = APS_Flag_None
 );
+
+forward APS_Fw_Push(pEntity, const Float:vecForce[3], APS_Flags:iFlags);

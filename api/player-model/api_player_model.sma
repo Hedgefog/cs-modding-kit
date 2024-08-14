@@ -7,7 +7,7 @@
 #tryinclude <reapi>
 
 #define PLUGIN "[API] Player Model"
-#define VERSION "1.0.0"
+#define VERSION "1.0.1"
 #define AUTHOR "Hedgehog Fog"
 
 #define NATIVE_ERROR_NOT_CONNECTED(%1) log_error(AMX_ERR_NATIVE, "User %d is not connected", %1)
@@ -214,6 +214,15 @@ public HamHook_Player_Spawn_Post(pPlayer) {
 public HamHook_Player_PostThink_Post(pPlayer) {
   if (g_rgpPlayerSubModel[pPlayer]) {
     @PlayerSubModel_Think(g_rgpPlayerSubModel[pPlayer]);
+  }
+
+  if (@Player_ShouldUseCurrentModel(pPlayer)) {
+    static szModel[MAX_RESOURCE_PATH_LENGTH];
+    get_user_info(pPlayer, "model", szModel, charsmax(szModel));
+
+    if (!equal(szModel, NULL_STRING)) {
+      set_user_info(pPlayer, "model", "");
+    }
   }
 
   if (!g_bIsCStrike) {

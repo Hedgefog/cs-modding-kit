@@ -147,3 +147,11 @@ native bool:State_Manager_EndTransition(const &StateManager:pManager);
  * @noreturn
  */
 native bool:State_Manager_CancelTransition(const &StateManager:pManager);
+
+/**
+ * Retrieves the current progress of the state transition.
+ *
+ * @param pManager       The state manager handle.
+ * @return               The progress of the transition, expressed as a float value between 0.0 and 1.0.
+ */
+native Float:State_Manager_GetTransitionProgress(const &StateManager:pManager);

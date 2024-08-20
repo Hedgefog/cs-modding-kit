@@ -19,6 +19,7 @@ enum StateManager {
   any:StateManager_State,
   any:StateManager_NextState,
   any:StateManager_PrevState,
+  Float:StateManager_StartChangeTime,
   Float:StateManager_ChangeTime,
   any:StateManager_UserToken
 };
@@ -80,6 +81,7 @@ public plugin_natives() {
   register_native("State_Manager_IsInTransition", "Native_IsManagerInTransition");
   register_native("State_Manager_EndTransition", "Native_EndManagerTransition");
   register_native("State_Manager_CancelTransition", "Native_CancelManagerTransition");
+  register_native("State_Manager_GetTransitionProgress", "Native_GetManagerTransitionProgress");
 }
 
 /*--------------------------------[ Natives ]--------------------------------*/
@@ -193,6 +195,12 @@ public Native_EndManagerTransition(iPluginId, iArgc) {
   State_Manager_EndTransition(iManagerId);
 }
 
+public Float:Native_GetManagerTransitionProgress(iPluginId, iArgc) {
+  static iManagerId; iManagerId = get_param_byref(1);
+
+  return State_Manager_GetTransitionProgress(iManagerId);
+}
+
 /*--------------------------------[ Functions ]--------------------------------*/
 
 State_RegisterContext(const szContext[], any:initialState) {
@@ -272,6 +280,7 @@ State_Manager_ResetState(const iManagerId) {
   g_rgStateManagers[iManagerId][StateManager_State] = g_rgStateContexts[iContextId][StateContext_InitialState];
   g_rgStateManagers[iManagerId][StateManager_PrevState] = g_rgStateContexts[iContextId][StateContext_InitialState];
   g_rgStateManagers[iManagerId][StateManager_NextState] = g_rgStateContexts[iContextId][StateContext_InitialState];
+  g_rgStateManagers[iManagerId][StateManager_StartChangeTime] = 0.0;
   g_rgStateManagers[iManagerId][StateManager_ChangeTime] = 0.0;
   
   remove_task(iManagerId);
@@ -286,6 +295,7 @@ State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, b
   }
 
   g_rgStateManagers[iManagerId][StateManager_NextState] = newState;
+  g_rgStateManagers[iManagerId][StateManager_StartChangeTime] = flGameTime;
   g_rgStateManagers[iManagerId][StateManager_ChangeTime] = flGameTime + flTransitionTime;
 
   if (flTransitionTime > 0.0) {
@@ -297,6 +307,18 @@ State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, b
 
 bool:State_Manager_IsInTransition(const iManagerId) {
   return g_rgStateManagers[iManagerId][StateManager_ChangeTime] > get_gametime();
+}
+
+Float:State_Manager_GetTransitionProgress(const iManagerId) {
+  static Float:flStartTime; flStartTime = g_rgStateManagers[iManagerId][StateManager_StartChangeTime];
+  static Float:flChangeTime; flChangeTime = g_rgStateManagers[iManagerId][StateManager_ChangeTime];
+  static Float:flDuration; flDuration = floatmax(flChangeTime - flStartTime, 0.0);
+
+  if (!flDuration) return 1.0;
+
+  static Float:flTimeLeft; flTimeLeft = floatmax(flChangeTime - get_gametime(), 0.0);
+
+  return (1.0 - (flTimeLeft / flDuration));
 }
 
 State_Manager_EndTransition(const iManagerId) {

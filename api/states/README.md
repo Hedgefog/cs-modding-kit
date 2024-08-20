@@ -88,7 +88,7 @@ public client_connect(pPlayer) {
     g_rgpPlayerStateManagers[pPlayer] = State_Manager_Create("player_health", pPlayer);
 }
 
-public client_disconnect(pPlayer) {
+public client_disconnected(pPlayer) {
     State_Manager_Destroy(g_rgpPlayerStateManagers[pPlayer]);
 }
 ```

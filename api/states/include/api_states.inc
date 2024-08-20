@@ -17,6 +17,15 @@
 native State_Context_Register(const szContext[], any:initialState = 0);
 
 /**
+ * Registers a guard callback to be invoked when any state changes within the context.
+ *
+ * @param szContext      The name of the state context.
+ * @param szCallback     The name of the callback function to invoke on state change.
+ * @noreturn
+ */
+native State_Context_RegisterChangeGuard(const szContext[], const szCallback[]);
+
+/**
  * Registers a callback to be invoked when any state changes within the context.
  *
  * @param szContext      The name of the state context.

@@ -1,6 +1,7 @@
 #pragma semicolon 1
 
 #include <amxmodx>
+#include <fakemeta>
 #include <function_pointer>
 
 #include <api_states_const>
@@ -8,8 +9,10 @@
 enum StateContext {
   StateContext_Id,
   StateContext_HooksNum,
+  StateContext_GuardsNum,
   StateContext_InitialState,
-  StateContext_Context[STATE_CONTEXT_MAX_NAME_LEN],
+  StateContext_Name[STATE_CONTEXT_MAX_NAME_LEN],
+  Function:StateContext_Guards[STATE_MAX_CONTEXT_GUARDS],
   StateContext_Hooks[STATE_MAX_CONTEXT_HOOKS],
 };
 
@@ -50,6 +53,8 @@ new g_iStateManagersNum = 0;
 
 new g_iFreeStateManagersNum = 0;
 
+new bool:g_bDebug = false;
+
 /*--------------------------------[ Initialization ]--------------------------------*/
 
 public plugin_precache() {
@@ -58,12 +63,19 @@ public plugin_precache() {
 
 public plugin_init() {
   register_plugin("[API] States", "1.0.0", "Hedgehog Fog");
+
+  #if AMXX_VERSION_NUM < 183
+    g_bDebug = !!get_cvar_num("developer");
+  #else
+    bind_pcvar_num(get_cvar_pointer("developer"), g_bDebug);
+  #endif
 }
 
 public plugin_natives() {
   register_library("api_states");
 
   register_native("State_Context_Register", "Native_RegisterContext");
+  register_native("State_Context_RegisterChangeGuard", "Native_RegisterContextChangeGuard");
   register_native("State_Context_RegisterChangeHook", "Native_RegisterContextChangeHook");
   register_native("State_Context_RegisterEnterHook", "Native_RegisterContextEnterHook");
   register_native("State_Context_RegisterExitHook", "Native_RegisterContextExitHook");
@@ -91,6 +103,13 @@ public Native_RegisterContext(iPluginId, iArgc) {
   new any:initialState = any:get_param(2);
 
   return State_RegisterContext(szContext, initialState);
+}
+
+public Native_RegisterContextChangeGuard(iPluginId, iArgc) {
+  new szContext[STATE_CONTEXT_MAX_NAME_LEN]; get_string(1, szContext, charsmax(szContext));
+  new szFunction[STATE_CONTEXT_MAX_NAME_LEN]; get_string(2, szFunction, charsmax(szFunction));
+
+  return State_RegisterGuard(szContext, get_func_pointer(szFunction, iPluginId));
 }
 
 public Native_RegisterContextChangeHook(iPluginId, iArgc) {
@@ -208,11 +227,21 @@ State_RegisterContext(const szContext[], any:initialState) {
 
   g_rgStateContexts[iId][StateContext_Id] = iId;
   g_rgStateContexts[iId][StateContext_InitialState] = initialState;
-  copy(g_rgStateContexts[iId][StateContext_Context], charsmax(g_rgStateContexts[][StateContext_Context]), szContext);
+  copy(g_rgStateContexts[iId][StateContext_Name], charsmax(g_rgStateContexts[][StateContext_Name]), szContext);
 
   g_iStateContextsNum++;
 
   return iId;
+}
+
+State_RegisterGuard(const szContext[], Function:fnCallback) {
+  new iContextId; TrieGetCell(g_itStateContexts, szContext, iContextId);
+  new iContextGuardId = g_rgStateContexts[iContextId][StateContext_GuardsNum];
+
+  g_rgStateContexts[iContextId][StateContext_Guards][iContextGuardId] = fnCallback;
+  g_rgStateContexts[iContextId][StateContext_GuardsNum]++;
+
+  return iContextGuardId;
 }
 
 State_RegisterHook(const szContext[], StateHookType:iType, any:fromState = 0, any:toState = 0, Function:fnCallback) {
@@ -284,9 +313,40 @@ State_Manager_ResetState(const iManagerId) {
   g_rgStateManagers[iManagerId][StateManager_ChangeTime] = 0.0;
   
   remove_task(iManagerId);
+
+  if (g_bDebug) {
+    engfunc(EngFunc_AlertMessage, at_aiconsole, "Reset state of context ^"%s^". User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], g_rgStateManagers[iManagerId][StateManager_UserToken]);
+  }
+}
+
+bool:State_Manager_CanChangeState(const iManagerId, any:fromState, any:toState) {
+  static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
+  static iGuardsNum; iGuardsNum = g_rgStateContexts[iContextId][StateContext_GuardsNum];
+
+  for (new iContextGuardId = 0; iContextGuardId < iGuardsNum; ++iContextGuardId) {
+    callfunc_begin_p(g_rgStateContexts[iContextId][StateContext_Guards][iContextGuardId]);
+    callfunc_push_int(iManagerId);
+    callfunc_push_int(fromState);
+    callfunc_push_int(toState);
+    if (callfunc_end() == STATE_GUARD_BLOCK) return false;
+  }
+
+  return true;
 }
 
 State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, bool:bForce = false) {
+  static any:currentState; currentState = g_rgStateManagers[iManagerId][StateManager_State];
+  if (currentState == newState) return;
+
+  if (!State_Manager_CanChangeState(iManagerId, currentState, newState)) {
+    if (g_bDebug) {
+      static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
+      engfunc(EngFunc_AlertMessage, at_aiconsole, "State of context ^"%s^" change blocked by guard. Change from ^"%d^" to ^"%d^". User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], currentState, newState, g_rgStateManagers[iManagerId][StateManager_UserToken]);
+    }
+
+    return;
+  }
+
   static Float:flGameTime; flGameTime = get_gametime();
 
   if (g_rgStateManagers[iManagerId][StateManager_ChangeTime] > flGameTime) {
@@ -343,9 +403,12 @@ State_Manager_Update(const iManagerId) {
   g_rgStateManagers[iManagerId][StateManager_State] = nextState;
   g_rgStateManagers[iManagerId][StateManager_PrevState] = currentState;
 
-  // Handle hooks
   static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
   static iHooksNum; iHooksNum = g_rgStateContexts[iContextId][StateContext_HooksNum];
+
+  if (g_bDebug) {
+    engfunc(EngFunc_AlertMessage, at_aiconsole, "State of context ^"%s^" changed from ^"%d^" to ^"%d^". User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], currentState, nextState, g_rgStateManagers[iManagerId][StateManager_UserToken]);
+  }
 
   for (new iHook = 0; iHook < iHooksNum; ++iHook) {
     static iHookId; iHookId = g_rgStateContexts[iContextId][StateContext_Hooks][iHook];

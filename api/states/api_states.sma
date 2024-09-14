@@ -229,6 +229,8 @@ State_RegisterContext(const szContext[], any:initialState) {
   g_rgStateContexts[iId][StateContext_InitialState] = initialState;
   copy(g_rgStateContexts[iId][StateContext_Name], charsmax(g_rgStateContexts[][StateContext_Name]), szContext);
 
+  TrieSetCell(g_itStateContexts, szContext, iId);
+
   g_iStateContextsNum++;
 
   return iId;

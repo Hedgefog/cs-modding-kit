@@ -72,7 +72,7 @@ native State_Context_RegisterTransitionHook(const szContext[], any:fromState, an
  * @param userToken      A unique identifier associated with the user or object being managed.
  * @return               A handle to the created state manager.
  */
-native StateManager:State_Manager_Create(const szContext[], any:userToken);
+native StateManager:State_Manager_Create(const szContext[], any:userToken = 0);
 
 /**
  * Destroys a state manager and releases associated resources.
@@ -99,7 +99,7 @@ native State_Manager_ResetState(const &StateManager:pManager);
  * @param bForce             If true, forces the state transition even if a transition is already in progress. Default is false.
  * @noreturn
  */
-native State_Manager_SetState(const &StateManager:pManager, any:newState, Float:flTransitionTime = 0.0, bool:bForce = false);
+native bool:State_Manager_SetState(const &StateManager:pManager, any:newState, Float:flTransitionTime = 0.0, bool:bForce = false);
 
 /**
  * Retrieves the current state from the state manager.

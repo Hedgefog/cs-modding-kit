@@ -41,6 +41,13 @@ enum StateHook {
   Function:StateHook_Function
 };
 
+enum StateChange {
+  bool:StateChange_Scheduled,
+  any:StateChange_Value,
+  Float:StateChange_TransitionTime,
+  bool:StateChange_Force
+};
+
 new g_rgStateHooks[STATE_MAX_HOOKS][StateHook];
 new g_iStateHooksNum = 0;
 
@@ -52,6 +59,10 @@ new g_rgStateManagers[STATE_MAX_MANAGERS][StateManager];
 new g_iStateManagersNum = 0;
 
 new g_iFreeStateManagersNum = 0;
+
+// Used to correctly handle state changes during hook calls
+new bool:g_bProcessingStateChange = false;
+new g_rgScheduledChange[StateChange] = { false, 0, 0.0, false };
 
 new bool:g_bDebug = false;
 
@@ -336,9 +347,28 @@ bool:State_Manager_CanChangeState(const iManagerId, any:fromState, any:toState) 
   return true;
 }
 
-State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, bool:bForce = false) {
+bool:State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, bool:bForce = false) {
+  if (g_bProcessingStateChange) {
+    if (g_bDebug && g_rgScheduledChange[StateChange_Scheduled]) {
+      static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
+      engfunc(EngFunc_AlertMessage, at_aiconsole, "An override of a scheduled change was detected for the state of context ^"%s^"!^n", g_rgStateContexts[iContextId][StateContext_Name]);
+    }
+
+    g_rgScheduledChange[StateChange_Value] = newState;
+    g_rgScheduledChange[StateChange_TransitionTime] = flTransitionTime;
+    g_rgScheduledChange[StateChange_Force] = bForce;
+    g_rgScheduledChange[StateChange_Scheduled] = true;
+
+    if (g_bDebug) {
+      static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
+      engfunc(EngFunc_AlertMessage, at_aiconsole, "State of context ^"%s^" change scheduled. Change to ^"%d^". User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], newState, g_rgStateManagers[iManagerId][StateManager_UserToken]);
+    }
+
+    return true;
+  }
+
   static any:currentState; currentState = g_rgStateManagers[iManagerId][StateManager_State];
-  if (currentState == newState) return;
+  if (currentState == newState) return false;
 
   if (!State_Manager_CanChangeState(iManagerId, currentState, newState)) {
     if (g_bDebug) {
@@ -346,13 +376,13 @@ State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, b
       engfunc(EngFunc_AlertMessage, at_aiconsole, "State of context ^"%s^" change blocked by guard. Change from ^"%d^" to ^"%d^". User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], currentState, newState, g_rgStateManagers[iManagerId][StateManager_UserToken]);
     }
 
-    return;
+    return false;
   }
 
   static Float:flGameTime; flGameTime = get_gametime();
 
   if (g_rgStateManagers[iManagerId][StateManager_ChangeTime] > flGameTime) {
-    if (!bForce) return;
+    if (!bForce) return false;
     State_Manager_CancelTransition(iManagerId);
   }
 
@@ -363,8 +393,13 @@ State_Manager_SetState(const iManagerId, any:newState, Float:flTransitionTime, b
   if (flTransitionTime > 0.0) {
     set_task(flTransitionTime, "Task_UpdateManagerState", iManagerId);
   } else {
+    g_bProcessingStateChange = true;
     State_Manager_Update(iManagerId);
+    g_bProcessingStateChange = false;
+    State_Manager_ProcessScheduledChange(iManagerId);
   }
+
+  return true;
 }
 
 bool:State_Manager_IsInTransition(const iManagerId) {
@@ -434,6 +469,21 @@ State_Manager_Update(const iManagerId) {
     callfunc_push_int(nextState);
     callfunc_end();
   }
+}
+
+State_Manager_ProcessScheduledChange(const iManagerId) {
+  if (!g_rgScheduledChange[StateChange_Scheduled]) return;
+
+  static any:currentState; currentState = g_rgStateManagers[iManagerId][StateManager_State];
+  static iContextId; iContextId = g_rgStateManagers[iManagerId][StateManager_ContextId];
+
+  if (g_bDebug) {
+    engfunc(EngFunc_AlertMessage, at_aiconsole, "Processing scheduled change of context ^"%s^". Change from ^"%d^" to ^"%d^". Transition Time: %0.3f User Token: ^"%d^".^n", g_rgStateContexts[iContextId][StateContext_Name], currentState, g_rgScheduledChange[StateChange_Value], g_rgScheduledChange[StateChange_TransitionTime], g_rgStateManagers[iManagerId][StateManager_UserToken]);
+  }
+  
+  g_rgScheduledChange[StateChange_Scheduled] = false;
+
+  State_Manager_SetState(iManagerId, g_rgScheduledChange[StateChange_Value], g_rgScheduledChange[StateChange_TransitionTime], g_rgScheduledChange[StateChange_Force]);
 }
 
 public Task_UpdateManagerState(iTaskId) {
